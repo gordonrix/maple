@@ -1,0 +1,14 @@
+snakemake
+python==3.8
+PyYAML>=5.1
+setuptools
+wget
+numpy
+pandas
+reportlab
+svglib
+bokeh
+biopython
+umi_tools
+h5py >=2.7.1
+ont-fast5-api
