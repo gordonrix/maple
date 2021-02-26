@@ -93,7 +93,8 @@ rule all:
     input:
         "bin/guppy_basecaller",
         "bin/minimap2",
-        "bin/samtools"
+        "bin/samtools",
+        "bin/NGmerge"
 
 
 # helper functions
