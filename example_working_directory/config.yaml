@@ -1,0 +1,161 @@
+### begin nanopore only section ###
+
+# .fast5 formatted raw sequencing data parent directory containing one folder per flow cell
+# which themselves contain 'reads' subfolder containing .fast5 files
+storage_data_raw : data
+
+# How to parse the folders found in 'storage_data_raw'. A 'reads' subfolder is
+# expected containing the batches of fast5 raw reads.
+# A runname pattern could be 20180101_FAH12345_FLO-MIN106_SQK-LSK109_WA01
+# Field IDs are zero based.
+storage_runname:
+    delimiter: '_'
+    field_ID: 1
+    field_flowcell: 2
+    field_kit: 3
+
+# basecalling
+do_basecalling: False                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
+# config file for guppy basecalling
+basecalling_guppy_config: 'dna_r9.4.1_450bps_hac.cfg'
+# quality qscore filter for guppy. 0 means all reads are written to the output
+basecalling_guppy_qscore_filter: 0
+# command line flags directly passed to guppy
+basecalling_guppy_flags: '-x cuda:0'
+
+### end nanopore only section ###
+
+
+# threads per processing batch, if given enough threads with -j n multiple
+# batches run in parallel. Also used as resource for cluster jobs.
+# Alignments need to be run with at least -j 2 for alignment and sam to bam conversion.
+threads_basecalling: 4
+threads_alignment: 3
+threads_samtools : 1
+threads_demux: 4
+
+# paired end read merging
+merge_paired_end: True            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
+NGmerge_flags: '-z'                   # command line flags to add to NGmerge command. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
+
+# UMI clustering and consensus
+UMI_consensus: True         # set to True if reads contain UMIs and 
+UMI_consensus_threshold: 2  # minimum required number of reads with a particular UMI. if set to <=1, all reads will be included
+
+# alignment
+# alignment flags for samtools
+alignment_samtools_flags: ''
+# command line flags for minimap2 DNA alignment
+alignment_minimap2_flags: '-a -A2 -B4 -O12 -E4 --secondary=no --end-bonus=15'   # options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
+
+
+# demultiplexing
+demux: True
+demux_threshold: 10  # count threshold for carrying through to subsequent rules. A demultiplexed file must contain at least this many sequences for further processing
+
+# mutation analysis
+mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
+sequence_length_threshold: 0.1              # Proportion of sequence length to be used as threshold for discarding sequences that are of abberant length. Ex. if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed
+do_AA_analysis: True                        # If set to False, only nucleotide-level analysis will be generated. If set to true, AA-level analysis generated as well and, to prevent mismatch between nucleotide and amino acid -level analysis, sequences that do not pass AA-level quality checks will not be analyzed (e.g. sequences with frameshift mutations)
+auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
+highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
+
+# mutation statistics
+unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
+
+# plot_mutation_distributions
+percentile: 90                      # percentile of mutation distribution to show. X axis of plot will be 1.5x this percentile for the maximum of all distributions for the tag
+
+# plot_mutations_aggregated
+mutations_aggregated_Yaxis_absolute: False                 # display raw mutation counts on y axis. If set to False, y axis displays proportion of sequences with each mutation (total mutation / total sequences). If set to True, y axis displays total number of each mutation.
+
+# plot_mut_spectrum
+    # barcode group name to be used as the background for calculating the mutation spectrum
+    #   to use, this barcode group name must be present within all sample tags being analyzed
+# background: Y390-1000
+
+# runs to be analyzed, organized into separate run tags
+runs:
+    
+    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs 
+        # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
+        #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
+        runname:
+            - 20210114_2207_MN35267_AFJ386_c4941675
+            - 20210116_1641_MN35267_AFL239_42b6c1fa
+
+        # filenames for paired end sequencing input. Must be located in sequences/paired directory. If using paired end input, `merge_paired_end` must be set to True and .fast5 inputs must be removed
+        fwdReads: P0_R1_001.fastq.gz
+        rvsReads: P0_R2_001.fastq.gz
+
+        # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
+        #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
+        #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
+        #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
+        reference: ref/refSeqs.fasta
+
+        # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
+        UMI_contexts:
+            - NNNNTNNNNTNNNN
+            - NNNNANNNNANNNNANNNN
+
+        # list barcode types to be used for demultiplexing. Demux'd files are named according to these barcodes in the order provided
+        barcodeInfo: # different types of barcodes present within each sequence, distinguished by their location within the sequence
+            fwd: 
+                context: CNNNNNNG                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
+                fasta: ref/barcodes.fasta           # fasta file containing barcode sequences 
+                reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
+                hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error
+            rvs:
+                context: TNNNNNN  
+                fasta: ref/barcodes.fasta
+                reverseComplement: True
+                hammingDistance: 1
+            lineage:
+                context: NNNNNNNNNNNNNNNN
+                fasta: ref/barcodes_internal.fa
+                reverseComplement: False
+                hammingDistance: 3
+                generate: 2                 # automatically generates a fasta file with this number of barcodes if the fasta file does not already exist
+
+        barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
+                        #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
+            Y390-1000:
+                fwd: Barcode1
+                rvs: Barcode2
+            A1-1000:
+                fwd: Barcode5
+                rvs: Barcode2
+            C1-1000:
+                fwd: Barcode5
+                rvs: Barcode6
+            E1-1000:
+                fwd: Barcode5
+                rvs: Barcode10
+            G1-1000:
+                fwd: Barcode5
+                rvs: Barcode14
+            A1-100:
+                fwd: Barcode9
+                rvs: Barcode2
+            C1-100:
+                fwd: Barcode9
+                rvs: Barcode6
+            E1-100:
+                fwd: Barcode9
+                rvs: Barcode10
+            G1-100:
+                fwd: Barcode9
+                rvs: Barcode14
+            A1-10:
+                fwd: Barcode13
+                rvs: Barcode2
+            C1-10:
+                fwd: Barcode13
+                rvs: Barcode6
+            E1-10:
+                fwd: Barcode13
+                rvs: Barcode10
+            G1-10:
+                fwd: Barcode13
+                rvs: Barcode14
