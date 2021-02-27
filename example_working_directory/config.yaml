@@ -35,7 +35,7 @@ threads_samtools : 1
 threads_demux: 4
 
 # paired end read merging
-merge_paired_end: True            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
+merge_paired_end: False            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
 NGmerge_flags: '-z'                   # command line flags to add to NGmerge command. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # UMI clustering and consensus
@@ -77,7 +77,8 @@ mutations_aggregated_Yaxis_absolute: False                 # display raw mutatio
 # runs to be analyzed, organized into separate run tags
 runs:
     
-    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs 
+    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs
+
         # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
         #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
         runname:
@@ -85,8 +86,8 @@ runs:
             - 20210116_1641_MN35267_AFL239_42b6c1fa
 
         # filenames for paired end sequencing input. Must be located in sequences/paired directory. If using paired end input, `merge_paired_end` must be set to True and .fast5 inputs must be removed
-        fwdReads: P0_R1_001.fastq.gz
-        rvsReads: P0_R2_001.fastq.gz
+        # fwdReads: P0_R1_001.fastq.gz
+        # rvsReads: P0_R2_001.fastq.gz
 
         # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
