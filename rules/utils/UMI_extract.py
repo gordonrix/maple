@@ -122,18 +122,11 @@ class UMI_Extractor:
             self.logDict[f'context_failure_{i+1}_not_present_in_alignment'] = [0]
             self.logDict[f'context_failure_{i+1}_appears_in_alignment_more_than_once'] = [0]
         count = 0
-        f = open('delete.txt','w')
         for BAMentry in BAMin.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
             UMIs = self.id_UMIs(refAln, BAMentry)
 
             if UMIs:
-                # to view alignments:
-                # f.write(BAMentry.query_name+' '+UMIs+' '+str(BAMentry.get_tag('AS'))+' '+str(BAMentry.reference_start)+' '+str(BAMentry.query_alignment_start)+' '+BAMentry.cigarstring+'\n')
-                # f.write(str(refAln)+'\n')
-                # f.write(''.join(['|' if r==q else ' ' if r=='-' else '.' for r,q in zip(str(refAln),BAMentry.query_alignment_sequence)])+'\n')
-                # f.write(str(BAMentry.query_alignment_sequence)+'\n')
-                # f.write('\n')
                 BAMentry.query_name = BAMentry.query_name + '_' + UMIs
                 BAMentry.set_tag('GN', '0', 'H')
                 self.logDict['sequence_success'][0] += 1

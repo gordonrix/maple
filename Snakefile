@@ -38,6 +38,7 @@ import yaml, subprocess
 import snakemake.common
 from datetime import datetime
 from snakemake.utils import min_version
+from Bio import SeqIO
 
 
 
@@ -182,20 +183,6 @@ else:
     raise RuntimeError("[ERROR] No memory scalings in environment configuration.")
 
 
-# location of singularity images, can be given in env.yaml
-# singularity_images:
-#     basecalling : '/path/to/local/basecalling.sif'
-# defaults:
-# config['singularity_images'] = {module:
-#     "docker://nanopype/{module}:{tag}".format(tag=config['version']['tag'], module=module) for module in
-#     ['basecalling', 'alignment', 'methylation', 'transcript', 'assembly', 'sv', 'demux']}
-# if 'singularity_images' in nanopype_env:
-#     for module, container_path in nanopype_env['singularity_images'].items():
-#         config['singularity_images'][module] = container_path
-#         if not os.path.isfile(container_path):
-#             print_("[WARNING] The container for {module} was overridden as {loc} but not found in the filesystem.".format(
-#                 module=module, loc=container_path), file=sys.stderr)
-
 
 # locations of helper scripts in rules/utils
 if not 'sbin' in config:
@@ -265,47 +252,50 @@ else:
                     if not os.path.exists(batch):
                         print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
 
+# check reference sequences
+for tag in config['runs']:
+    refFasta = config['runs'][tag]['reference']
+    referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
+    if len(referenceSeqs) == 3:
+        alignmentSeq, nucleotideSeq, proteinSeq = referenceSeqs
+        assert nucleotideSeq.seq.upper().find(protein.seq.upper()) != -1, f"Protein (third) sequence is not a subsequence of nucleotide (second) sequence in reference file `{refFasta}`"
+        for i, nt in enumerate(str(proteinSeq.seq).upper()):
+            assert nt in list("ATGCN"), f"Position {i} in reference sequence `{proteinSeq.id}` is not a canonical nucleotide"
+    elif len(referenceSeqs) == 2:
+        alignmentSeq, nucleotideSeq = referenceSeqs
+    else:
+        raise RuntimeError("Reference fasta file must be fasta formatted and contain 2 or 3 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
+    assert nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) != -1, f"Nucleotide (second) sequence is not a subsequence of alignment (first) sequence in reference file `{refFasta}`"
+    for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
+        assert nt in list("ATGCN"), f"Position {i} in reference sequence `{nucleotideSeq.id}` is not a canonical nucleotide"
+    for i, nt in enumerate(str(nucleotide.seq).upper()):
+        assert nt in list("ATGCN"), f"Position {i} in reference sequence `{alignmentSeq.id}` is not a canonical nucleotide"
+
 # ADD CHECKS FOR UMIS.
 
 # ADD A CHECK FOR BARCODE INFO. If 'barcodeInfo' or 'barcodeGroups' is present in {tag}, both must be present and all barcode types in barcode groups
 # must be defined in 'barcodeInfo' dict. Probably did this in the beginning of the demux script, so can move that here.
-
-# mount raw storage and references if using singularity
-if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-    if os.path.isabs(config['storage_data_raw']):
-        workflow.singularity_args += " -B {}".format(config['storage_data_raw'])
-    abs_paths = []
-    # search for absolute paths, relative ones are below the working directory
-    # and anyway mounted
-    for name, ref in config['references'].items():
-        genome = ref['genome']
-        chr_sizes = ref['chr_sizes']
-        abs_paths += [genome] if os.path.isabs(genome) else []
-        abs_paths += [chr_sizes] if os.path.isabs(chr_sizes) else []
-    # append paths to singularity mounts
-    for mnt, paths in itertools.groupby(abs_paths, key=lambda x : x.split(os.path.sep)[0]):
-        workflow.singularity_args += " -B {}".format(os.path.commonpath(list(paths)))
-    # mount hosts tmpdir if declared
-    if 'TMPDIR' in os.environ:
-        workflow.singularity_args += " -B {}".format(os.environ["TMPDIR"])
-
-
-# barcode mappings
-barcodes = {}
-if os.path.isfile('barcodes.yaml'):
-    with open("barcodes.yaml", 'r') as fp:
-        barcode_map = yaml.safe_load(fp)
-        barcodes = barcode_map
-config['barcodes'] = barcodes
-
-
-# region of interest tags
-roi = {}
-if os.path.isfile('roi.yaml'):
-    with open("roi.yaml", 'r') as fp:
-        roi_map = yaml.safe_load(fp)
-        roi = roi_map
-config['roi'] = roi
+if config['demux']:
+    for tag in config['runs']:
+        if 'barcodeInfo' not in config['runs'][tag]:
+            raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`.")
+        if len(config['runs'][tag]['barcodeInfo']) == 0:
+            raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} `barcodeInfo` does not contain any barcode types.")
+        refFasta = config['runs'][tag]['reference']
+        alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
+        for barcodeType in config['runs'][tag]['barcodeInfo']:
+            for requiredKey in ['context', 'fasta', 'reverseComplement']:
+                if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
+                    raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
+            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo']['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo']['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
+            bcFasta = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
+            assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
+            assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"
+else:
+    for tag in config['runs']:
+        if ('barcodeInfo' or 'barcodeGroups' in config['runs'][tag]) and config['demux']==False:
+            print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
+        
 
 # # include modules
 include : "rules/storage.smk"
@@ -351,19 +341,19 @@ onsuccess:
     if workflow.mode == snakemake.common.Mode.default:
         log_name = print_log(status='SUCCESS')
         print("""
-mace completed successfully.
-The log file was written to {}.""".format(log_name), file=sys.stderr)
+maple completed successfully.
+the log file was written to {}.""".format(log_name), file=sys.stderr)
 
 
 onerror:
     if workflow.mode == snakemake.common.Mode.default:
         log_name = print_log(status='ERROR')
         print("""
-mace exited with an error.
-The log file was written to {}.
+maple exited with an error.
+the log file was written to {}.
 
-Please visit the github at
-    https://github.com/gordonrix/mace
+please visit the github at
+    https://github.com/gordonrix/maple
 to make sure everything is configured correctly.
 
 """.format(log_name), file=sys.stderr)

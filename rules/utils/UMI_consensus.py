@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import pysam
 import os
+import datetime
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
@@ -139,8 +140,9 @@ class UMI_consensus:
                 else:
                     insertionsDict[index][seq] += 1
 
-        # convert to average
-        consensusQscoreWeighted_array = consensusQscoreWeighted_array / consensusUnweighted_array
+        # convert to average, ignore the many instances of 0/0
+        with np.errstate(divide='ignore', invalid='ignore'):
+            consensusQscoreWeighted_array = consensusQscoreWeighted_array / consensusUnweighted_array
 
         consensusSeq = [] # consensus sequence with deletions as '-' but without insertions
         consensusQuals = []
@@ -187,26 +189,38 @@ class UMI_consensus:
         pysam.index(self.BAMin)
         BAMin = pysam.AlignmentFile(self.BAMin, 'rb')
         logDF = pd.read_csv(self.logIn, sep='\t')
-        UMI_groups_above_threshold = logDF[logDF['final_umi_count']>=self.threshold][['final_umi', 'final_umi_count', 'unique_id']].drop_duplicates(subset=['unique_id']).sort_values(['final_umi_count', 'unique_id'], ascending=[False,True])
+        UMI_groups_above_threshold = logDF[logDF['final_umi_count']>=self.threshold][['final_umi', 'final_umi_count', 'unique_id']].sort_values(['final_umi_count', 'unique_id'], ascending=[False,True]).reset_index(drop=True)
+        UMI_groups_above_threshold = UMI_groups_above_threshold.drop_duplicates(subset=['unique_id']).reset_index()
+        # add a column to batch sequences into groups to minimize looping through BAM file to find sequences, without putting the whole BAM file in memory
+        UMI_groups_above_threshold['batch'] = UMI_groups_above_threshold.apply( lambda row: int(row['index']/10000), axis=1 )
 
-        fqBatch = []
         counter = 0
 
         with open(self.FASTQout, 'w') as output:
-            for row in UMI_groups_above_threshold.itertuples(index=False):
-                UMIgroupBAMentries = []
+            for batch_index in range(0, UMI_groups_above_threshold['batch'].max()+1):
+                batch_DF = UMI_groups_above_threshold[UMI_groups_above_threshold['batch']==batch_index]
+                batch_UMI_IDs = list(batch_DF['unique_id'])
+                UMI_BAMbatchDict = {}
+
                 for BAMentry in BAMin:
-                    if BAMentry.get_tag('UG') == row.unique_id:
-                        UMIgroupBAMentries.append(BAMentry)
-                consensusSeq, consensusQuals = self.generate_consensus_FASTQ_record(UMIgroupBAMentries)
-                record = SeqRecord(Seq(consensusSeq), id=f'UMI_{row.unique_id}_consensus_sequence', description=f'sampleid={self.tag} readcount={row.final_umi_count} umi={row.final_umi}')
-                record.letter_annotations['phred_quality'] = consensusQuals
-                fqBatch.append(record)
+                    ID = BAMentry.get_tag('UG')
+                    if ID in batch_UMI_IDs:
+                        if ID not in UMI_BAMbatchDict:
+                            UMI_BAMbatchDict[ID] = []
+                        UMI_BAMbatchDict[ID].append(BAMentry)
                 BAMin.reset()
-                counter += 1
-                if counter%1000 == 0:
-                    SeqIO.write(fqBatch, output, 'fastq')
-                    fqBatch = []
+                
+                fqBatch = []
+                for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():
+                    consensusSeq, consensusQuals = self.generate_consensus_FASTQ_record(UMIgroupBAMentries)
+                    row = UMI_groups_above_threshold[UMI_groups_above_threshold['unique_id']==ID].iloc[0]
+                    record = SeqRecord(Seq(consensusSeq), id=f"UMI_{ID}_consensus_sequence", description=f"sampleid={self.tag} readcount={row['final_umi_count']} umi={row['final_umi']}")
+                    record.letter_annotations['phred_quality'] = consensusQuals
+                    fqBatch.append(record)
+                    counter += 1
+                    if counter%10000 == 0:
+                        SeqIO.write(fqBatch, output, 'fastq')
+                        fqBatch = []
             SeqIO.write(fqBatch, output, 'fastq')
 
 if __name__ == '__main__':

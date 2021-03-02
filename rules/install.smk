@@ -258,6 +258,8 @@ rule guppy:
         # copy everything except toplevel softlinks e.g.
         # skip libhdf5.so
         # copy libhdf5.so.1.8.11
+        # remove libz.so.1 first because copying this causes errors
+        rm lib/libz.so.1
         rsync --files-from=<(find . ! \( -type l -and -regex '^.*so$' \) -print) --links . ../../
         rm -r *
         """
