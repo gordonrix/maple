@@ -2,13 +2,99 @@
 #
 #  CONTENTS      : Snakemake nanopore data pipeline
 #
-#  DESCRIPTION   : clean up batch data
+#  DESCRIPTION   : remove large files and move analysis files to timestamped folder
+#                   so that analysis may be repeated
 #
 #  RESTRICTIONS  : none
 #
 #  REQUIRES      : none
 #
 # ---------------------------------------------------------------------------------
+
+# imports
+import os, sys, glob, datetime
+# local rules
+localrules: sequences_clean, alignment_clean, methylation_clean, sv_clean, demux_clean, transcript_isoforms_clean, clean
+
+onstart:
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+
+# remove flag files to force re-run of cleanup
+for f in glob.glob('.*.done'):
+    os.remove(f)
+
+
+# clean up compute batches basecalling, keep UMI stats files
+rule sequences_clean:
+    input:
+        keep = [f for f in os.listdir(os.path.join('sequences', 'UMI')) if f.endswith(('.csv','.tsv'))],
+        UMIdir = os.path.join('sequences', 'UMI')
+        batches = [dirpath for dirpath, _, files in os.walk('sequences') if dirpath.endswith('batches')],
+        consensus = [f for f in os.listdir('sequences') if f.endswith('_UMIconsensus.fastq.gz')]
+    output:
+        touch('.sequences_clean.done')
+    params:
+        timestampDir = lambda wildcards: timestamp
+    shell:
+        """
+        mkdir -p {params.timestampDir}
+        mv {input.keep} {params.timestampDir}/
+        rm -r {input.UMIdir}
+        rm -r {input.batches}
+        rm {input.consensus)
+        """
+
+# clean up compute batches alignment
+rule alignment_clean:
+    input:
+        directory('alignments')
+    output:
+        touch('.alignment_clean.done')
+    shell:
+        "rm -r {input}"
+
+# clean up compute batches demux
+rule demux_clean:
+    input:
+        keep = [f for f in os.listdir('demux') if f.endswith('.csv')],
+        demux = directory('demux')
+    output:
+        touch('.demux_clean.done')
+    params:
+        timestampDir = lambda wildcards: timestamp
+    shell:
+        """
+        mkdir -p {params.timestampDir}
+        mv {input.keep} {params.timestampDir}/
+        rm -r {input.dir}
+        """
+
+rule mutation_data_clean:
+    input:
+        keepDirs = 'plots mutSpectra mutation_data',
+        mutStats = [f for f in os.listdir('.') if f.endswith('_mutation-stats.csv')]
+    output:
+        touch('.mutation_data_clean.done')
+    params:
+        timestampDir = lambda wildcards: timestamp
+    shell:
+        """
+        mkdir -p {params.timestampDir}
+        mv {input.keepDirs) {params.timestampDir}/
+        mv {input.mutStats) {params.timestampDir}/
+        """
+
+# clean up everything
+rule clean:
+    input:
+        rules.sequences_clean.output,
+        rules.alignment_clean.output,
+        rules.demux_clean.output,
+        rules.mutation_data_clean.output
+    shell:
+        "rm {input}"
+
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,81 +115,5 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 #
-# Written by Pay Giesselmann
+# Written by Pay Giesselmann, modified by Gordon Rix
 # ---------------------------------------------------------------------------------
-# imports
-import os, sys, glob
-# local rules
-localrules: sequences_clean, alignment_clean, methylation_clean, sv_clean, demux_clean, transcript_isoforms_clean, clean
-
-
-# remove flag files to force re-run of cleanup
-for f in glob.glob('.*.done'):
-    os.remove(f)
-
-
-# clean up compute batches basecalling
-rule sequences_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('sequences') if dirpath.endswith('batches')]
-    output:
-        touch('.basecalling_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up compute batches alignment
-rule alignment_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('alignments') if dirpath.endswith('batches')]
-    output:
-        touch('.alignment_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up compute batches methylation
-rule methylation_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('methylation') if dirpath.endswith('batches')]
-    output:
-        touch('.methylation_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up compute batches sv
-rule sv_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('sv') if dirpath.endswith('batches')]
-    output:
-        touch('.sv_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up compute batches demux
-rule demux_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('demux') if dirpath.endswith('batches')]
-    output:
-        touch('.demux_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up compute batches transcript
-rule transcript_isoforms_clean:
-    input:
-        [dirpath for dirpath, _, files in os.walk('transcript_isoforms') if dirpath.endswith('batches')]
-    output:
-        touch('.transcript_isoforms_clean.done')
-    shell:
-        "rm -r {input}"
-
-# clean up everything
-rule clean:
-    input:
-        rules.sequences_clean.output,
-        rules.alignment_clean.output,
-        rules.methylation_clean.output,
-        rules.sv_clean.output,
-        rules.demux_clean.output,
-        rules.transcript_isoforms_clean.output
-    shell:
-        "rm {input}"

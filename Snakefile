@@ -8,29 +8,7 @@
 #
 #  REQUIRES      : none
 #
-# ---------------------------------------------------------------------------------
-# Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#
-# Written by Pay Giesselmann
-# ---------------------------------------------------------------------------------
+
 # imports
 import os, sys, collections
 import itertools
@@ -58,25 +36,19 @@ def print_(*args, **kwargs):
 
 # get pipeline version # update for mace
 def get_tag():
-    if 'TRAVIS_BRANCH' in os.environ and 'TRAVIS_TAG' in os.environ:
-        version = os.environ.get('TRAVIS_TAG') or '-'
-        branch = os.environ.get('TRAVIS_BRANCH') or 'latest'
-    else:
-        try:
-            cmd = 'git describe --tags'
-            version = subprocess.check_output(cmd.split(), cwd=os.path.dirname(workflow.snakefile)).decode().strip()
-        except subprocess.CalledProcessError:
-            print_('[WARNING] Unable to get version from git tags.', file=sys.stderr)
-            version = '-'
-        try:
-            cmd = 'git rev-parse --abbrev-ref HEAD'
-            branch = subprocess.check_output(cmd.split(), cwd=os.path.dirname(workflow.snakefile)).decode().strip()
-        except subprocess.CalledProcessError:
-            print_('[WARNING] Unable to get branch from git. Pulling development.', file=sys.stderr)
-            branch = 'development'
+    try:
+        cmd = 'git describe --tags'
+        version = subprocess.check_output(cmd.split(), cwd=os.path.dirname(workflow.snakefile)).decode().strip()
+    except subprocess.CalledProcessError:
+        print_('[WARNING] Unable to get version from git tags.', file=sys.stderr)
+        version = '-'
+    try:
+        cmd = 'git rev-parse --abbrev-ref HEAD'
+        branch = subprocess.check_output(cmd.split(), cwd=os.path.dirname(workflow.snakefile)).decode().strip()
+    except subprocess.CalledProcessError:
+        print_('[WARNING] Unable to get branch from git. Pulling development.', file=sys.stderr)
+        branch = 'development'
     if '-' in version:
-        if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-            print_("[WARNING] You're using an untagged version of Nanopype with the Singularity backend. Make sure to also update the pipeline repository to avoid inconsistency between code and container.", file=sys.stderr)
         if branch == 'master':
             return 'latest', version
         else:
@@ -85,8 +57,8 @@ def get_tag():
         return version, version
 
 
-nanopype_tag, nanopype_git_tag = get_tag()
-config['version'] = {'tag': nanopype_tag, 'full-tag': nanopype_git_tag}
+maple_tag, maple_git_tag = get_tag()
+config['version'] = {'tag': maple_tag, 'full-tag': maple_git_tag}
 
 
 # scan working directory
@@ -108,9 +80,9 @@ if hasattr(workflow, "shadow_prefix") and workflow.shadow_prefix:
 
 
 # parse pipeline environment
-nanopype_env = {}
+maple_env = {}
 with open(os.path.join(os.path.dirname(workflow.snakefile), "env.yaml"), 'r') as fp:
-    nanopype_env = yaml.safe_load(fp)
+    maple_env = yaml.safe_load(fp)
 
 
 # verify given references
@@ -123,12 +95,12 @@ for tag in config['runs']:
 
 
 # verify given binaries
-if 'bin' in nanopype_env:
+if 'bin' in maple_env:
     if not 'bin' in config:
         config['bin'] = {}
     if not 'bin_singularity' in config:
         config['bin_singularity'] = {}
-    for name, loc in nanopype_env['bin'].items():
+    for name, loc in maple_env['bin'].items():
         loc_sys = None
         loc_singularity = os.path.basename(loc)
         if os.path.isfile(loc):
@@ -166,18 +138,18 @@ else:
 
 
 # Runtime scaling of data depending tools
-if 'runtime' in nanopype_env:
+if 'runtime' in maple_env:
     config['runtime'] = {}
-    for key, value in nanopype_env['runtime'].items():
+    for key, value in maple_env['runtime'].items():
         config['runtime'][key] = value
 else:
     raise RuntimeError("[ERROR] No runtime scalings in environment configuration.")
 
 
 # memory scaling of data depending tools
-if 'memory' in nanopype_env:
+if 'memory' in maple_env:
     config['memory'] = {}
-    for key, value in nanopype_env['memory'].items():
+    for key, value in maple_env['memory'].items():
         config['memory'][key] = tuple(value)
 else:
     raise RuntimeError("[ERROR] No memory scalings in environment configuration.")
@@ -310,7 +282,7 @@ def print_log(status='SUCCESS'):
     log_name = os.path.join('log', now.strftime('%Y%m%d_%H_%M_%S_%f.maple.log'))
     end_files = get_dir_files(workflow.workdir_init)
     with open(log_name, 'w') as fp:
-        print('Log file for mace version {tag}'.format(tag=nanopype_tag), file=fp)
+        print('Log file for mace version {tag}'.format(tag=maple_tag), file=fp)
         print("Workflow begin: {}".format(start_time.strftime('%d.%m.%Y %H:%M:%S')), file=fp)
         print("Workflow end:   {}".format(now.strftime('%d.%m.%Y %H:%M:%S')), file=fp)
         print('Command: {}'.format(' '.join(sys.argv)), file=fp)
@@ -358,6 +330,29 @@ to make sure everything is configured correctly.
 
 """.format(log_name), file=sys.stderr)
 
+# ---------------------------------------------------------------------------------
+# Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+# Written by Pay Giesselmann, modified by Gordon Rix
+# ---------------------------------------------------------------------------------
 
 rule targets:
     input:

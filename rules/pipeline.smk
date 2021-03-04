@@ -325,7 +325,8 @@ if config['demux']:
             aln = 'alignments/{tag}.bam',
             flag = 'demux/.{tag}_generate_barcode_ref.done'
         output:
-            touch('demux/{tag, [^\/_]*}_demultiplex.done')
+            touch('demux/.{tag, [^\/_]*}_demultiplex.done')
+            # checkpoint outputs have the following structure: demux/{tag}_{barcodeGroup}.BAM'
         script:
             'utils/demux.py'
 
@@ -363,7 +364,7 @@ def mut_stats_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
     else:
         return expand('mutation_data/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
@@ -388,7 +389,7 @@ def plot_mutations_aggregated_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-aggregated.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
         return 'mutation_data/{tag}_all_{AAorNT}-muts-aggregated.csv'
@@ -406,7 +407,7 @@ def plot_mutations_distribution_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
         return 'mutation_data/{tag}_all_{AAorNT}-muts-distribution.csv'
