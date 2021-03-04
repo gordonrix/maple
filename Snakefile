@@ -307,7 +307,7 @@ include : "rules/pipeline.smk"
 def print_log(status='SUCCESS'):
     os.makedirs('log', exist_ok=True)
     now = datetime.now()
-    log_name = os.path.join('log', now.strftime('%Y%m%d_%H_%M_%S_%f.nanopype.log'))
+    log_name = os.path.join('log', now.strftime('%Y%m%d_%H_%M_%S_%f.maple.log'))
     end_files = get_dir_files(workflow.workdir_init)
     with open(log_name, 'w') as fp:
         print('Log file for mace version {tag}'.format(tag=nanopype_tag), file=fp)

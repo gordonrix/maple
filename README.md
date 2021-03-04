@@ -1,9 +1,18 @@
 # Maple: Mutation Analysis for Parallel Evolution
 
-Maple is a snakemake-based workflow for analysis of mutation-rich next generation sequencing data
-from highly parallelized targeted evolution experiments, with a special focus on Oxford Nanopore
-Technology (ONT) data. It provides consensus sequence generation using unique molecular
-identifiers (UMIs), easy-to-use and versatile demultiplexing, and a suite of analyses and plots.
+Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline for analysis of
+mutation-rich next generation sequencing data from highly parallelized targeted evolution experiments, with a
+special focus on Oxford Nanopore Technology (ONT) data. It provides consensus sequence generation using
+unique molecular identifiers (UMIs), easy-to-use and versatile demultiplexing, and a suite of analyses and plots.
+
+Analysis is primarily performed by custom python scripts, but several external tools are integrated
+and critical:
+ - [Guppy](https://nanoporetech.com/nanopore-sequencing-data-analysis)
+ - [minimap2](https://doi.org/10.1093/bioinformatics/bty191)
+ - [Samtools](http://www.htslib.org/)
+ - [NGmerge](https://github.com/harvardinformatics/NGmerge)
+
+Additionally, many concepts and code are borrowed from the (very sophisticated) snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
 
 ## Getting started
 
