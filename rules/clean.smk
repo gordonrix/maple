@@ -12,13 +12,12 @@
 # ---------------------------------------------------------------------------------
 
 # imports
-import os, sys, glob, datetime
+import os, sys, glob
+from datetime import datetime
 # local rules
-localrules: sequences_clean, alignment_clean, methylation_clean, sv_clean, demux_clean, transcript_isoforms_clean, clean
+localrules: sequences_clean, alignment_clean, demux_clean, mutation_data_clean, clean
 
-onstart:
-    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-
+config['timestamp'] = datetime.now().strftime("%Y%m%d-%H%M%S")
 
 # remove flag files to force re-run of cleanup
 for f in glob.glob('.*.done'):
@@ -28,61 +27,63 @@ for f in glob.glob('.*.done'):
 # clean up compute batches basecalling, keep UMI stats files
 rule sequences_clean:
     input:
-        keep = [f for f in os.listdir(os.path.join('sequences', 'UMI')) if f.endswith(('.csv','.tsv'))],
-        UMIdir = os.path.join('sequences', 'UMI')
+        keep = [os.path.join('sequences', 'UMI', f) for f in os.listdir(os.path.join('sequences', 'UMI')) if f.endswith(('.csv','.tsv'))],
+        UMIdir = os.path.join('sequences', 'UMI'),
         batches = [dirpath for dirpath, _, files in os.walk('sequences') if dirpath.endswith('batches')],
-        consensus = [f for f in os.listdir('sequences') if f.endswith('_UMIconsensus.fastq.gz')]
+        consensus = [os.path.join('sequences', f) for f in os.listdir('sequences') if f.endswith('_UMIconsensus.fastq.gz')]
     output:
         touch('.sequences_clean.done')
     params:
-        timestampDir = lambda wildcards: timestamp
+        timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
         mkdir -p {params.timestampDir}
-        mv {input.keep} {params.timestampDir}/
+        mv {input.keep} -t {params.timestampDir}
         rm -r {input.UMIdir}
         rm -r {input.batches}
-        rm {input.consensus)
+        rm {input.consensus}
         """
 
 # clean up compute batches alignment
 rule alignment_clean:
     input:
-        directory('alignments')
+        [os.path.join('alignments', f) for f in os.listdir('alignments') if f.endswith(('.bam', 'bam.bai'))]
     output:
         touch('.alignment_clean.done')
     shell:
-        "rm -r {input}"
+        "rm {input}"
 
 # clean up compute batches demux
 rule demux_clean:
     input:
-        keep = [f for f in os.listdir('demux') if f.endswith('.csv')],
-        demux = directory('demux')
+        keep = [os.path.join('demux', f) for f in os.listdir('demux') if f.endswith('.csv')],
+        demux = 'demux'
     output:
         touch('.demux_clean.done')
     params:
-        timestampDir = lambda wildcards: timestamp
+        timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
         mkdir -p {params.timestampDir}
-        mv {input.keep} {params.timestampDir}/
-        rm -r {input.dir}
+        mv {input.keep} -t {params.timestampDir}
+        rm -r {input.demux}
         """
 
 rule mutation_data_clean:
     input:
-        keepDirs = 'plots mutSpectra mutation_data',
+        plots = 'plots',
+        mutSpectra = 'mutSpectra',
+        mutation_data = 'mutation_data',
         mutStats = [f for f in os.listdir('.') if f.endswith('_mutation-stats.csv')]
     output:
         touch('.mutation_data_clean.done')
     params:
-        timestampDir = lambda wildcards: timestamp
+        timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
         mkdir -p {params.timestampDir}
-        mv {input.keepDirs) {params.timestampDir}/
-        mv {input.mutStats) {params.timestampDir}/
+        mv {input.plots} {input.mutSpectra} {input.mutation_data} -t {params.timestampDir}
+        mv {input.mutStats} -t {params.timestampDir}
         """
 
 # clean up everything
