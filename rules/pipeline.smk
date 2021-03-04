@@ -133,6 +133,8 @@ else:
             protected("sequences/{tag, [^\/_]*}.fastq.gz")
         run:
             with open(output[0], 'wb') as fp_out:
+                if len(input)==0:
+                    raise RuntimeError(f"Basecalled sequence batches not found for tag `{wildcards.tag}`.")
                 for f in input:
                     with open(f, 'rb') as fp_in:
                         fp_out.write(fp_in.read())
@@ -314,16 +316,16 @@ if config['demux']:
         input:
             'alignments/{tag}.bam'
         output:
-            temp('demux/{tag, [^\/_]*}_generate_barcode_ref_complete.txt')
+            touch('demux/.{tag, [^\/_]*}_generate_barcode_ref.done')
         script:
             'utils/generate_barcode_ref.py'
 
     checkpoint demultiplex:
         input:
             aln = 'alignments/{tag}.bam',
-            flag = 'demux/{tag}_generate_barcode_ref_complete.txt'
+            flag = 'demux/.{tag}_generate_barcode_ref.done'
         output:
-            temp('demux/{tag, [^\/_]*}_demultiplex_complete.txt')
+            touch('demux/{tag, [^\/_]*}_demultiplex.done')
         script:
             'utils/demux.py'
 
@@ -360,7 +362,7 @@ def mut_stats_input(wildcards):
     datatypes = ['genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv', 'AA-muts-aggregated.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv']
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex_complete')[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
     else:
@@ -385,7 +387,7 @@ rule plot_mutation_spectrum:
 def plot_mutations_aggregated_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex_complete')[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-aggregated.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
@@ -403,7 +405,7 @@ rule plot_mutations_aggregated:
 def plot_mutations_distribution_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex_complete')[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
@@ -417,29 +419,3 @@ rule plot_mutations_distribution:
     script:
         'utils/plot_mutation_distribution.py'
 
-
-#         """
-
-# ---------------------------------------------------------------------------------
-# Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#
-# Written by Pay Giesselmann, modified by Gordon Rix
-# ---------------------------------------------------------------------------------

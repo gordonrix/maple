@@ -258,7 +258,7 @@ for tag in config['runs']:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
     if len(referenceSeqs) == 3:
         alignmentSeq, nucleotideSeq, proteinSeq = referenceSeqs
-        assert nucleotideSeq.seq.upper().find(protein.seq.upper()) != -1, f"Protein (third) sequence is not a subsequence of nucleotide (second) sequence in reference file `{refFasta}`"
+        assert nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) != -1, f"Protein (third) sequence is not a subsequence of nucleotide (second) sequence in reference file `{refFasta}`"
         for i, nt in enumerate(str(proteinSeq.seq).upper()):
             assert nt in list("ATGCN"), f"Position {i} in reference sequence `{proteinSeq.id}` is not a canonical nucleotide"
     elif len(referenceSeqs) == 2:
@@ -268,7 +268,7 @@ for tag in config['runs']:
     assert nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) != -1, f"Nucleotide (second) sequence is not a subsequence of alignment (first) sequence in reference file `{refFasta}`"
     for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
         assert nt in list("ATGCN"), f"Position {i} in reference sequence `{nucleotideSeq.id}` is not a canonical nucleotide"
-    for i, nt in enumerate(str(nucleotide.seq).upper()):
+    for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
         assert nt in list("ATGCN"), f"Position {i} in reference sequence `{alignmentSeq.id}` is not a canonical nucleotide"
 
 # ADD CHECKS FOR UMIS.
@@ -287,7 +287,7 @@ if config['demux']:
             for requiredKey in ['context', 'fasta', 'reverseComplement']:
                 if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
                     raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
-            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo']['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo']['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
+            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo']['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
             bcFasta = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
             assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
             assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"

@@ -32,7 +32,7 @@ def main():
     BAMin = snakemake.input.aln
 
     ### Output variables
-    outputDir = str(snakemake.output).split(f'/{tag}_demultiplex_complete')[0]
+    outputDir = str(snakemake.output[0]).split(f'/{tag}_demultiplex.done')[0]
 
     bcp = BarcodeParser(config, tag)
     bcp.demux_BAM(BAMin, outputDir)
@@ -434,9 +434,6 @@ class BarcodeParser:
                 target = os.path.join(lowCountDir, f'{self.tag}_{row.output_file_barcodes}.bam')
                 shutil.move(original, target)
 
-        # create flag text file for pipeline
-        with open(os.path.join(outputDir, f'{self.tag}_demultiplex_complete.txt'), 'x') as f:
-            f.write(f'checkpoint flag file, do not delete or move without also deleting all demux output files for tag {self.tag}')
 
 if __name__ == '__main__':
     main()

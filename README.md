@@ -31,8 +31,8 @@ With root privileges, mamba may instead be installed in the base environment to 
 
 
 Next, use mamba to create the environment that we need. If using mamba from the base environment, the default
-location is probably fine, but if using mamba within its own environment, the path should be specified. In
-this example, the default path prefix ~/.conda/envs is used, but please ensure this is the correct location:
+location is probably fine, but if using mamba within its own environment, the path to the environment should
+be specified. In this example, the default path prefix ~/.conda/envs is used, but please ensure this is the correct location:
 
     conda activate mambaEnv
     mamba create --prefix ~/.conda/envs/maple -c bioconda -c conda-forge --file requirements.txt -y

@@ -112,10 +112,7 @@ def main():
                     else:
                         hammingDistanceList = [str(row.barcode)]
 
-                    HDbarcodesList.extend(hammingDistanceList)
-
-    with open(output, 'w') as f:
-        f.write('flag file for fasta file generation')            
+                    HDbarcodesList.extend(hammingDistanceList)      
 
 if __name__ == '__main__':
     main()
