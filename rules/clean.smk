@@ -15,7 +15,7 @@
 import os, sys, glob
 from datetime import datetime
 # local rules
-localrules: sequences_clean, alignment_clean, demux_clean, mutation_data_clean, clean
+localrules: sequences_clean, alignment_clean, demux_clean, mutation_data_clean, logs_clean, clean
 
 config['timestamp'] = datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -24,13 +24,8 @@ for f in glob.glob('.*.done'):
     os.remove(f)
 
 
-# clean up compute batches basecalling, keep UMI stats files
+# clean up sequences folder: remove combined .fastq.gz files (but not basecalled batches), move UMI stats files
 rule sequences_clean:
-    input:
-        keep = [os.path.join('sequences', 'UMI', f) for f in os.listdir(os.path.join('sequences', 'UMI')) if f.endswith(('.csv','.tsv'))],
-        UMIdir = os.path.join('sequences', 'UMI'),
-        batches = [dirpath for dirpath, _, files in os.walk('sequences') if dirpath.endswith('batches')],
-        consensus = [os.path.join('sequences', f) for f in os.listdir('sequences') if f.endswith('_UMIconsensus.fastq.gz')]
     output:
         touch('.sequences_clean.done')
     params:
@@ -38,16 +33,17 @@ rule sequences_clean:
     shell:
         """
         mkdir -p {params.timestampDir}
-        mv {input.keep} -t {params.timestampDir}
-        rm -r {input.UMIdir}
-        rm -r {input.batches}
-        rm {input.consensus}
+        if [ -d sequences/UMI ]; then
+            find sequences/UMI -type f \(-name "*.csv" -o -name "*.tsv" \) | xargs mv -t {params.timestampDir}
+            rm -r -f sequences/UMI
+        fi
+        find . -type f -wholename 'sequences/*.fastq.gz' -delete
         """
 
 # clean up compute batches alignment
 rule alignment_clean:
     input:
-        [os.path.join('alignments', f) for f in os.listdir('alignments') if f.endswith(('.bam', 'bam.bai'))]
+        [os.path.join(dirpath, f) for dirpath, _, files in os.walk('alignments') for f in files if f.endswith(('.bam','.bam.bai'))]
     output:
         touch('.alignment_clean.done')
     shell:
@@ -56,34 +52,58 @@ rule alignment_clean:
 # clean up compute batches demux
 rule demux_clean:
     input:
-        keep = [os.path.join('demux', f) for f in os.listdir('demux') if f.endswith('.csv')],
-        demux = 'demux'
+        keep = [os.path.join(dirpath, f) for dirpath, _, files in os.walk('demux') for f in files if f.endswith('.csv')]
     output:
         touch('.demux_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
-        mkdir -p {params.timestampDir}
-        mv {input.keep} -t {params.timestampDir}
-        rm -r {input.demux}
+        if [ ! -z {input.keep} ]; then
+            mkdir -p {params.timestampDir}
+            mv {input.keep} -t {params.timestampDir}
+        fi
+        if [ -d demux ]; then
+            rm -r demux
+        fi
         """
 
 rule mutation_data_clean:
     input:
-        plots = 'plots',
-        mutSpectra = 'mutSpectra',
-        mutation_data = 'mutation_data',
-        mutStats = [f for f in os.listdir('.') if f.endswith('_mutation-stats.csv')]
+        mutStats = [f for f in os.listdir('.') if f.endswith('_mutation-stats.csv')],
+        keepDirs = [dirpath.strip('./') for dirpath, _, files in os.walk('.') if dirpath.endswith(('plots','mutSpectra','mutation_data'))]
     output:
         touch('.mutation_data_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
-        mkdir -p {params.timestampDir}
-        mv {input.plots} {input.mutSpectra} {input.mutation_data} -t {params.timestampDir}
-        mv {input.mutStats} -t {params.timestampDir}
+        if [ ! -z {input.keepDirs} ]; then
+            mkdir -p {params.timestampDir}
+            mv {input.keepDirs} -t {params.timestampDir}
+        fi
+        if [ ! -z {input.mutStats} ]; then
+            mkdir -p {params.timestampDir}
+            mv {input.mutStats} -t {params.timestampDir}
+        fi
+        """
+
+rule logs_clean:
+    output:
+        touch('.logs_clean.done')
+    params:
+        timestampDir = lambda wildcards: config['timestamp']
+    shell:
+        """
+        if [ -d log ]; then
+            mkdir -p {params.timestampDir}/mapleLogs
+            mv log/* {params.timestampDir}/mapleLogs
+        fi
+        if [ -d .snakemake/log ]; then
+            mkdir -p {params.timestampDir}/snakemakeLogs
+            mv .snakemake/log/* {params.timestampDir}/snakemakeLogs
+        fi
+        cp *.yaml {params.timestampDir}
         """
 
 # clean up everything
@@ -92,7 +112,8 @@ rule clean:
         rules.sequences_clean.output,
         rules.alignment_clean.output,
         rules.demux_clean.output,
-        rules.mutation_data_clean.output
+        rules.mutation_data_clean.output,
+        rules.logs_clean.output
     shell:
         "rm {input}"
 
