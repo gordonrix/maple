@@ -34,36 +34,34 @@ rule sequences_clean:
         """
         mkdir -p {params.timestampDir}
         if [ -d sequences/UMI ]; then
-            find sequences/UMI -type f \(-name "*.csv" -o -name "*.tsv" \) | xargs mv -t {params.timestampDir}
+            find sequences/UMI -type f \( -name "*.csv" -o -name "*.tsv" \) | xargs mv -t {params.timestampDir}
             rm -r -f sequences/UMI
         fi
-        find . -type f -wholename 'sequences/*.fastq.gz' -delete
+        find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
 
 # clean up compute batches alignment
 rule alignment_clean:
-    input:
-        [os.path.join(dirpath, f) for dirpath, _, files in os.walk('alignments') for f in files if f.endswith(('.bam','.bam.bai'))]
     output:
         touch('.alignment_clean.done')
     shell:
-        "rm {input}"
+        """
+        if [ -d alignments ]; then
+            rm -r alignments
+        fi
+        """
 
 # clean up compute batches demux
 rule demux_clean:
-    input:
-        keep = [os.path.join(dirpath, f) for dirpath, _, files in os.walk('demux') for f in files if f.endswith('.csv')]
     output:
         touch('.demux_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
-        if [ ! -z {input.keep} ]; then
-            mkdir -p {params.timestampDir}
-            mv {input.keep} -t {params.timestampDir}
-        fi
         if [ -d demux ]; then
+            mkdir -p {params.timestampDir}
+            find demux -type f -name '*.csv' | xargs mv -t {params.timestampDir}
             rm -r demux
         fi
         """
@@ -78,11 +76,11 @@ rule mutation_data_clean:
         timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
-        if [ ! -z {input.keepDirs} ]; then
+        if [ ! -z "{input.keepDirs}" ]; then
             mkdir -p {params.timestampDir}
             mv {input.keepDirs} -t {params.timestampDir}
         fi
-        if [ ! -z {input.mutStats} ]; then
+        if [ ! -z "{input.mutStats}" ]; then
             mkdir -p {params.timestampDir}
             mv {input.mutStats} -t {params.timestampDir}
         fi
