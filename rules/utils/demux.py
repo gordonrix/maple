@@ -32,7 +32,7 @@ def main():
     BAMin = snakemake.input.aln
 
     ### Output variables
-    outputDir = str(snakemake.output[0]).split(f'/{tag}_demultiplex.done')[0]
+    outputDir = str(snakemake.output[0]).split(f'/.{tag}_demultiplex.done')[0]
 
     bcp = BarcodeParser(config, tag)
     bcp.demux_BAM(BAMin, outputDir)

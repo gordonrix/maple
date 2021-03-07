@@ -34,7 +34,7 @@ def print_(*args, **kwargs):
         print(*args, **kwargs)
 
 
-# get pipeline version # update for mace
+# get pipeline version # update for maple
 def get_tag():
     try:
         cmd = 'git describe --tags'
@@ -282,7 +282,7 @@ def print_log(status='SUCCESS'):
     log_name = os.path.join('log', now.strftime('%Y%m%d_%H_%M_%S_%f.maple.log'))
     end_files = get_dir_files(workflow.workdir_init)
     with open(log_name, 'w') as fp:
-        print('Log file for mace version {tag}'.format(tag=maple_tag), file=fp)
+        print('Log file for maple version {tag}'.format(tag=maple_tag), file=fp)
         print("Workflow begin: {}".format(start_time.strftime('%d.%m.%Y %H:%M:%S')), file=fp)
         print("Workflow end:   {}".format(now.strftime('%d.%m.%Y %H:%M:%S')), file=fp)
         print('Command: {}'.format(' '.join(sys.argv)), file=fp)
@@ -293,7 +293,7 @@ def print_log(status='SUCCESS'):
         print("Log file: {}".format(log_name), file=fp)
         print("Snakemake log file: {}".format(os.path.relpath(logger.logfile)), file=fp)
         print('', file=fp)
-        print("mace config:", file=fp)
+        print("maple config:", file=fp)
         print('-----------------------------------', file=fp)
         print(yaml.dump({key:value for key, value in config.items()
             if not (isinstance(value, dict) or isinstance(value, list))}, indent=2, sort_keys=True), file=fp)

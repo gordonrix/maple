@@ -68,21 +68,16 @@ rule demux_clean:
 
 rule mutation_data_clean:
     input:
-        mutStats = [f for f in os.listdir('.') if f.endswith('_mutation-stats.csv')],
-        keepDirs = [dirpath.strip('./') for dirpath, _, files in os.walk('.') if dirpath.endswith(('plots','mutSpectra','mutation_data'))]
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data'] or directoryORfile.endswith('_mutation-stats.csv')]
     output:
         touch('.mutation_data_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp']
     shell:
         """
-        if [ ! -z "{input.keepDirs}" ]; then
+        if [ ! -z "{input.keep}" ]; then
             mkdir -p {params.timestampDir}
-            mv {input.keepDirs} -t {params.timestampDir}
-        fi
-        if [ ! -z "{input.mutStats}" ]; then
-            mkdir -p {params.timestampDir}
-            mv {input.mutStats} -t {params.timestampDir}
+            mv {input.keep} -t {params.timestampDir}
         fi
         """
 
