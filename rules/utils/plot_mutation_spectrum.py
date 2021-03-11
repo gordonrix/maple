@@ -34,7 +34,9 @@ def normalized_spectrum_df(mutStatsRow, backgroundRow, backgroundBool, mutTypes,
 
     for mutType in mutTypes:
         wtNT = mutType[0]
-        if backgroundBool:
+        if mutStatsRow['total_NT_mutations'] == 0:  # set all mutation types to 0 if no mutations are observed to avoid divide by 0
+            spectrumNormalizedDict[mutType] = [ 0 ]
+        elif backgroundBool:
             spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * ((mutStatsRow[mutType] - backgroundRow[mutType])/ (mutStatsRow['total_NT_mutations'] - backgroundRow['total_NT_mutations'])) ]    # normalization factor * ((number of type of mutation for row - number of type of mutation for background) / (total number of mutations for row - total number of mutations for background))
         else:
             spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * (mutStatsRow[mutType] / mutStatsRow['total_NT_mutations']) ]    # normalization factor * (number of type of mutation for row / total number of mutations for row)
