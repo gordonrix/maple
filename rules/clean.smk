@@ -67,17 +67,16 @@ rule demux_clean:
         """
 
 rule mutation_data_clean:
-    input:
-        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data'] or directoryORfile.endswith('_mutation-stats.csv')]
     output:
         touch('.mutation_data_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp']
+        timestampDir = lambda wildcards: config['timestamp'],
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data'] or directoryORfile.endswith('_mutation-stats.csv')]
     shell:
         """
-        if [ ! -z "{input.keep}" ]; then
+        if [ ! -z "{params.keep}" ]; then
             mkdir -p {params.timestampDir}
-            mv {input.keep} -t {params.timestampDir}
+            mv {params.keep} -t {params.timestampDir}
         fi
         """
 
@@ -97,6 +96,7 @@ rule logs_clean:
             mv .snakemake/log/* {params.timestampDir}/snakemakeLogs
         fi
         cp *.yaml {params.timestampDir}
+        cp ref -r {params.timestampDir}
         """
 
 # clean up everything

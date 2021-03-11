@@ -194,9 +194,10 @@ class UMI_consensus:
         # add a column to batch sequences into groups to minimize looping through BAM file to find sequences, without putting the whole BAM file in memory
         UMI_groups_above_threshold['batch'] = UMI_groups_above_threshold.apply( lambda row: int(row['index']/10000), axis=1 )
 
-        counter = 0
+        with open(self.FASTQout, 'a') as output:
 
-        with open(self.FASTQout, 'w') as output:
+            fqBatch = []
+            
             for batch_index in range(0, UMI_groups_above_threshold['batch'].max()+1):
                 batch_DF = UMI_groups_above_threshold[UMI_groups_above_threshold['batch']==batch_index]
                 batch_UMI_IDs = list(batch_DF['unique_id'])
@@ -210,18 +211,15 @@ class UMI_consensus:
                         UMI_BAMbatchDict[ID].append(BAMentry)
                 BAMin.reset()
                 
-                fqBatch = []
                 for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():
                     consensusSeq, consensusQuals = self.generate_consensus_FASTQ_record(UMIgroupBAMentries)
                     row = UMI_groups_above_threshold[UMI_groups_above_threshold['unique_id']==ID].iloc[0]
                     record = SeqRecord(Seq(consensusSeq), id=f"UMI_{ID}_consensus_sequence", description=f"sampleid={self.tag} readcount={row['final_umi_count']} umi={row['final_umi']}")
                     record.letter_annotations['phred_quality'] = consensusQuals
                     fqBatch.append(record)
-                    counter += 1
-                    if counter%10000 == 0:
-                        SeqIO.write(fqBatch, output, 'fastq')
-                        fqBatch = []
-            SeqIO.write(fqBatch, output, 'fastq')
+
+                SeqIO.write(fqBatch, output, 'fastq')
+                fqBatch = []
 
 if __name__ == '__main__':
     main()
