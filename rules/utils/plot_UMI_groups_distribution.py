@@ -3,6 +3,9 @@ plot_UMI_groups_distribution.py
 plots the distribution of counts of UMIs identified in provided UMI_tools group log file"""
 
 from bokeh.plotting import figure, output_file, show, save
+from bokeh.models import (BasicTicker, ColorBar, ColumnDataSource, FactorRange,
+                          HoverTool, Legend, LinearColorMapper,
+                          PrintfTickFormatter)
 import os
 import pandas as pd
 import numpy as np
@@ -17,7 +20,7 @@ output_file(snakemake.output.plot)
     
 plotTitle = f"{tag}_UMI_groups_distribution"
 
-# get data, convert into a proper distribution
+# get data, convert into a proper distribution, with one column representing number of read groups, and one representing total reads
 fullDF = pd.read_csv(inFile, sep='\t')
 UMIcounts = fullDF[['final_umi_count', 'unique_id']].drop_duplicates()['final_umi_count']
 UMIcountsList = list(UMIcounts)
@@ -26,11 +29,14 @@ dist = np.zeros([maxCount])
 for count in UMIcountsList:
     dist[count-1] += 1
 
-xLabel, yLabel = 'n', 'unique UMI groups with n sequences'
-plotDF = pd.DataFrame({xLabel:[i for i in range(1,maxCount+1)], yLabel:list(dist)})
+xLabel, yLabel = 'n_number_of_reads_in_UMI_group', 'reads_in_UMI_groups_with_n_reads'
+# xLabel, yLabel = 'x', 'y'
+plotDF = pd.DataFrame({xLabel:[i for i in range(1,maxCount+1)], yLabel:[(i+1)*a for i,a in enumerate(dist)], 'unique_UMI_groups':list(dist)})
 
-plot = figure(title=plotTitle, plot_width=800, plot_height=600)
-plot.vbar(x=plotDF[xLabel], top=plotDF.iloc[:,1], width=0.5, bottom=0, color='black')
+TOOLTIPS = [(xLabel, f'@{xLabel}'), (yLabel, f'@{yLabel}'), ('unique_UMI_groups', '@unique_UMI_groups')]
+# TOOLTIPS = [(xLabel, '$name'), (yLabel, '$name'), ('unique UMI groups', '$name')] 
+plot = figure(title=plotTitle, plot_width=800, plot_height=600, tooltips=TOOLTIPS)
+plot.vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=ColumnDataSource(plotDF))
 plot.xaxis.axis_label = xLabel
 plot.yaxis.axis_label = yLabel
 

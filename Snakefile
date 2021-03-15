@@ -220,7 +220,7 @@ else:
         else:
             if not os.path.exists(sequences):
                 for runname in config['runs'][tag]['runname']:
-                    batch = os.path.join('sequences', 'batches', tag, runname)
+                    batch = os.path.join('sequences', 'batches', runname)
                     if not os.path.exists(batch):
                         print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
 
@@ -358,6 +358,7 @@ to make sure everything is configured correctly.
 rule targets:
     input:
         expand('{tag}_mutation-stats.csv', tag=config['runs']),
-        expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT']),
+        expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']),
         expand('plots/{tag}_mutation-spectra.html', tag=config['runs']),
-        expand('plots/{tag}_{AAorNT}-mutations-aggregated.html', tag=config['runs'], AAorNT=['AA','NT'])
+        expand('plots/{tag}_{AAorNT}-mutations-aggregated.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']),
+        expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs'])

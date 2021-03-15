@@ -24,7 +24,7 @@ def get_batch_ids_raw(config, tag, runname):
     return batches_tar + batches_fast5
 
 def get_batch_ids_sequences(config, tag, runname):
-    batches_fastqgz, = glob_wildcards("sequences/batches/{tag}/{runname}/{{id}}.fastq.gz".format(tag=tag, runname=runname))
+    batches_fastqgz, = glob_wildcards("sequences/batches/{runname}/{{id}}.fastq.gz".format(tag=tag, runname=runname))
     return batches_fastqgz
 
 # get batches
@@ -32,13 +32,11 @@ def get_batches_basecaller(wildcards):
     output = []
     for runname in config['runs'][wildcards.tag]['runname']:
         if config['do_basecalling']:
-            outputs = expand("sequences/batches/{tag}/{runname}/{batch}.fastq.gz",
-                                tag = wildcards.tag,
+            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
                                 runname=runname,
-                                batch=get_batch_ids_raw(config, wildcards.tag, runname))
+                                batch=get_batch_ids_raw(config, tag, runname))
         else:
-            outputs = expand("sequences/batches/{tag}/{runname}/{batch}.fastq.gz",
-                                tag = wildcards.tag,
+            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
                                 runname = runname,
                                 batch = get_batch_ids_sequences(config, tag, runname))
         output.extend(outputs)
@@ -52,9 +50,9 @@ if config['do_basecalling']:
             batch = lambda wildcards : get_signal_batch(wildcards, config),
             run = lambda wildcards : [os.path.join(config['storage_data_raw'], wildcards.runname)] + ([os.path.join(config['storage_data_raw'], wildcards.runname, 'reads.fofn')] if get_signal_batch(wildcards, config).endswith('.txt') else [])
         output:
-            ["sequences/batches/{tag}/{runname}/{batch, [^.]*}.fastq.gz"] +
-            ["sequences/batches/{tag}/{runname}/{batch, [^.]*}.sequencing_summary.txt"] +
-            (["sequences/batches/{tag}/{runname}/{batch, [^.]*}.hdf5"] if config.get('basecalling_guppy_config') and 'modbases' in config['basecalling_guppy_config'] else [])
+            ["sequences/batches/{runname}/{batch, [^.]*}.fastq.gz"] +
+            ["sequences/batches/{runname}/{batch, [^.]*}.sequencing_summary.txt"] +
+            (["sequences/batches/{runname}/{batch, [^.]*}.hdf5"] if config.get('basecalling_guppy_config') and 'modbases' in config['basecalling_guppy_config'] else [])
         shadow: "shallow"
         threads: config['threads_basecalling']
         resources:
@@ -90,7 +88,7 @@ rule basecaller_stats:
     input:
         lambda wildcards: get_batches_basecaller(wildcards)
     output:
-        "sequences/batches/{tag}/{runname}.hdf5"
+        "sequences/batches/{runname}.hdf5"
     run:
         import gzip
         import pandas as pd
@@ -325,8 +323,9 @@ if config['demux']:
             aln = 'alignments/{tag}.bam',
             flag = 'demux/.{tag}_generate_barcode_ref.done'
         output:
-            touch('demux/.{tag, [^\/_]*}_demultiplex.done')
+            flag = touch('demux/.{tag, [^\/_]*}_demultiplex.done'),
             # checkpoint outputs have the following structure: demux/{tag}_{barcodeGroup}.BAM'
+            stats = '{tag, [^\/_]*}_demuxStats.csv'
         script:
             'utils/demux.py'
 
@@ -399,7 +398,16 @@ rule plot_mutations_aggregated:
         aggregated = plot_mutations_aggregated_input,
         mutStats = '{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/]*}_{AAorNT}-mutations-aggregated.html'
+        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-aggregated.html'
+    script:
+        'utils/plot_mutations_aggregated.py'
+
+rule plot_mutations_aggregated_barcodeGroup:
+    input:
+        aggregated = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-aggregated.csv',
+        mutStats = '{tag}_mutation-stats.csv'
+    output:
+        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-muts-aggregated.html'
     script:
         'utils/plot_mutations_aggregated.py'
 
@@ -414,9 +422,16 @@ def plot_mutations_distribution_input(wildcards):
 
 rule plot_mutations_distribution:
     input:
-        plot_mutations_distribution_input
+        dist = plot_mutations_distribution_input
     output:
-        'plots/{tag, [^\/]*}_{AAorNT}-mutation-distributions.html'
+        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
     script:
         'utils/plot_mutation_distribution.py'
 
+rule plot_mutations_distribution_barcodeGroup:
+    input:
+        dist = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv'
+    output:
+        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
+    script:
+        'utils/plot_mutation_distribution.py'

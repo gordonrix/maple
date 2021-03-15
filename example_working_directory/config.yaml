@@ -46,7 +46,7 @@ UMI_consensus_threshold: 2  # minimum required number of reads with a particular
 # alignment flags for samtools
 alignment_samtools_flags: ''
 # command line flags for minimap2 DNA alignment
-alignment_minimap2_flags: '-a -A2 -B4 -O12 -E4 --secondary=no --end-bonus=15'   # options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
+alignment_minimap2_flags: '-a -A2 -B4 -O18 -E4 --secondary=no --end-bonus=15'   # options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
 
 
 # demultiplexing
@@ -106,7 +106,7 @@ runs:
                 context: CNNNNNNG                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
                 fasta: ref/barcodes.fasta           # fasta file containing barcode sequences 
                 reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
-                hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error
+                hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
             rvs:
                 context: TNNNNNN  
                 fasta: ref/barcodes.fasta

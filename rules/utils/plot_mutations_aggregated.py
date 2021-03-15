@@ -10,12 +10,13 @@ from bokeh.models import (BasicTicker, ColorBar, ColumnDataSource, FactorRange,
                           PrintfTickFormatter)
 from bokeh.palettes import Inferno
 from bokeh.plotting import figure, output_file, save, show
+from snakemake.io import Namedlist
 
 ### Asign variables from config file and inputs
 config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
-inputList = snakemake.input.aggregated
+inputAggregated = snakemake.input.aggregated
 mutStatsDF = pd.read_csv(snakemake.input.mutStats)
 assert 'mutations_aggregated_Yaxis_absolute' in config and (config['mutations_aggregated_Yaxis_absolute'] in [True, False]), '`mutations_aggregated_Yaxis_absolute` option not set in config file. Please set to True or False.'
 if config['mutations_aggregated_Yaxis_absolute'] == True:
@@ -24,14 +25,19 @@ elif config['mutations_aggregated_Yaxis_absolute'] == False:
     yAxisLabel = 'proportion of reads'
 ###
 
-### Output variables
-output_file(str(snakemake.output))
-###
+output_file(snakemake.output[0])
+
+if type(inputAggregated) == Namedlist:
+    mode = 'grouped'
+else:
+    mode = 'individual'
+    inputAggregated = [inputAggregated]
 
 wtColumn = f'wt_{AAorNT}'
+
 plotList = []
 first = True #add legend only for first plot
-for inFile in inputList:
+for inFile in inputAggregated:
 
     ### Get mutation data, convert to more readily plottable format
     barcodeGroup = inFile.split('_')[-2]
@@ -65,12 +71,12 @@ for inFile in inputList:
             newPalette.append(p)
         palette = newPalette
 
-        muts =    ['A', 'V', 'I', 'L', 'M', 'F', 'Y', 'W',
-                   'S', 'T', 'N', 'Q',
-                   'R', 'H', 'K',
-                   'D', 'E',
-                   'C', 'G', 'P',
-                   '*']
+        muts =     ['A', 'V', 'I', 'L', 'M', 'F', 'Y', 'W',
+                    'S', 'T', 'N', 'Q',
+                    'R', 'H', 'K',
+                    'D', 'E',
+                    'C', 'G', 'P',
+                    '*']
 
         mutsDF = mutsDF[muts]
 
@@ -78,12 +84,12 @@ for inFile in inputList:
         for i,n in enumerate([8, 4, 3, 2, 3, 1]):
             colors.extend([palette[i] for x in range(0,n)])
 
-        hatches = [' ', 'v', '"', '>', '.', '`', 'x', 'o',
-                   ' ', 'v', '"', '>',
-                   ' ', 'v', '"',
-                   ' ', 'v',
-                   ' ', 'v', '"',
-                   ' ']
+        hatches =  [' ', 'v', '"', '>', '.', '`', 'x', 'o',
+                    ' ', 'v', '"', '>',
+                    ' ', 'v', '"',
+                    ' ', 'v',
+                    ' ', 'v', '"',
+                    ' ']
 
         hatchColors = []
         for c,n in zip(['#000000', '#000000', '#D4DCDE', '#D4DCDE', '#D4DCDE', '#D4DCDE'],[8, 4, 3, 2, 3, 1]):
@@ -123,5 +129,4 @@ for inFile in inputList:
 
     plotList.append(barcodePlot)
 
-# assert False, 'finished'
 save(column(plotList))

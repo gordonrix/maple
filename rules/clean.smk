@@ -107,8 +107,13 @@ rule clean:
         rules.demux_clean.output,
         rules.mutation_data_clean.output,
         rules.logs_clean.output
+    params:
+        timestampDir = lambda wildcards: config['timestamp']
     shell:
-        "rm {input}"
+        """
+        rm {input}
+        tar -zcf {params.timestampDir}.tar.gz {params.timestampDir}
+        """
 
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
 #

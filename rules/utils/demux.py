@@ -32,10 +32,11 @@ def main():
     BAMin = snakemake.input.aln
 
     ### Output variables
-    outputDir = str(snakemake.output[0]).split(f'/.{tag}_demultiplex.done')[0]
+    outputDir = str(snakemake.output.flag).split(f'/.{tag}_demultiplex.done')[0]
+    outputStats = snakemake.output.stats
 
     bcp = BarcodeParser(config, tag)
-    bcp.demux_BAM(BAMin, outputDir)
+    bcp.demux_BAM(BAMin, outputDir, outputStats)
 
 class BarcodeParser:
 
@@ -374,7 +375,7 @@ class BarcodeParser:
         return self.get_demux_output_prefix(sequenceBarcodesDict), outList
 
 
-    def demux_BAM(self, BAMin, outputDir):
+    def demux_BAM(self, BAMin, outputDir, outputStats):
 
         bamfile = pysam.AlignmentFile(BAMin, 'rb')
         self.add_barcode_contexts()
@@ -422,7 +423,7 @@ class BarcodeParser:
 
         demuxStats = pd.DataFrame(rows, columns=colNames)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
-        demuxStats.to_csv(os.path.join(outputDir, f'{self.tag}_demuxStats.csv'))
+        demuxStats.to_csv(outputStats)
 
         # move files with sequence counts below the set threshold to a subdirectory
         demuxStatsLowCount = demuxStats[demuxStats['count']<self.config['demux_threshold']]

@@ -25,7 +25,7 @@ def main():
         'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
         datatypes.extend(['AA-muts-distribution', 'AA-muts-aggregated'])
     else:
-        cols = ['sample', 'barcode_pair', 'total_seqs', 'total_failed_seqs',
+        cols = ['sample', 'barcode_group', 'total_seqs', 'total_failed_seqs',
         'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
     for sample in fDict:
         for bcGroup in fDict[sample]:

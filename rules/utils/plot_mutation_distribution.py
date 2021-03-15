@@ -3,21 +3,25 @@ from bokeh.layouts import column
 import os
 import pandas as pd
 import numpy as np
+from snakemake.io import Namedlist
 
 ### Asign variables from config file and inputs
 config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
-inputList = snakemake.input
-# if inputList!=list: inputList = [inputList]
 N = config['percentile']
 ###
 
 ### Output variables
-outDir = str(snakemake.output).split('/')[0]
-outName = os.path.join(outDir, f"{tag}_{str(snakemake.output).split('_')[-1]}")
-output_file(outName)
+output_file(snakemake.output[0])
 ###
+
+if type(snakemake.input.dist) == Namedlist:
+    mode = 'grouped'
+    inputList = snakemake.input.dist
+else:
+    mode = 'individual'
+    inputList = [snakemake.input.dist]
 
 plotDict = {}
 
@@ -54,6 +58,8 @@ for inFile in inputList:    # get the maximum Nth percentile for all plots
     percentiles.append(calculate_Nth_percentile(N, distInfoDict['df']))
 
 maxpercentile = np.max(percentiles)
+if maxpercentile < 5:
+    maxpercentile = 5
 
 for distInfoDict in distInfoDictList:
     

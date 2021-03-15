@@ -60,7 +60,7 @@ class UMI_Extractor:
 
         location = sequence.find(context)
         if location == -1:
-            self.logDict[f'context_failure_{i+1}_not_present_in_alignment'][0] += 1
+            self.logFailure[i] += 1
             return 'fail', 'fail'
         N_start = location + context.find('N')
         N_end = location + len(context) - context[::-1].find('N')
@@ -117,30 +117,30 @@ class UMI_Extractor:
 
         BAMin = pysam.AlignmentFile(self.BAMin, 'rb')
         BAMout = pysam.AlignmentFile(self.BAMout, 'wb', template=BAMin)
-        self.logDict = {'sequence_success':[0], 'sequence_failure':[0]}
-        for i in range(0,len(self.UMI_contexts)):
-            self.logDict[f'context_failure_{i+1}_not_present_in_alignment'] = [0]
-            self.logDict[f'context_failure_{i+1}_appears_in_alignment_more_than_once'] = [0]
+
+        self.logList = []
+        columns = ['read_id', 'umi', 'success', 'failure'] + [f'umi__{i+1}_failure' for i,a in enumerate(self.UMI_contexts)]
+
         count = 0
         for BAMentry in BAMin.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
+            self.logFailure = np.zeros(len(self.UMI_contexts))
             UMIs = self.id_UMIs(refAln, BAMentry)
 
             if UMIs:
-                BAMentry.query_name = BAMentry.query_name + '_' + UMIs
+                self.logList.append([BAMentry.qname, UMIs, 1, 0] + list(map(int, self.logFailure)))
+                BAMentry.qname = BAMentry.qname + '_' + UMIs
                 BAMentry.set_tag('GN', '0', 'H')
-                self.logDict['sequence_success'][0] += 1
                 BAMout.write(BAMentry)
-                count+=1
             else:
-                self.logDict['sequence_failure'][0] += 1
+                self.logList.append([BAMentry.qname, '', 0, 1] + list(map(int, self.logFailure)))
         
         BAMin.close()
         BAMout.close()
         pysam.index(self.BAMout)
 
-        logDF = pd.DataFrame(self.logDict)
-        logDF.to_csv(self.logOut)
+        logDF = pd.DataFrame(self.logList, columns=columns)
+        logDF.to_csv(self.logOut, index=False)
 
 
 if __name__ == '__main__':
