@@ -90,7 +90,7 @@ def main():
         df = df.sort_values('count', ascending=False).reset_index(drop=True)
         barcodeDFs[barcodeType] = df
 
-    # use DataFrame of barcodes, to write fasta file
+    # use DataFrame of barcodes to write fasta file
     for barcodeType, df in barcodeDFs.items():
         HDbarcodesList = [] # list to be populated with all sequences that are within the set hamming distance from any barcode that was already written to the file, to prevent hamming distance overlap
         maxBCs = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
@@ -112,7 +112,7 @@ def main():
                     else:
                         hammingDistanceList = [str(row.barcode)]
 
-                    HDbarcodesList.extend(hammingDistanceList)      
+                    HDbarcodesList.extend(hammingDistanceList)
 
 if __name__ == '__main__':
     main()

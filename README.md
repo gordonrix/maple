@@ -14,7 +14,7 @@ and critical:
 
 Additionally, many concepts and code are borrowed from the (very sophisticated) snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
 
-## Getting started
+## Setup
 
 Maple requires conda, which can be installed by following [these instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/).
 Miniconda is lighter weight and provides all that is needed by Maple. If basecalling ONT data is needed,
@@ -56,3 +56,40 @@ we created in the previous step, will carry out all the steps to provide the env
 needed for execution of the pipeline:
 
     snakemake --snakefile rules/install.smk --directory ~/.conda/envs/maple -j 4 all
+
+
+## Usage
+
+Snakemake takes as input a file name corresponding to a file that it is capable of generating via some sequence of steps, or 'rules', working backwards to determine
+which rules must be run, then running each of these rules to generate the user-specified file, along with all the files that were generated while carrying out
+the necessary steps.
+
+Maple relies upon a configuration file to determine what files can be generated. A portion of this config file is devoted to global settings that will
+be applied to all datasets analyzed using this config file, while another portion is used to designate information specific to each dataset being analyzed,
+organized by 'tags' which will be applied to all filenames. Detailed information on these settings can be found in example_working_directory/config.yaml.
+
+Following installation, the steps required for basic usage of the pipeline are as follows:
+1. Create a directory for the dataset(s) that you wish to analyze by copying the example_working_directory to a location of your choice,
+rename it as desired, and navigate to this new directory.
+2. Modify the config.yaml file within the new directory as appropriate. Most of these settings can remain unchanged, but the settings for individual
+tag(s) should be changed, such as the sequencing data and reference sequences file locations and barcode information (if demultiplexing is required)
+3. Modify the reference sequence and barcode .fasta files (located in the 'ref' directory) as appropriate. Use the exampleReferences.fasta file
+for assistance with determining the appropriate reference sequences.
+4. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
+and designating a number of threads. In most cases, at least 4 threads should be used. Take care to run the pipeline only when in the working
+directory (e.g. example_working_directory), otherwise the --directory flag must be used to specify a directory that contains the appropriate
+files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The path to the maple snakefile must also be modified as appropriate:
+
+    conda activate maple
+    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 example_mutation-stats.csv
+
+In place of a specific file name, 'targets' can be used to invoke a rule that automatically carries out most of the analysis that maple can do
+for each of the designated tags:
+
+    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 targets
+
+Likewise, if you'd like to restart your analysis without cluttering your working directory with additional tags, or if you just want to package up the key analysis files
+for transfer or storage, the 'clean' rule can be called. This will move or copy all the small files generated during analyses to a timestamped directory
+and removes large files such as alignment files, without modifying large important files such as .fast5 files and unmerged .fastq files.
+
+    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 clean

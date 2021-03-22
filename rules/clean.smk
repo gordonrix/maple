@@ -60,8 +60,6 @@ rule demux_clean:
     shell:
         """
         if [ -d demux ]; then
-            mkdir -p {params.timestampDir}
-            find demux -type f -name '*.csv' | xargs mv -t {params.timestampDir}
             rm -r demux
         fi
         """
