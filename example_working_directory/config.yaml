@@ -59,15 +59,13 @@ sequence_length_threshold: 0.1              # Proportion of sequence length to b
 do_AA_analysis: True                        # If set to False, only nucleotide-level analysis will be generated. If set to true, AA-level analysis generated as well and, to prevent mismatch between nucleotide and amino acid -level analysis, sequences that do not pass AA-level quality checks will not be analyzed (e.g. sequences with frameshift mutations)
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
+mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
 percentile: 90                      # percentile of mutation distribution to show. X axis of plot will be 1.5x this percentile for the maximum of all distributions for the tag
-
-# plot_mutations_aggregated
-mutations_aggregated_Yaxis_absolute: False                 # display raw mutation counts on y axis. If set to False, y axis displays proportion of sequences with each mutation (total mutation / total sequences). If set to True, y axis displays total number of each mutation.
 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum
@@ -77,7 +75,7 @@ mutations_aggregated_Yaxis_absolute: False                 # display raw mutatio
 # runs to be analyzed, organized into separate run tags
 runs:
     
-    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs
+    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 
         # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
         #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
@@ -121,6 +119,7 @@ runs:
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
+                        #   Names must also be a string. If a numerical barcodeGroup is desired, it must be flanked with quotation marks to convert it to a string.
             Y390-1000:
                 fwd: Barcode1
                 rvs: Barcode2

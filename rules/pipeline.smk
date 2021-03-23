@@ -344,7 +344,7 @@ if config['demux']:
             bam = 'demux/{tag}_{barcodes}.bam',
             bai = 'demux/{tag}_{barcodes}.bam.bai'
         output:
-            expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv', 'AA-muts-aggregated.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv'])
+            expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
         script:
             'utils/mutation_analysis.py'
 
@@ -354,12 +354,12 @@ else:
             bam = 'alignments/{tag}.bam',
             bai = 'alignments/{tag}.bam.bai'
         output:
-            expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv', 'AA-muts-aggregated.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv'])
+            expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
         script:
             'utils/mutation_analysis.py'
 
 def mut_stats_input(wildcards):
-    datatypes = ['genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv', 'AA-muts-aggregated.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['genotypes.csv', 'failures.csv', 'NT-muts-aggregated.csv', 'NT-muts-distribution.csv']
+    datatypes = ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_analysis'] else ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
@@ -384,32 +384,32 @@ rule plot_mutation_spectrum:
     script:
         'utils/plot_mutation_spectrum.py'
 
-def plot_mutations_aggregated_input(wildcards):
+def plot_mutations_frequencies_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-aggregated.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
+        return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
-        return 'mutation_data/{tag}_all_{AAorNT}-muts-aggregated.csv'
+        return 'mutation_data/{tag}_all_{AAorNT}-muts-frequencies.csv'
 
-rule plot_mutations_aggregated:
+rule plot_mutations_frequencies:
     input:
-        aggregated = plot_mutations_aggregated_input,
+        frequencies = plot_mutations_frequencies_input,
         mutStats = '{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-aggregated.html'
+        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-frequencies.html'
     script:
-        'utils/plot_mutations_aggregated.py'
+        'utils/plot_mutations_frequencies.py'
 
-rule plot_mutations_aggregated_barcodeGroup:
+rule plot_mutations_frequencies_barcodeGroup:
     input:
-        aggregated = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-aggregated.csv',
+        frequencies = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv',
         mutStats = '{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-muts-aggregated.html'
+        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-muts-frequencies.html'
     script:
-        'utils/plot_mutations_aggregated.py'
+        'utils/plot_mutations_frequencies.py'
 
 def plot_mutations_distribution_input(wildcards):
     if config['demux']:

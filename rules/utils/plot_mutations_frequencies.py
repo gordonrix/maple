@@ -16,48 +16,42 @@ from snakemake.io import Namedlist
 config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
-inputAggregated = snakemake.input.aggregated
+inputFrequencies = snakemake.input.frequencies
 mutStatsDF = pd.read_csv(snakemake.input.mutStats)
-assert 'mutations_aggregated_Yaxis_absolute' in config and (config['mutations_aggregated_Yaxis_absolute'] in [True, False]), '`mutations_aggregated_Yaxis_absolute` option not set in config file. Please set to True or False.'
-if config['mutations_aggregated_Yaxis_absolute'] == True:
+if config['mutations_frequencies_raw'] == True:
     yAxisLabel = 'total mutation count'
-elif config['mutations_aggregated_Yaxis_absolute'] == False:
+elif config['mutations_frequencies_raw'] == False:
     yAxisLabel = 'proportion of reads'
 ###
 
 output_file(snakemake.output[0])
 
-if type(inputAggregated) == Namedlist:
+if type(inputFrequencies) == Namedlist:
     mode = 'grouped'
 else:
     mode = 'individual'
-    inputAggregated = [inputAggregated]
+    inputFrequencies = [inputFrequencies]
 
 wtColumn = f'wt_{AAorNT}'
 
 plotList = []
 first = True #add legend only for first plot
-for inFile in inputAggregated:
+for inFile in inputFrequencies:
 
     ### Get mutation data, convert to more readily plottable format
     barcodeGroup = inFile.split('_')[-2]
     plotTitle = f'{tag}_{barcodeGroup}'
-    totalMutsDF = pd.read_csv(inFile, index_col=0).transpose()
-    wt = list(totalMutsDF.index)
-    totalMutations = totalMutsDF.values.sum()
+    mutsDF = pd.read_csv(inFile, index_col=0).transpose()
+    wt = list(mutsDF.index)
     totalSequences = mutStatsDF.loc[mutStatsDF['barcode_group']==barcodeGroup, 'total_seqs'].iloc[0]
 
     if totalSequences == 0:
         continue
-    
-    proportionMutsDF = totalMutsDF.divide(totalSequences)
 
     # set appropriate dataframe and tooltips label to use for plotting
     if yAxisLabel == 'total mutation count':
-        mutsDF = totalMutsDF
         tooltipValueLabel = 'total count'
     elif yAxisLabel == 'proportion of reads':
-        mutsDF = proportionMutsDF
         tooltipValueLabel = 'proportion of reads'
 
     yAxisLabelWithReadCount = yAxisLabel + f' (n = {totalSequences})'

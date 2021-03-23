@@ -69,7 +69,7 @@ rule mutation_data_clean:
         touch('.mutation_data_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp'],
-        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data'] or directoryORfile.endswith('_mutation-stats.csv')]
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data'] or directoryORfile.endswith(('_mutation-stats.csv', '_demuxStats.csv'))]
     shell:
         """
         if [ ! -z "{params.keep}" ]; then
@@ -110,7 +110,7 @@ rule clean:
     shell:
         """
         rm {input}
-        tar -zcf {params.timestampDir}.tar.gz {params.timestampDir}
+        tar -zcf {params.timestampDir}.tar.gz {params.timestampDir} --remove-files
         """
 
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics

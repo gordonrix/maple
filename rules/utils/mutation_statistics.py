@@ -19,11 +19,11 @@ inputList = snakemake.input
 def main():
     statsList = [] # list to be populated with one row of mutation data per sample/barcode combination
     fDict = inFileDict(inputList)
-    datatypes = ['genotypes', 'failures', 'NT-muts-aggregated', 'NT-muts-distribution']
+    datatypes = ['genotypes', 'failures', 'NT-muts-frequencies', 'NT-muts-distribution']
     if config['do_AA_analysis']:
         cols = ['sample', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
         'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
-        datatypes.extend(['AA-muts-distribution', 'AA-muts-aggregated'])
+        datatypes.extend(['AA-muts-distribution', 'AA-muts-frequencies'])
     else:
         cols = ['sample', 'barcode_group', 'total_seqs', 'total_failed_seqs',
         'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
@@ -38,7 +38,11 @@ def main():
             
             failCount = len(DFdict['failures'])
 
-            NTmuts = DFdict['NT-muts-aggregated'].transpose()
+            
+            NTmuts = DFdict['NT-muts-frequencies'].transpose()
+            if not config['mutations_frequencies_raw']:
+                NTmuts = NTmuts * totalSeqs
+                NTmuts = NTmuts.astype('int')
             total_NT_mutations = NTmuts.values.sum()
             NTmuts.reset_index(inplace=True)
             transNTmuts = NTmuts.apply(lambda row:
@@ -51,7 +55,10 @@ def main():
 
             if config['do_AA_analysis']:
                 AAdist = DFdict['AA-muts-distribution']['seqs_with_n_AAsubstitutions']
-                total_AA_mutations = DFdict['AA-muts-aggregated'].values.sum()
+                if config['mutations_frequencies_raw']:
+                    total_AA_mutations = DFdict['AA-muts-frequencies'].values.sum()
+                else:
+                    total_AA_mutations = (DFdict['AA-muts-frequencies'] * totalSeqs).values.sum()
                 valuesList.extend([total_AA_mutations, compute_mean_from_dist(AAdist), compute_median_from_dist(AAdist)])
 
             valuesList.extend([total_NT_mutations, compute_mean_from_dist(NTdist), compute_median_from_dist(NTdist),

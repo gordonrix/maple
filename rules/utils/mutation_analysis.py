@@ -338,6 +338,8 @@ class MutationAnalysis:
         NTmutDF.set_index('wt_nucleotides', inplace=True)
         NTmutDF = NTmutDF.transpose()
 
+        totalSeqs = int(NTmutDist.sum())
+
         NTdistDF = pd.DataFrame(NTmutDist, columns=['seqs_with_n_NTsubstitutions'])
         NTdistDF.index.name = 'n'
 
@@ -346,6 +348,8 @@ class MutationAnalysis:
         genotypesDFcondensed.to_csv(self.outputList[1], index=False)
         failuresDF.to_csv(self.outputList[2], index=False)
         NTmutDF.index.name = 'NT_mutation_count'
+        if not self.config['mutations_frequencies_raw']:
+            NTmutDF = NTmutDF.divide(totalSeqs)
         NTmutDF.to_csv(self.outputList[3])
         NTdistDF.to_csv(self.outputList[4])
         
@@ -359,6 +363,8 @@ class MutationAnalysis:
             AAmutDF.set_index('wt_residues', inplace=True)
             AAmutDF = AAmutDF.transpose()
             AAmutDF.index.name = 'AA_mutation_count'
+            if not self.config['mutations_frequencies_raw']:
+                AAmutDF = AAmutDF.divide(totalSeqs)
             AAmutDF.to_csv(self.outputList[5])
 
             AAdistDF = pd.DataFrame(AAmutDist, columns=['seqs_with_n_AAsubstitutions'])

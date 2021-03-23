@@ -53,7 +53,7 @@ class BarcodeParser:
         self.reference = list(SeqIO.parse(self.refSeqfasta, 'fasta'))[0]
         self.reference.seq = self.reference.seq.upper()
         self.barcodeInfo = config['runs'][tag]['barcodeInfo']
-        self.barcodeGroups = config['runs'][tag]['barcodeGroups']
+        self.barcodeGroups = config['runs'][tag]['barcodeGroups'] if 'barcodeGroups' in config['runs'][tag] else {}
 
     @staticmethod
     def create_barcodes_dict(bcFASTA, revComp):

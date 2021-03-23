@@ -191,10 +191,8 @@ else:
 	config['bin_singularity']['python'] = sys.executable
 
 
-# # names for multi-run rules
-runnames = []
-config['runnames'] = [config['runs'][tag]['runname'] for tag in config['runs']]
-
+if config['do_basecalling'] and config['marge_paired_end']:
+    raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
 # check raw data archive
 if config['do_basecalling']:
@@ -214,7 +212,17 @@ if config['do_basecalling']:
 else:
     for tag in config['runs']:
         sequences = os.path.join('sequences', tag+'.fastq.gz')
-        if 'runname' not in config['runs'][tag]:
+
+        if config['merge_paired_end'] == True:
+            if not os.path.exists(sequences):
+                if 'fwdReads' not in config['runs'][tag] or 'fwdReads' not in config['runs'][tag]:
+                    print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`")
+                fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
+                rvs = os.path.join('sequences', 'paired', config['runs'][tag]['rvsReads'])
+                if not all((os.path.exists(fwd), os.path.exists(rvs))):
+                    print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files provided for {tag}, {fwd}, {rvs} do not exist")
+
+        elif 'runname' not in config['runs'][tag]:
             if not os.path.exists(sequences):
                 print_(f"[WARNING] `do_basecalling` set to False and runname director(y/ies) not set for {config['runs'][tag]}, but sequences file `{sequences}` not found", file=sys.stderr)
         else:
@@ -355,10 +363,16 @@ to make sure everything is configured correctly.
 # Written by Pay Giesselmann, modified by Gordon Rix
 # ---------------------------------------------------------------------------------
 
+def targets_input(wildcards):
+    out = []
+    out.extend(expand('{tag}_mutation-stats.csv', tag=config['runs']))
+    out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
+    out.extend(expand('plots/{tag}_mutation-spectra.html', tag=config['runs']))
+    out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
+    if config['UMI_consensus']:
+        out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
+    return out
+
 rule targets:
     input:
-        expand('{tag}_mutation-stats.csv', tag=config['runs']),
-        expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']),
-        expand('plots/{tag}_mutation-spectra.html', tag=config['runs']),
-        expand('plots/{tag}_{AAorNT}-mutations-aggregated.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']),
-        expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs'])
+        targets_input
