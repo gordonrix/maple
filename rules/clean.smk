@@ -34,7 +34,8 @@ rule sequences_clean:
         """
         mkdir -p {params.timestampDir}
         if [ -d sequences/UMI ]; then
-            find sequences/UMI -type f \( -name "*.csv" -o -name "*.tsv" \) | xargs mv -t {params.timestampDir}
+            find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
+            find sequences/UMI -type f \( -name "*.tsv" \) | xargs cp -t {params.timestampDir}
         fi
         find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
