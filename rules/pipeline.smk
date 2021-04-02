@@ -201,8 +201,8 @@ rule UMI_group:
         bam = 'sequences/UMI/{tag}_UMIextract.bam',
         index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
     output:
-        bam = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam'),
-        index = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam.bai'),
+        bam = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam',
+        index = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam.bai',
         log = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv'
     params:
         UMI_mismatches = lambda wildcards: config['UMI_mismatches']
