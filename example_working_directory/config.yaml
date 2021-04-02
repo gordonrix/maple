@@ -1,8 +1,10 @@
 ### begin nanopore only section ###
 
 # .fast5 formatted raw sequencing data parent directory containing one folder per flow cell
-# which themselves contain 'reads' subfolder containing .fast5 files
 storage_data_raw : data
+# directory within above directory that contains reads
+fast5_dir: fast5
+
 
 # How to parse the folders found in 'storage_data_raw'. A 'reads' subfolder is
 # expected containing the batches of fast5 raw reads.

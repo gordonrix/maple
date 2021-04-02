@@ -35,7 +35,6 @@ rule sequences_clean:
         mkdir -p {params.timestampDir}
         if [ -d sequences/UMI ]; then
             find sequences/UMI -type f \( -name "*.csv" -o -name "*.tsv" \) | xargs mv -t {params.timestampDir}
-            rm -r -f sequences/UMI
         fi
         find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
@@ -110,7 +109,7 @@ rule clean:
     shell:
         """
         rm {input}
-        tar -zcf {params.timestampDir}.tar.gz {params.timestampDir} --remove-files
+        zip -r -m {params.timestampDir}.zip {params.timestampDir}
         """
 
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics

@@ -9,7 +9,7 @@ if not config['merge_paired_end']:
 # get batch of reads as IDs or fast5
 def get_signal_batch(wildcards, config):
     raw_dir = config['storage_data_raw']
-    batch_file = os.path.join(raw_dir, wildcards.runname, 'reads', wildcards.batch)
+    batch_file = os.path.join(raw_dir, wildcards.runname, config['fast5_dir'], wildcards.batch)
     if os.path.isfile(batch_file + '.tar'):
         return batch_file + '.tar'
     elif os.path.isfile(batch_file + '.fast5'):
@@ -19,8 +19,8 @@ def get_signal_batch(wildcards, config):
 
 # prefix of raw read batches
 def get_batch_ids_raw(config, tag, runname):
-    batches_tar, = glob_wildcards("{datadir}/{runname}/reads/{{id}}.tar".format(datadir=config["storage_data_raw"], runname=runname))
-    batches_fast5, = glob_wildcards("{datadir}/{runname}/reads/{{id}}.fast5".format(datadir=config["storage_data_raw"], runname=runname))
+    batches_tar, = glob_wildcards("{datadir}/{runname}/{reads}/{{id}}.tar".format(datadir=config["storage_data_raw"], runname=runname, reads=config['fast5_dir']))
+    batches_fast5, = glob_wildcards("{datadir}/{runname}/{reads}/{{id}}.fast5".format(datadir=config["storage_data_raw"], runname=runname, reads=config['fast5_dir']))
     return batches_tar + batches_fast5
 
 def get_batch_ids_sequences(config, tag, runname):
@@ -233,18 +233,17 @@ rule UMI_compress:
     input:
         'sequences/UMI/{tag}_UMIconsensus.fastq'
     output:
-        'sequences/{tag, [^\/_]*}_UMIconsensus.fastq.gz'
+        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq.gz'
     params:
         temp = lambda wildcards: f'sequences/UMI/{wildcards.tag}_UMIconsensus.fastq.gz'
     shell:
         """
         gzip {input}
-        mv {params.temp} {output}
         """
 
 def alignment_sequence_input(wildcards):
     if config['UMI_consensus']:
-        return 'sequences/{tag}_UMIconsensus.fastq.gz'
+        return 'sequences/UMI/{tag}_UMIconsensus.fastq.gz'
     else:
         return 'sequences/{tag}.fastq.gz'
 

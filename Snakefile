@@ -191,7 +191,7 @@ else:
 	config['bin_singularity']['python'] = sys.executable
 
 
-if config['do_basecalling'] and config['marge_paired_end']:
+if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
 # check raw data archive
@@ -205,7 +205,7 @@ if config['do_basecalling']:
             if not os.path.exists(loc):
                 print_("[WARNING] {runname} not found at {loc} and is not available in the workflow.".format(
                     runname=runname, loc=loc), file=sys.stderr)
-            elif not os.path.exists(os.path.join(loc, 'reads')) or not os.listdir(os.path.join(loc, 'reads')):
+            elif not os.path.exists(os.path.join(loc, config['fast5_dir'])) or not os.listdir(os.path.join(loc, config['fast5_dir'])):
                 print_("[WARNING] {runname} configured but with missing/empty reads directory.".format(
                     runname=runname), file=sys.stderr)
 # check for sequences
