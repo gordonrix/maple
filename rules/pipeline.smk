@@ -204,9 +204,11 @@ rule UMI_group:
         bam = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam'),
         index = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam.bai'),
         log = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv'
+    params:
+        UMI_mismatches = lambda wildcards: config['UMI_mismatches']
     shell:
         """
-        umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold 2 -S {output.bam}
+        umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
         samtools index {output.bam}
         """
 
