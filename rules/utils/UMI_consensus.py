@@ -23,14 +23,15 @@ def main():
     logIn = snakemake.input.log
 
     FASTQout = snakemake.output[0]
-    threshold = config['UMI_consensus_threshold']
+    minimum = config['UMI_consensus_minimum']
+    maximum = config['UMI_consensus_maximum']
 
-    cUMIs = UMI_consensus(config['runs'], tag, BAMin, logIn, FASTQout, threshold)
+    cUMIs = UMI_consensus(config['runs'], tag, BAMin, logIn, FASTQout, minimum, maximum)
     cUMIs.generate_consensus_FASTQ_file()
 
 class UMI_consensus:
 
-    def __init__(self, runsConfig, tag, BAMin, logIn, FASTQout, threshold):
+    def __init__(self, runsConfig, tag, BAMin, logIn, FASTQout, minimum, maximum):
         """
         arguments:
 
@@ -48,7 +49,8 @@ class UMI_consensus:
         self.refSeqfasta = runsConfig[tag]['reference']
         self.reference = list(SeqIO.parse(self.refSeqfasta, 'fasta'))[0]
         self.refStr = str(self.reference.seq)
-        self.threshold = threshold
+        self.minimum = minimum
+        self.maximum = maximum
 
 
     def clean_alignment(self, BAMentry):
@@ -189,7 +191,7 @@ class UMI_consensus:
         pysam.index(self.BAMin)
         BAMin = pysam.AlignmentFile(self.BAMin, 'rb')
         logDF = pd.read_csv(self.logIn, sep='\t')
-        UMI_groups_above_threshold = logDF[logDF['final_umi_count']>=self.threshold][['final_umi', 'final_umi_count', 'unique_id']].sort_values(['final_umi_count', 'unique_id'], ascending=[False,True]).reset_index(drop=True)
+        UMI_groups_above_threshold = logDF[logDF['final_umi_count']>=self.minimum][['final_umi', 'final_umi_count', 'unique_id']].sort_values(['final_umi_count', 'unique_id'], ascending=[False,True]).reset_index(drop=True)
         UMI_groups_above_threshold = UMI_groups_above_threshold.drop_duplicates(subset=['unique_id']).reset_index()
         # add a column to batch sequences into groups to minimize looping through BAM file to find sequences, without putting the whole BAM file in memory
         UMI_groups_above_threshold['batch'] = UMI_groups_above_threshold.apply( lambda row: int(row['index']/10000), axis=1 )
@@ -203,12 +205,22 @@ class UMI_consensus:
                 batch_UMI_IDs = list(batch_DF['unique_id'])
                 UMI_BAMbatchDict = {}
 
+                # dictionary that keeps track of the number of sequences being used for the consensus. If this number goes above the set maximum, the associated UMI group ID will be removed from the list of UMI IDs
+                UMI_group_counts = {}
+                for UMIgroup in batch_UMI_IDs:
+                    UMI_group_counts[UMIgroup] = 0
+
                 for BAMentry in BAMin:
                     ID = BAMentry.get_tag('UG')
                     if ID in batch_UMI_IDs:
                         if ID not in UMI_BAMbatchDict:
                             UMI_BAMbatchDict[ID] = []
                         UMI_BAMbatchDict[ID].append(BAMentry)
+                        UMI_group_counts[ID] += 1
+                        if UMI_group_counts[ID] >= self.maximum:
+                            batch_UMI_IDs.remove(ID)
+                    if len(batch_UMI_IDs) == 0: # stop searching for more reads if user defined maximum reads have been found for all UMI groups 
+                        break
                 BAMin.reset()
                 
                 for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():

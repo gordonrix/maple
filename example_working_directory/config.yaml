@@ -43,7 +43,8 @@ NGmerge_flags: '-z'                   # command line flags to add to NGmerge com
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
 UMI_mismatches: 2           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
-UMI_consensus_threshold: 2  # minimum required number of reads with a particular UMI. if set to <=1, all reads will be included
+UMI_consensus_minimum: 2  # minimum required number of reads with a particular UMI. if set to <=1, all reads will be included
+UMI_consensus_maximum: 1000     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
 
 # alignment
 # alignment flags for samtools
