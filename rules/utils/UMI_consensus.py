@@ -126,9 +126,14 @@ class UMI_consensus:
 
         # nested dict where outer key is the position within the sequence, the inner key is the insertion sequence, and the value is the number of times that insertion position+sequence is observed across all BAM entries for the UMI group
         insertionsDict = {}
-        
+
+        first=True
         for BAMentry in BAMlist:
             refAln, queryAln, Qscores, insertions = self.clean_alignment(BAMentry)
+            if first:
+                self.out.write(refAln+'\n')
+                first=False
+            self.out.write(queryAln + '    ' + str(insertions) + '\n')
             for i,nt in enumerate(queryAln):
                 consensusUnweighted_array[i][chars.find(nt)] += 1
                 consensusQscoreWeighted_array[i][chars.find(nt)] += Qscores[i]
@@ -146,6 +151,8 @@ class UMI_consensus:
         with np.errstate(divide='ignore', invalid='ignore'):
             consensusQscoreWeighted_array = consensusQscoreWeighted_array / consensusUnweighted_array
 
+        
+
         consensusSeq = [] # consensus sequence with deletions as '-' but without insertions
         consensusQuals = []
 
@@ -162,10 +169,9 @@ class UMI_consensus:
         consensusInsertions = {} # dict of insertions that are present in enough sequences to be counted. key is index of insertion and value is insertion sequence
         for insIndex in insertionsDict:
             maxOccurrences = max(insertionsDict[insIndex].values())
-            if (maxOccurrences >= 0.5*len(BAMlist)) and (len(BAMlist) > 2): # insertion if found more than 50% of BAM entries when more than 2 BAMentries used for consensus
+            if (maxOccurrences >= 0.5*len(BAMlist)) and (len(BAMlist) > 2): # insertion if found in more than 50% of BAM entries when more than 2 BAMentries used for consensus
                 consensusInsertions[insIndex] = max(insertionsDict[insIndex], key=insertionsDict[insIndex].get)
 
-        # consensusSeqTemp, consensusQualsTemp = consensusSeq, consensusQuals
         # add insertions to string in reverse order to maintain index validity
         consensusInsertionsIndexesSorted = list(consensusInsertions.keys())
         consensusInsertionsIndexesSorted.sort(reverse=True)
@@ -173,6 +179,9 @@ class UMI_consensus:
             insSequence = consensusInsertions[insIndex]
             consensusSeq = consensusSeq[:insIndex] + list(consensusInsertions[insIndex]) + consensusSeq[insIndex:]
             consensusQuals = consensusQuals[:insIndex] + [averageQscore]*len(insSequence) + consensusQuals[insIndex:]
+
+        self.out.write(''.join(consensusSeq))
+        self.out.write('\n\n')
 
         # remove deletions
         consensusQuals = [q for i,q in enumerate(consensusQuals) if consensusSeq[i] != '-']
@@ -218,14 +227,16 @@ class UMI_consensus:
                         UMI_BAMbatchDict[ID].append(BAMentry)
                         UMI_group_counts[ID] += 1
                         if UMI_group_counts[ID] >= self.maximum:
-                            batch_UMI_IDs.remove(ID)
+                            while ID in batch_UMI_IDs: batch_UMI_IDs.remove(ID)
                     if len(batch_UMI_IDs) == 0: # stop searching for more reads if user defined maximum reads have been found for all UMI groups 
                         break
                 BAMin.reset()
                 
                 for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():
-                    consensusSeq, consensusQuals = self.generate_consensus_FASTQ_record(UMIgroupBAMentries)
+                    self.out = open('consensusDebug.txt', 'a')
                     row = UMI_groups_above_threshold[UMI_groups_above_threshold['unique_id']==ID].iloc[0]
+                    self.out.write(f"UMIgroup={ID} sampleid={self.tag} readcount={row['final_umi_count']} umi={row['final_umi']}\n")
+                    consensusSeq, consensusQuals = self.generate_consensus_FASTQ_record(UMIgroupBAMentries)
                     record = SeqRecord(Seq(consensusSeq), id=f"UMI_{ID}_consensus_sequence", description=f"sampleid={self.tag} readcount={row['final_umi_count']} umi={row['final_umi']}")
                     record.letter_annotations['phred_quality'] = consensusQuals
                     fqBatch.append(record)

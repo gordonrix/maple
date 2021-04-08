@@ -267,7 +267,7 @@ if config['demux']:
             for requiredKey in ['context', 'fasta', 'reverseComplement']:
                 if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
                     raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
-            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo']['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
+            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
             bcFasta = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
             if os.path.isfile(bcFasta):
                 assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"

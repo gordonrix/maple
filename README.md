@@ -83,6 +83,10 @@ files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The pat
     conda activate maple
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 example_mutation-stats.csv
 
+Use of the '-n' flag is recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
+not executed. Because many checks are performed to identify any potential problems in how things were set up (e.g. checking that reference files
+exist), this will better guarantee that the entire pipeline will run to completion prior to starting it.
+
 In place of a specific file name, 'targets' can be used to invoke a rule that automatically carries out most of the analysis that maple can do
 for each of the designated tags:
 

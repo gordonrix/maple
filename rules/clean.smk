@@ -111,6 +111,7 @@ rule clean:
         """
         rm {input}
         zip -r -m {params.timestampDir}.zip {params.timestampDir}
+        rm -r {params.timestampDir}
         """
 
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
