@@ -38,7 +38,7 @@ threads_demux: 4
 
 # paired end read merging
 merge_paired_end: False            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
-NGmerge_flags: '-z'                   # command line flags to add to NGmerge command. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
+NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired

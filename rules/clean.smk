@@ -37,6 +37,10 @@ rule sequences_clean:
             find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
             find sequences/UMI -type f \( -name "*.tsv" \) | xargs cp -t {params.timestampDir}
         fi
+        if [ -d sequences/paired ]; then
+            find sequences/paired -type f \( -name "*_failed-merge_*" \) -delete
+            find sequences/paired -type f \( -name "*log" \) -delete
+        fi
         find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
 
@@ -111,7 +115,6 @@ rule clean:
         """
         rm {input}
         zip -r -m {params.timestampDir}.zip {params.timestampDir}
-        rm -r {params.timestampDir}
         """
 
 # Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics

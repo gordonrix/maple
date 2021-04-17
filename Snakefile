@@ -88,7 +88,8 @@ with open(os.path.join(os.path.dirname(workflow.snakefile), "env.yaml"), 'r') as
 # verify given references
 for tag in config['runs']:
     if config['runs'][tag]['reference']:
-        if not os.path.isfile(config['runs'][tag]['reference']):
+        refName = config['runs'][tag]['reference']
+        if not os.path.isfile(refName):
             print_(f'[WARNING] Reference .fasta file for {refName} (given path: {config[refName]}) not found.', file=sys.stderr)
     else:
         print_(f"[WARNING] No reference .fasta file provided for {tag} in config.yaml. Alignment and downstream tools will not work.", file=sys.stderr)

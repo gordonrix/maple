@@ -115,12 +115,16 @@ if config['merge_paired_end']:
             fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['fwdReads']),
             rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['rvsReads'])
         output:
-            protected("sequences/{tag, [^\/_]*}.fastq.gz")
+            merged = protected("sequences/{tag, [^\/_]*}.fastq.gz"),
+            log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
+            failedfwd = "sequences/paired/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
+            failedrvs = "sequences/paired/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
         params:
-            flags = config['NGmerge_flags']
+            flags = config['NGmerge_flags'],
+            failed = "sequences/paired/{tag, [^\/_]*}_failed-merge"
         shell:
             """
-            NGmerge -1 {input.fwd} -2 {input.rvs} -o {output} {params.flags}
+            NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
             """
 
 else:
