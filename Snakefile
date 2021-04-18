@@ -238,8 +238,15 @@ for option in ['do_AA_analysis', 'auto_detect_longest_ORF']:
     if option not in config:
         raise RuntimeError(f"[ERROR] required boolean option `{option}` not present in config file.")
 refSeqErrors = []
+refSeqFastaFiles = []
 for tag in config['runs']:
-    refFasta = config['runs'][tag]['reference']
+    if 'reference' not in config['runs'][tag]:
+        refSeqErrors.append(f"[ERROR] No reference file provided for tag `{tag}")
+    ref = config['runs'][tag]['reference']
+    if ref not in refSeqFastaFiles:
+        refSeqFastaFiles.append(ref)
+
+for refFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
     if len(referenceSeqs) < 2:
         refSeqErrors.append(f"[ERROR] Reference file {refFasta} must be fasta formatted and contain more than 2 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
@@ -282,7 +289,7 @@ for tag in config['runs']:
     for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
         if nt not in list("ATGCN"):
             refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{alignmentSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
-if len(refSeqErrors) > 1:
+if len(refSeqErrors) > 0:
     for err in refSeqErrors:
         print_(err, file=sys.stderr)
     raise RuntimeError("Errors in reference sequences found. See above.")

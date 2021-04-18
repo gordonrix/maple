@@ -58,12 +58,13 @@ class MutationAnalysis:
         self.doAAanalysis = config['do_AA_analysis']
 
         if self.doAAanalysis: # define protein sequence
+            self.refProtein = False
             if config['auto_detect_longest_ORF']:
                 try:
                     self.refProtein = self.longest_ORF(self.refTrimmedStr)
                 except ValueError:
-                    raise Exception(f'No ORF identifiable within {self.refTrimmed.id}')
-            else:
+                    pass # Snakefile prints warning for this
+            if not self.refProtein:
                 assert (len(list(SeqIO.parse(refSeqfasta, 'fasta'))) >= 3), f'Reference sequence for ORF not provided. Please provide reference ORF as third sequence in reference fasta file `{refSeqfasta}` or consider setting `auto_detect_longest_ORF` to True'
                 refProtein = list(SeqIO.parse(refSeqfasta, 'fasta'))[2]
                 refProteinStr = str(refProtein.seq).upper()
