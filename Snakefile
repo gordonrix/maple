@@ -234,29 +234,66 @@ else:
                         print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
 
 # check reference sequences
+for option in ['do_AA_analysis', 'auto_detect_longest_ORF']:
+    if option not in config:
+        raise RuntimeError(f"[ERROR] required boolean option `{option}` not present in config file.")
+refSeqErrors = []
 for tag in config['runs']:
     refFasta = config['runs'][tag]['reference']
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
-    if len(referenceSeqs) == 3:
-        alignmentSeq, nucleotideSeq, proteinSeq = referenceSeqs
-        assert nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) != -1, f"Protein (third) sequence is not a subsequence of nucleotide (second) sequence in reference file `{refFasta}`"
+    if len(referenceSeqs) < 2:
+        refSeqErrors.append(f"[ERROR] Reference file {refFasta} must be fasta formatted and contain more than 2 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
+        continue
+    elif len(referenceSeqs) >3:
+        print_(f"[WARNING] Reference file {refFasta} contains more than the maximum usable number of three sequences. Only the first three sequences will be used for alignment and analysis.")
+    alignmentSeq, nucleotideSeq = referenceSeqs[0], referenceSeqs[1]
+
+    if config['do_AA_analysis'] == True:
+        if config['auto_detect_longest_ORF'] == True:
+            try:
+                longestORF = max(re.findall(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', nucleotideSeq.seq.upper()), key = len) # taken from https://stackoverflow.com/questions/31757876/python-find-longest-orf-in-dna-sequence#31758161
+                proteinSeq = nucleotideSeq
+                proteinSeq.id = proteinSeq.id + '_prot'
+                proteinSeq.seq = longestORF
+            except ValueError:
+                if len(referenceSeqs) < 3:
+                    refSeqErrors.append(f"[ERROR] Could not auto detect an ORF and no protein sequence provided for {refFasta}.")
+                    continue
+                print_(f"[WARNING] `auto_detect_longest_ORF` set to True, but no standard ORF found in reference sequence `{refFasta}`. Will use provided protein sequence.", file=sys.stderr)
+        else:
+            if len(referenceSeqs) < 3:
+                refSeqErrors.append(f"[ERROR] `do_AA_analysis` set to True but no protein sequence provided for {refFasta}")
+            proteinSeq = referenceSeqs[2]
+        if nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) == -1:
+            refSeqErrors.append(f"[ERROR] Protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a subsequence of nucleotide sequence {nucleotideSeq.id}")
+        if len(proteinSeq.seq)%3 != 0:
+            refSeqErrors.append(f"[ERROR] Protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` length not a multiple of 3, and therefore cannot be used as ORF")
         for i, nt in enumerate(str(proteinSeq.seq).upper()):
-            assert nt in list("ATGCN"), f"Position {i} in reference sequence `{proteinSeq.id}` is not a canonical nucleotide"
-    elif len(referenceSeqs) == 2:
-        alignmentSeq, nucleotideSeq = referenceSeqs
-    else:
-        raise RuntimeError("Reference fasta file must be fasta formatted and contain 2 or 3 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
-    assert nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) != -1, f"Nucleotide (second) sequence is not a subsequence of alignment (first) sequence in reference file `{refFasta}`"
+            if nt not in list("ATGCN"):
+                refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
+    elif len(referenceSeqs) > 2:
+        print_(f"[WARNING] `do_AA_analysis` set to False, but more than 2 sequences provided in reference file {refFasta}. AA analysis will not be performed.")
+
+    if alignmentSeq.seq.upper().find(nucleotideSeq.seq.upper()) == -1:
+        refSeqErrors.append(f"[ERROR] Nucleotide (second) sequence `{nucleotideSeq.id}` is not a subsequence of alignment (first) `{alignmentSeq.id}` sequence in reference file `{refFasta}`")
     for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
-        assert nt in list("ATGCN"), f"Position {i} in reference sequence `{nucleotideSeq.id}` is not a canonical nucleotide"
+        if nt not in list("ATGCN"):
+            refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{nucleotideSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
     for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
-        assert nt in list("ATGCN"), f"Position {i} in reference sequence `{alignmentSeq.id}` is not a canonical nucleotide"
+        if nt not in list("ATGCN"):
+            refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{alignmentSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
+if len(refSeqErrors) > 1:
+    for err in refSeqErrors:
+        print_(err, file=sys.stderr)
+    raise RuntimeError("Errors in reference sequences found. See above.")
 
 # ADD CHECKS FOR UMIS.
 
 # ADD A CHECK FOR BARCODE INFO. If 'barcodeInfo' or 'barcodeGroups' is present in {tag}, both must be present and all barcode types in barcode groups
-# must be defined in 'barcodeInfo' dict. Probably did this in the beginning of the demux script, so can move that here.
-if config['demux']:
+# must be defined in 'barcodeInfo' dict
+if 'demux' not in config:
+    raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
+if config['demux'] == True:
     for tag in config['runs']:
         if 'barcodeInfo' not in config['runs'][tag]:
             raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`.")
@@ -273,9 +310,9 @@ if config['demux']:
             if os.path.isfile(bcFasta):
                 assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
                 assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"
-else:
+elif config['demux'] == False:
     for tag in config['runs']:
-        if ('barcodeInfo' or 'barcodeGroups' in config['runs'][tag]) and config['demux']==False:
+        if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
             print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
         
 
