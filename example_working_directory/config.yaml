@@ -25,6 +25,9 @@ basecalling_guppy_qscore_filter: 0
 # command line flags directly passed to guppy
 basecalling_guppy_flags: '-x cuda:0'
 
+# porechop
+porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
+
 ### end nanopore only section ###
 
 
@@ -32,6 +35,7 @@ basecalling_guppy_flags: '-x cuda:0'
 # batches run in parallel. Also used as resource for cluster jobs.
 # Alignments need to be run with at least -j 2 for alignment and sam to bam conversion.
 threads_basecalling: 4
+threads_porechop: 4
 threads_alignment: 3
 threads_samtools : 1
 threads_demux: 4

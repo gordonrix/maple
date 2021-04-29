@@ -35,10 +35,15 @@ def get_batches_basecaller(wildcards):
             outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
                                 runname=runname,
                                 batch=get_batch_ids_raw(config, tag, runname))
-        else:
-            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
-                                runname = runname,
-                                batch = get_batch_ids_sequences(config, tag, runname))
+        else: # basecalling was already performed so basecalled sequences are fetched instead
+            if config['porechop']:
+                outputs = expand("sequences/batches/{runname}_porechop/{batch}.fastq.gz",
+                                    runname = runname,
+                                    batch = get_batch_ids_sequences(config, tag, runname))
+            else:
+                outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
+                                    runname = runname,
+                                    batch = get_batch_ids_sequences(config, tag, runname))
         output.extend(outputs)
     return output
 
@@ -107,6 +112,15 @@ rule basecaller_stats:
         line_iter = (line for f in input for line in gzip.open(f, 'rb').read().decode('utf-8').split('\n') if line)
         df = pd.DataFrame(fastq_iter(line_iter), columns=['length', 'quality'])
         df.to_hdf(output[0], 'stats')
+
+rule porechop:
+    input:
+        'sequences/batches/{runname}/{batch}.fastq.gz'
+    output:
+        'sequences/batches/{runname}_porechop/{batch}.fastq.gz'
+    threads: config['threads_porechop']
+    shell:
+        'porechop -i {input} -o {output} -v 0'
 
 
 if config['merge_paired_end']:
