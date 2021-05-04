@@ -170,7 +170,6 @@ class MutationAnalysis:
                             Includes AA mutations in list only if self.doAAanalysis is True
         """
         ref, alignStr, seq, qScores, insertions, deletions = cleanAlignment
-        assert ref==self.refTrimmedStr, 'not supposed to happen' #replace ref with self.refTrimmed if this doesn't throw an error ever                      <--- LOOK
 
         mismatches = [i for i,a in enumerate(alignStr) if a=='.']
 
@@ -183,7 +182,7 @@ class MutationAnalysis:
                     else: indelCodons.append( int(protIndex/3) )
 
             for index, length in deletions:
-                if self.refProteinStart <= index < self.refProteinEnd and self.refProteinStart <= index+length < self.refProteinEnd:
+                if (self.refProteinStart <= index < self.refProteinEnd) or (self.refProteinStart <= index+length < self.refProteinEnd):
                     protIndexStart = index-self.refProteinStart
                     protIndexEnd = (index+length)-self.refProteinStart
                     firstCodon = int(protIndexStart/3)
@@ -278,7 +277,11 @@ class MutationAnalysis:
         for bamEntry in bamFile:
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
-                seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
+                try:
+                    seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
+                except:
+                    print(bamEntry.cigartuples)
+                    raise ValueError
             else:
                 failuresList.append([bamEntry.query_name, self.alignmentFailureReason[0], self.alignmentFailureReason[1]])
                 continue
