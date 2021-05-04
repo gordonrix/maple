@@ -69,7 +69,8 @@ mutations_frequencies_raw: False            # If set to True, outputs mutation f
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
-percentile: 90                      # percentile of mutation distribution to show. X axis of plot will be 1.5x this percentile for the maximum of all distributions for the tag
+'NT_distribution_plot_x_max': 10                    # maximum x value to show for all nucleotide mutation distribution plots
+'AA_distribution_plot_x_max': 10                    # maximum x value to show for all amino acid mutation distribution plots
 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum

@@ -1,5 +1,6 @@
 from bokeh.plotting import figure, output_file, show, save
 from bokeh.layouts import column
+from bokeh.models.ranges import DataRange1d
 import os
 import pandas as pd
 import numpy as np
@@ -9,7 +10,7 @@ from snakemake.io import Namedlist
 config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
-N = config['percentile']
+N = config[f'{AAorNT}_distribution_plot_x_max']
 ###
 
 ### Output variables
@@ -25,53 +26,18 @@ else:
 
 plotDict = {}
 
-def calculate_Nth_percentile(N, DF):
-    """
-    Given distribution as a dataframe (DF), calculates (N)th percentile
-    of the distribution
-        ex: calculate_Nth_percentile(N, dataframe) returns value (maxX) at which
-        90% of distribution is less than maxX
-    """
-    distSeries = DF[f'seqs_with_n_{AAorNT}substitutions']
-    numSeqsInNth = (int(round((N/100)*distSeries.sum())))
-    runningTotalSeqs = 0
-    for i, numSeqs in enumerate(distSeries):
-        runningTotalSeqs += numSeqs
-        maxX = i
-        if runningTotalSeqs > numSeqsInNth:
-            break
-    return maxX
+for inFile in inputList:    
 
-distInfoDictList = []
-percentiles = []
-for inFile in inputList:    # get the maximum Nth percentile for all plots
-
-    distInfoDict = {}
-
-    distInfoDict['barcodes'] = inFile.split('_')[-2]
-    distInfoDict['df'] = pd.read_csv(inFile)
-
-    if int(distInfoDict['df'].iloc[:,[1]].sum())==0: continue
-
-    distInfoDictList.append(distInfoDict)
-
-    percentiles.append(calculate_Nth_percentile(N, distInfoDict['df']))
-
-maxpercentile = np.max(percentiles)
-if maxpercentile < 5:
-    maxpercentile = 5
-
-for distInfoDict in distInfoDictList:
+    bc = inFile.split('_')[-2]
+    data = pd.read_csv(inFile)
+    # if int(data.iloc[:,[1]].sum())==0: continue
     
-    plotTitle = f"{tag}_{distInfoDict['barcodes']}"
+    plotTitle = f"{tag}_{bc}"
 
-    # lastNonZero = (dist.shape[0]-dist.ne(0).values[::-1].argmax(0)-1)[1]
-    distTrimmed = distInfoDict['df'][:int(maxpercentile*1.5)]
-    xLabel, yLabel = distTrimmed.columns
+    xLabel, yLabel = data.columns
 
-    bc = distInfoDict['barcodes']
-    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400)
-    plotDict[bc].vbar(x=distTrimmed['n'], top=distTrimmed.iloc[:,1], width=0.5, bottom=0, color='black')
+    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(0,N))
+    plotDict[bc].vbar(x=data['n'], top=data.iloc[:,1], width=0.5, bottom=0, color='black')
     plotDict[bc].xaxis.axis_label = xLabel
     plotDict[bc].yaxis.axis_label = yLabel
 
