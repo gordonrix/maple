@@ -54,7 +54,8 @@ class MutationAnalysis:
         self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
         self.refTrimmedEnd = len(self.refTrimmedStr) + self.refTrimmedStart
 
-        self.QSminimum = config['mutation_analysis_quality_score_minimum']
+        if 'mutation_analysis_quality_score_minimum' in config:
+            self.QSminimum = config['mutation_analysis_quality_score_minimum']
         self.doAAanalysis = config['do_AA_analysis']
 
         if self.doAAanalysis: # define protein sequence
@@ -104,7 +105,7 @@ class MutationAnalysis:
         queryIndex = 0
         refAln = ' ' * refIndex  #pad beginning of alignment when alignment begins after beginning of reference
         queryAln = ' ' * refIndex
-        queryQualities = [-1] * refIndex
+        queryQualities = [-1] * refIndex if BAMentry.query_alignment_qualities else None
         alignStr = ' ' * refIndex
         insertions = [] # list of tuples where first element is index within trimmed reference, second element is sequence inserted
         deletions = []  # list of tuples where first element is index within trimmed reference, second element is number of bases deleted
@@ -117,7 +118,8 @@ class MutationAnalysis:
                 alignSegment = ''.join(['|' if r==q else '.' for r,q in zip(refSegment,querySegment)])
                 refAln += refSegment
                 queryAln += querySegment
-                queryQualities += BAMentry.query_alignment_qualities[queryIndex:queryIndex+cTuple[1]]
+                if BAMentry.query_alignment_qualities:
+                    queryQualities += BAMentry.query_alignment_qualities[queryIndex:queryIndex+cTuple[1]]
                 alignStr += alignSegment
                 refIndex += cTuple[1]
                 queryIndex += cTuple[1]
@@ -143,7 +145,7 @@ class MutationAnalysis:
         return  [refAln[self.refTrimmedStart:self.refTrimmedEnd],
                 alignStr[self.refTrimmedStart:self.refTrimmedEnd],
                 queryAln[self.refTrimmedStart:self.refTrimmedEnd],
-                queryQualities[self.refTrimmedStart:self.refTrimmedEnd],
+                queryQualities[self.refTrimmedStart:self.refTrimmedEnd] if BAMentry.query_alignment_qualities else None,
                 insertions,
                 deletions]
 
@@ -205,7 +207,8 @@ class MutationAnalysis:
 
         for i in mismatches:
 
-            if qScores[i] < self.QSminimum: continue
+            if qScores:
+                if qScores[i] < self.QSminimum: continue
 
             wtNT = ref[i]
             mutNT = seq[i]
@@ -226,10 +229,13 @@ class MutationAnalysis:
                 if codon in indelCodons: continue
 
                 #check that all three quality scores in codon are above threshold
-                QStooLow = False
-                codonQS = qScores[codonIndices[0]:codonIndices[2]]
-                for qs in codonQS:
-                    if qs < self.QSminimum: continue
+                if qScores:
+                    QStooLow = False
+                    codonQS = qScores[codonIndices[0]:codonIndices[2]]
+                    for qs in codonQS:
+                        if qs < self.QSminimum:
+                            QStooLow = True
+                    if QStooLow: continue
 
                 wtAA = str(Seq(ref[codonIndices[0]:codonIndices[2]+1]).translate())
                 mutAA = str(Seq(seq[codonIndices[0]:codonIndices[2]+1]).translate())

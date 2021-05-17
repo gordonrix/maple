@@ -239,31 +239,73 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-rule UMI_consensus:
+checkpoint UMI_BAMtoFASTA:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
     output:
-        temp('sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq')
+        'sequences/UMI/{tag, [^\/_]*}_preconsensus.fasta'
     script:
-        'utils/UMI_consensus.py'
+        'utils/UMI_BAMtoFASTA.py'
 
-rule UMI_compress:
+rule UMI_consensus:
     input:
-        'sequences/UMI/{tag}_UMIconsensus.fastq'
+        fasta = 'sequences/UMI/{tag}_preconsensus.fasta'
     output:
-        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq.gz'
+        outDir = directory('sequences/UMI/{tag}_medaka'),
+        consensus = 'sequences/UMI/{tag}_medaka/consensus.fasta'
     params:
-        temp = lambda wildcards: f'sequences/UMI/{wildcards.tag}_UMIconsensus.fastq.gz'
+        medaka_model = lambda wildcards: config['medaka_model'],
+        minimum = lambda wildcards: config['UMI_consensus_minimum'],
+    threads: lambda wildcards: config['threads_medaka']
+    shell:
+        """
+        medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} --chunk_ovlp 0 {output.outDir} {input.fasta}
+        """
+
+# def UMI_merge_consensus_seqs_input(wildcards):
+#     UMI_split_output = checkpoints.UMI_split.get(tag=wildcards.tag).output[0]
+#     UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID}_{finalUMI}_reads.fasta')
+#     return = expand('sequences/UMI/{tag}_split/UMI_{UMIID}_{finalUMI}', tag=wildcards.tag, UMIID=glob_wildcards(UMI_split_output_template).UMIID, finalUMI=glob_wildcards(UMI_split_output_template)
+
+# rule UMI_merge_consensus_seqs:
+#     input:
+#         UMI_merge_consensus_seqs_input
+#     output:
+#         'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq.gz'
+#     run:
+#         with open(output[0], 'w') as fp_out:
+#             if len(input)==0:
+#                 raise RuntimeError(f"Basecalled sequence batches not found for tag `{wildcards.tag}`.")
+#             for f in input:
+#                 with open(f, 'r') as fp_in:
+#                     fp_out.write(fp_in.read())
+
+# rule UMI_consensus:
+#     input:
+#         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
+#         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
+#         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
+#     output:
+#         temp('sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq')
+#     script:
+#         'utils/UMI_consensus.py'
+
+rule UMI_compress_consensus:
+    input:
+        'sequences/UMI/{tag}_medaka/consensus.fasta'
+    output:
+        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta.gz'
     shell:
         """
         gzip {input}
+        mv {input}.gz {output}
         """
 
 def alignment_sequence_input(wildcards):
     if config['UMI_consensus']:
-        return 'sequences/UMI/{tag}_UMIconsensus.fastq.gz'
+        return 'sequences/UMI/{tag}_UMIconsensus.fasta.gz'
     else:
         return 'sequences/{tag}.fastq.gz'
 
@@ -383,9 +425,11 @@ def mut_stats_input(wildcards):
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
+        out = expand('mutation_data/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
     else:
-        return expand('mutation_data/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
+        out = expand('mutation_data/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
+    assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
+    return out
 
 rule mut_stats:
 	input:
