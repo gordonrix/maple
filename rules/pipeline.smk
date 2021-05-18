@@ -320,13 +320,12 @@ rule UMI_merge_consensus_seqs:
 
 rule UMI_compress_consensus:
     input:
-        'sequences/UMI/{tag}_medaka/consensus.fasta'
+        'sequences/UMI/{tag}_UMIconsensus.fasta'
     output:
         'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta.gz'
     shell:
         """
         gzip {input}
-        mv {input}.gz {output}
         """
 
 def alignment_sequence_input(wildcards):
