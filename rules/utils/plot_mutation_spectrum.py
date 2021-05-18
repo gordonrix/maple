@@ -130,7 +130,8 @@ def main():
 
         plotList.append(spectrumPlot)
 
-    plotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
+    if len(plotList)>0:
+        plotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
 
     save(column(plotList))
 

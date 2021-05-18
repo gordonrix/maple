@@ -39,7 +39,7 @@ medaka_model: 'r941_min_high_g360'
 # Alignments need to be run with at least -j 2 for alignment and sam to bam conversion.
 threads_basecalling: 4
 threads_porechop: 4
-threads_medaka: 8
+threads_medaka: 2
 threads_alignment: 3
 threads_samtools : 1
 threads_demux: 4

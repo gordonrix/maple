@@ -239,48 +239,74 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-checkpoint UMI_BAMtoFASTA:
+# checkpoint UMI_BAMtoFASTA:
+#     input:
+#         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
+#         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
+#         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
+#     output:
+#         'sequences/UMI/{tag, [^\/_]*}_preconsensus.fasta'
+#     script:
+#         'utils/UMI_BAMtoFASTA.py'
+
+# rule UMI_consensus:
+#     input:
+#         fasta = 'sequences/UMI/{tag}_preconsensus.fasta'
+#     output:
+#         outDir = directory('sequences/UMI/{tag}_medaka'),
+#         consensus = 'sequences/UMI/{tag}_medaka/consensus.fasta'
+#     params:
+#         medaka_model = lambda wildcards: config['medaka_model'],
+#         minimum = lambda wildcards: config['UMI_consensus_minimum'],
+#     threads: lambda wildcards: config['threads_medaka']
+#     shell:
+#         """
+#         medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} --chunk_ovlp 0 {output.outDir} {input.fasta}
+#         """
+
+checkpoint UMI_splitBAMtoFASTAs:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
     output:
-        'sequences/UMI/{tag, [^\/_]*}_preconsensus.fasta'
+        outDir = directory('sequences/UMI/{tag, [^\/_]*}_UMIsplit')
     script:
-        'utils/UMI_BAMtoFASTA.py'
+        'utils/UMI_splitBAMtoFASTAs.py'
 
 rule UMI_consensus:
     input:
-        fasta = 'sequences/UMI/{tag}_preconsensus.fasta'
+        splitDir = directory('sequences/UMI/{tag, [^\/_]*}_UMIsplit'),
+        fasta = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_reads.fasta'
     output:
-        outDir = directory('sequences/UMI/{tag}_medaka'),
-        consensus = 'sequences/UMI/{tag}_medaka/consensus.fasta'
+        outDir = directory('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka'),
+        consensus = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka/consensus.fasta'
     params:
         medaka_model = lambda wildcards: config['medaka_model'],
-        minimum = lambda wildcards: config['UMI_consensus_minimum'],
+        minimum = lambda wildcards: config['UMI_consensus_minimum']
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
-        medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} --chunk_ovlp 0 {output.outDir} {input.fasta}
+        medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} {output.outDir} {input.fasta}
         """
 
-# def UMI_merge_consensus_seqs_input(wildcards):
-#     UMI_split_output = checkpoints.UMI_split.get(tag=wildcards.tag).output[0]
-#     UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID}_{finalUMI}_reads.fasta')
-#     return = expand('sequences/UMI/{tag}_split/UMI_{UMIID}_{finalUMI}', tag=wildcards.tag, UMIID=glob_wildcards(UMI_split_output_template).UMIID, finalUMI=glob_wildcards(UMI_split_output_template)
+def UMI_merge_consensus_seqs_input(wildcards):
+    UMI_split_output = checkpoints.UMI_splitBAMtoFASTAs.get(tag=wildcards.tag).output[0]
+    UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.fasta')
+    return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka/consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
 
-# rule UMI_merge_consensus_seqs:
-#     input:
-#         UMI_merge_consensus_seqs_input
-#     output:
-#         'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq.gz'
-#     run:
-#         with open(output[0], 'w') as fp_out:
-#             if len(input)==0:
-#                 raise RuntimeError(f"Basecalled sequence batches not found for tag `{wildcards.tag}`.")
-#             for f in input:
-#                 with open(f, 'r') as fp_in:
-#                     fp_out.write(fp_in.read())
+rule UMI_merge_consensus_seqs:
+    input:
+        UMI_merge_consensus_seqs_input
+    output:
+        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta'
+    run:
+        with open(output[0], 'w') as fp_out:
+            if len(input)==0:
+                raise RuntimeError(f"Consensus sequences not found for tag `{wildcards.tag}`.")
+            for f in input:
+                with open(f, 'r') as fp_in:
+                    fp_out.write(fp_in.read())
 
 # rule UMI_consensus:
 #     input:
