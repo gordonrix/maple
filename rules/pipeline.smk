@@ -239,31 +239,6 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-# checkpoint UMI_BAMtoFASTA:
-#     input:
-#         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
-#         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
-#         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
-#     output:
-#         'sequences/UMI/{tag, [^\/_]*}_preconsensus.fasta'
-#     script:
-#         'utils/UMI_BAMtoFASTA.py'
-
-# rule UMI_consensus:
-#     input:
-#         fasta = 'sequences/UMI/{tag}_preconsensus.fasta'
-#     output:
-#         outDir = directory('sequences/UMI/{tag}_medaka'),
-#         consensus = 'sequences/UMI/{tag}_medaka/consensus.fasta'
-#     params:
-#         medaka_model = lambda wildcards: config['medaka_model'],
-#         minimum = lambda wildcards: config['UMI_consensus_minimum'],
-#     threads: lambda wildcards: config['threads_medaka']
-#     shell:
-#         """
-#         medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} --chunk_ovlp 0 {output.outDir} {input.fasta}
-#         """
-
 checkpoint UMI_splitBAMtoFASTAs:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
@@ -282,11 +257,12 @@ rule UMI_consensus:
         consensus = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka/consensus.fasta'
     params:
         medaka_model = lambda wildcards: config['medaka_model'],
-        minimum = lambda wildcards: config['UMI_consensus_minimum']
+        minimum = lambda wildcards: config['UMI_consensus_minimum'],
+        flags = lambda wildcards: config['medaka_flags']
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
-        medaka smolecule --threads {threads} --depth {params.minimum} --model {params.medaka_model} {output.outDir} {input.fasta}
+        medaka smolecule {params.flags} --threads {threads} --depth {params.minimum} --model {params.medaka_model} {output.outDir} {input.fasta}
         """
 
 def UMI_merge_consensus_seqs_input(wildcards):
@@ -306,16 +282,6 @@ rule UMI_merge_consensus_seqs:
             for f in input:
                 with open(f, 'r') as fp_in:
                     fp_out.write(fp_in.read())
-
-# rule UMI_consensus:
-#     input:
-#         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
-#         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
-#         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
-#     output:
-#         temp('sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fastq')
-#     script:
-#         'utils/UMI_consensus.py'
 
 rule UMI_compress_consensus:
     input:

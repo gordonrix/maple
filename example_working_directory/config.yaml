@@ -30,6 +30,7 @@ porechop: True                  # trims constant adapter sequences from ends and
 
 # medaka
 medaka_model: 'r941_min_high_g360'
+medaka_flags: '--quiet'     # flags to add to medaka shell command. threads, depth, and model flags are already added.
 
 ### end nanopore only section ###
 
