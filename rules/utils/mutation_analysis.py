@@ -12,8 +12,6 @@ config = snakemake.config
 tag = snakemake.wildcards.tag
 barcodes = snakemake.wildcards.barcodes
 BAMin = str(snakemake.input.bam)
-
-minQualThreshold = config['mutation_analysis_quality_score_minimum']
 ###
 
 outputDir = 'mutation_data'
@@ -105,7 +103,7 @@ class MutationAnalysis:
         queryIndex = 0
         refAln = ' ' * refIndex  #pad beginning of alignment when alignment begins after beginning of reference
         queryAln = ' ' * refIndex
-        queryQualities = [-1] * refIndex if BAMentry.query_alignment_qualities else None
+        queryQualities = [-1] * refIndex if self.fastq else None
         alignStr = ' ' * refIndex
         insertions = [] # list of tuples where first element is index within trimmed reference, second element is sequence inserted
         deletions = []  # list of tuples where first element is index within trimmed reference, second element is number of bases deleted
@@ -118,7 +116,7 @@ class MutationAnalysis:
                 alignSegment = ''.join(['|' if r==q else '.' for r,q in zip(refSegment,querySegment)])
                 refAln += refSegment
                 queryAln += querySegment
-                if BAMentry.query_alignment_qualities:
+                if self.fastq:
                     queryQualities += BAMentry.query_alignment_qualities[queryIndex:queryIndex+cTuple[1]]
                 alignStr += alignSegment
                 refIndex += cTuple[1]
@@ -138,14 +136,15 @@ class MutationAnalysis:
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
                 queryAln += '-'*cTuple[1]
                 alignStr += ' '*cTuple[1]
-                queryQualities += [0]*cTuple[1]
+                if self.fastq:
+                    queryQualities += [0]*cTuple[1]
                 deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
                 refIndex += cTuple[1]
 
         return  [refAln[self.refTrimmedStart:self.refTrimmedEnd],
                 alignStr[self.refTrimmedStart:self.refTrimmedEnd],
                 queryAln[self.refTrimmedStart:self.refTrimmedEnd],
-                queryQualities[self.refTrimmedStart:self.refTrimmedEnd] if BAMentry.query_alignment_qualities else None,
+                queryQualities[self.refTrimmedStart:self.refTrimmedEnd] if self.fastq else None,
                 insertions,
                 deletions]
 
@@ -206,7 +205,7 @@ class MutationAnalysis:
 
         for i in mismatches:
 
-            if qScores:
+            if self.fastq:
                 if qScores[i] < self.QSminimum: continue
 
             wtNT = ref[i]
@@ -280,6 +279,14 @@ class MutationAnalysis:
             wildTypeRow.extend(['', ''])
 
         bamFile = pysam.AlignmentFile(self.BAMin, 'rb')
+
+        # set whether to use quality score features based on whether or not quality scores are present
+        for bamEntry in bamFile:
+            self.fastq = False
+            if bamEntry.query_alignment_qualities:
+                self.fastq = True
+            break
+
         for bamEntry in bamFile:
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
@@ -304,7 +311,10 @@ class MutationAnalysis:
                 wildTypeCount += 1
                 continue
 
-            avgQscore = np.average(np.array(cleanAln[3]))
+            if not self.fastq:
+                avgQscore = -1
+            else:
+                avgQscore = np.average(np.array(cleanAln[3]))
             seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
             genotypesList.append(seqGenotype)
 
@@ -358,7 +368,7 @@ class MutationAnalysis:
         genotypesDFcondensed.to_csv(self.outputList[1], index=False)
         failuresDF.to_csv(self.outputList[2], index=False)
         NTmutDF.index.name = 'NT_mutation_count'
-        if not self.config['mutations_frequencies_raw']:
+        if not self.config['mutations_frequencies_raw'] and totalSeqs>0:
             NTmutDF = NTmutDF.divide(totalSeqs)
         NTmutDF.to_csv(self.outputList[3])
         NTdistDF.to_csv(self.outputList[4])

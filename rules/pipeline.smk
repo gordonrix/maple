@@ -276,7 +276,6 @@ checkpoint UMI_splitBAMtoFASTAs:
 
 rule UMI_consensus:
     input:
-        splitDir = directory('sequences/UMI/{tag, [^\/_]*}_UMIsplit'),
         fasta = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_reads.fasta'
     output:
         outDir = directory('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka'),
