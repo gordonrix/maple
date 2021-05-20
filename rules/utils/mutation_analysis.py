@@ -123,14 +123,14 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 1: #insertion, not added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done
+                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
                 insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done
+                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift deletion', queryIndex)
                     return None
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
@@ -290,11 +290,7 @@ class MutationAnalysis:
         for bamEntry in bamFile:
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
-                try:
-                    seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
-                except:
-                    print(bamEntry.cigartuples)
-                    raise ValueError
+                seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
             else:
                 failuresList.append([bamEntry.query_name, self.alignmentFailureReason[0], self.alignmentFailureReason[1]])
                 continue
