@@ -39,7 +39,7 @@ medaka_model: 'r941_min_high_g360'
 # Alignments need to be run with at least -j 2 for alignment and sam to bam conversion.
 threads_basecalling: 4
 threads_porechop: 4
-threads_medaka: 2
+threads_medaka: 1
 threads_alignment: 3
 threads_samtools : 1
 threads_demux: 4
@@ -50,7 +50,7 @@ NGmerge_flags: '-m 10'             # command line flags to add to NGmerge comman
 
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
-UMI_mismatches: 2           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
+UMI_mismatches: 3           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
 UMI_consensus_minimum: 3  # minimum required number of reads with a particular UMI. if set to <=1, all reads will be included
 UMI_consensus_maximum: 1000     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
 
@@ -63,7 +63,8 @@ alignment_minimap2_flags: '-a -A2 -B4 -O18 -E4 --secondary=no --end-bonus=15'   
 
 # demultiplexing
 demux: True
-demux_threshold: 0  # count threshold for carrying through to subsequent rules. A demultiplexed file must contain at least this many sequences for further processing
+demux_screen_failures: False  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
+demux_threshold: 0          # count threshold for carrying through to subsequent rules. A demultiplexed file must contain at least this many sequences for further processing
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
