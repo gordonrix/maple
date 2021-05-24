@@ -158,7 +158,7 @@ else:
 rule UMI_minimap2:
     input:
         sequence = 'sequences/{tag}.fastq.gz',
-        reference = lambda wildcards: config['runs'][wildcards.tag]['reference']
+        alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
         pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam")
     threads: config['threads_alignment']
@@ -167,16 +167,10 @@ rule UMI_minimap2:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
-    params:
-        tempRef = lambda wildcards: wildcards.tag.split('.f')[0] + 'tempRef.fasta'
-    # singularity:
-    #     config['singularity_images']['alignment']
     shell:
         """
-        head -2 {input.reference} > {params.tempRef}
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {params.tempRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
+        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
         if [ $(grep 'ERROR' {output}.log | wc -l) -gt 0 ]; then exit 1; else rm {output}.log; fi
-        rm {params.tempRef}
         """
 
 # sam to bam conversion
@@ -239,7 +233,7 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-checkpoint UMI_splitBAMtoFASTAs:
+checkpoint UMI_splitBAMs:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
         index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
@@ -247,28 +241,32 @@ checkpoint UMI_splitBAMtoFASTAs:
     output:
         outDir = directory('sequences/UMI/{tag, [^\/_]*}_UMIsplit')
     script:
-        'utils/UMI_splitBAMtoFASTAs.py'
+        'utils/UMI_splitBAMs.py'
 
 rule UMI_consensus:
     input:
-        fasta = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_reads.fasta'
+        bam = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_reads.bam',
+        alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        outDir = directory('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka'),
-        consensus = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka/consensus.fasta'
+        hdf = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_calls.hdf',
+        consensus = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta'
     params:
         medaka_model = lambda wildcards: config['medaka_model'],
-        minimum = lambda wildcards: config['UMI_consensus_minimum'],
-        flags = lambda wildcards: config['medaka_flags']
+        refLength = lambda wildcards, input: len(next(SeqIO.parse(input.alnRef, 'fasta')).seq),
+        consensus_flags = lambda wildcards: config['medaka_conensus_flags'],
+        stitch_flags = lambda wildcards: config['medaka_stitch_flags']
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
-        medaka smolecule {params.flags} --threads {threads} --depth {params.minimum} --model {params.medaka_model} {output.outDir} {input.fasta}
+        samtools index {input.bam}
+        medaka consensus {params.consensus_flags} --threads {threads} --chunk_len {params.refLength} --model {params.medaka_model} {input.bam} {output.hdf}
+        medaka stitch {params.stitch_flags} --threads {threads} {output.hdf} {input.alnRef} {output.consensus}
         """
 
 def UMI_merge_consensus_seqs_input(wildcards):
-    UMI_split_output = checkpoints.UMI_splitBAMtoFASTAs.get(tag=wildcards.tag).output[0]
-    UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.fasta')
-    return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka/consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
+    UMI_split_output = checkpoints.UMI_splitBAMs.get(tag=wildcards.tag).output[0]
+    UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.bam')
+    return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
 
 rule UMI_merge_consensus_seqs:
     input:
@@ -302,7 +300,7 @@ def alignment_sequence_input(wildcards):
 rule minimap2:
     input:
         sequence = alignment_sequence_input,
-        reference = lambda wildcards: config['runs'][wildcards.tag]['reference']
+        alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
         pipe("alignments/{tag, [^\/_]*}.sam")
     threads: config['threads_alignment']
@@ -311,16 +309,10 @@ rule minimap2:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
-    params:
-        tempRef = lambda wildcards: wildcards.tag.split('.f')[0] + 'tempRef.fasta'
-    # singularity:
-    #     config['singularity_images']['alignment']
     shell:
         """
-        head -2 {input.reference} > {params.tempRef}
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {params.tempRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
+        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.tempRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
         if [ $(grep 'ERROR' {output}.log | wc -l) -gt 0 ]; then exit 1; else rm {output}.log; fi
-        rm {params.tempRef}
         """
 
 # sam to bam conversion

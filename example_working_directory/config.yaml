@@ -26,14 +26,16 @@ basecalling_guppy_qscore_filter: 0
 basecalling_guppy_flags: '-x cuda:0'
 
 # porechop
-porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
+porechop: False                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
 
 # medaka
 medaka_model: 'r941_min_high_g360'
-medaka_flags: '--quiet'     # flags to add to medaka shell command. threads, depth, and model flags are already added.
+medaka_conensus_flags: '--quiet'        # flags to add to medaka consensus shell command. threads, chunk-len, and model flags are already added.
+medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell command. Threads flag already added
 
 ### end nanopore only section ###
 
+references_directory: ref   # directory name for reference files, located in working directory
 
 # threads per processing batch, if given enough threads with -j n multiple
 # batches run in parallel. Also used as resource for cluster jobs.
@@ -51,7 +53,7 @@ NGmerge_flags: '-m 10'             # command line flags to add to NGmerge comman
 
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
-UMI_mismatches: 3           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
+UMI_mismatches: 1           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
 UMI_consensus_minimum: 3  # minimum required number of reads with a particular UMI. if set to <=1, all UMI groups will be included
 UMI_consensus_maximum: 1000     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
 
@@ -80,8 +82,8 @@ analyze_seqs_w_frameshift_indels: False      # Set to true if sequences containi
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
-NT_distribution_plot_x_max: 10                    # maximum x value to show for all nucleotide mutation distribution plots
-AA_distribution_plot_x_max: 10                    # maximum x value to show for all amino acid mutation distribution plots
+NT_distribution_plot_x_max: 45                    # maximum x value to show for all nucleotide mutation distribution plots
+AA_distribution_plot_x_max: 30                    # maximum x value to show for all amino acid mutation distribution plots
 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum
@@ -107,7 +109,7 @@ runs:
         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
         #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
-        reference: ref/refSeqs.fasta
+        reference: refSeqs.fasta
 
         # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
         UMI_contexts:
@@ -118,12 +120,12 @@ runs:
         barcodeInfo: # different types of barcodes present within each sequence, distinguished by their location within the sequence
             fwd: 
                 context: CNNNNNNG                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
-                fasta: ref/barcodes.fasta           # fasta file containing barcode sequences 
+                fasta: barcodes.fasta           # fasta file containing barcode sequences, located in references_directory
                 reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
                 hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
             rvs:
                 context: TNNNNNN  
-                fasta: ref/barcodes.fasta
+                fasta: barcodes.fasta
                 reverseComplement: True
                 hammingDistance: 1
             # lineage:

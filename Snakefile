@@ -85,16 +85,6 @@ with open(os.path.join(os.path.dirname(workflow.snakefile), "env.yaml"), 'r') as
     maple_env = yaml.safe_load(fp)
 
 
-# verify given references
-for tag in config['runs']:
-    if config['runs'][tag]['reference']:
-        refName = config['runs'][tag]['reference']
-        if not os.path.isfile(refName):
-            print_(f'[WARNING] Reference .fasta file for {refName} (given path: {refName}) not found.', file=sys.stderr)
-    else:
-        print_(f"[WARNING] No reference .fasta file provided for {tag} in config.yaml. Alignment and downstream tools will not work.", file=sys.stderr)
-
-
 # verify given binaries
 if 'bin' in maple_env:
     if not 'bin' in config:
@@ -238,13 +228,19 @@ for option in ['do_AA_analysis', 'auto_detect_longest_ORF']:
     if option not in config:
         raise RuntimeError(f"[ERROR] required boolean option `{option}` not present in config file.")
 refSeqErrors = []
-refSeqFastaFiles = []
+refSeqFastaFiles = []   # list files for all tags then check so files not being checked multiple times
 for tag in config['runs']:
     if 'reference' not in config['runs'][tag]:
         refSeqErrors.append(f"[ERROR] No reference file provided for tag `{tag}")
-    ref = config['runs'][tag]['reference']
-    if ref not in refSeqFastaFiles:
-        refSeqFastaFiles.append(ref)
+    refName = config['runs'][tag]['reference']
+    refFullPath = os.path.join(config['references_directory'], config['runs'][tag]['reference'])
+    if not (refName.endswith('fasta') or refName.endswith('.fa')):
+        print_(f'[WARNING] Reference .fasta file for {tag} does not end with `.fasta` or `.fa` (given path: {refFullPath}).', file=sys.stderr)
+    config['runs'][tag]['reference'] = refFullPath
+    if not os.path.isfile(refFullPath):
+        print_(f'[ERROR] Reference .fasta file for {tag} (given path: {refFullPath}) not found.', file=sys.stderr)
+    if refFullPath not in refSeqFastaFiles:
+        refSeqFastaFiles.append(refFullPath)
 
 for refFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
@@ -254,6 +250,28 @@ for refFasta in refSeqFastaFiles:
     elif len(referenceSeqs) >3:
         print_(f"[WARNING] Reference file {refFasta} contains more than the maximum usable number of three sequences. Only the first three sequences will be used for alignment and analysis.")
     alignmentSeq, nucleotideSeq = referenceSeqs[0], referenceSeqs[1]
+
+    # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
+    refFastaPrefix = refFasta.split('.f')[0].split('/')[-1]
+    alnRefFullPath = os.path.join(config['references_directory'], '.' + refFastaPrefix + '_aln.fasta')
+    config['runs'][tag]['reference_aln'] = alnRefFullPath
+    if os.path.isfile(alnRefFullPath):
+        try:
+            refFirstRecord = next(SeqIO.parse(refFullPath, 'fasta'))
+            alnFirstRecord = next(SeqIO.parse(alnRefFullPath, 'fasta'))
+            refFirstRecord.seq = refFirstRecord.seq.upper()
+            alnFirstRecord.seq = alnFirstRecord.seq.upper()
+            # make new file if aln record not the same as first record from ref
+            if (refFirstRecord.seq != alnFirstRecord.seq) or (refFirstRecord.id != alnFirstRecord.id):
+                os.remove(alnRefFullPath)
+        except StopIteration:
+            os.remove(alnRefFullPath)
+    if not os.path.isfile(alnRefFullPath):
+        print_(f'Alignment reference .fasta file for {tag} not found or is different from original reference .fasta file. Generating {alnRefFullPath} from {refFullPath}.', file=sys.stderr)
+        with open(alnRefFullPath, 'w') as fastaOut:
+            first_record = next(SeqIO.parse(refFullPath, 'fasta'))
+            first_record.seq = first_record.seq.upper()
+            SeqIO.write(first_record, fastaOut, 'fasta')
 
     if config['do_AA_analysis'] == True:
         if config['auto_detect_longest_ORF'] == True:
@@ -313,7 +331,7 @@ if config['demux'] == True:
                 if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
                     raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
             assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
-            bcFasta = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
+            bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
             if os.path.isfile(bcFasta):
                 assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
                 assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"
