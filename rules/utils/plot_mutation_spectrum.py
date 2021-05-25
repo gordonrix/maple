@@ -54,8 +54,8 @@ def main():
     ###
 
     ### Output variables
-    plotsOutDir = 'plots'
-    csvOutDir = 'mutSpectra'
+    plotOut = snakemake.output[0]
+    csvOutDir = 'mutation_data'
     if not os.path.exists(csvOutDir):
         os.mkdir(csvOutDir)
     ###
@@ -82,7 +82,7 @@ def main():
         backgroundRow = None
         backgroundBool = False
 
-    output_file(os.path.join(plotsOutDir, f'{tag}_mutation-spectra.html'))
+    output_file(plotOut)
     plotList = []
         
     first = True

@@ -178,8 +178,8 @@ rule UMI_aligner_sam2bam:
     input:
         sam = "sequences/UMI/{tag}_noConsensus.sam"
     output:
-        bam = temp("sequences/UMI/{tag, [^\/_]*}_noConsensus.bam"),
-        index = temp("sequences/UMI/{tag, [^\/_]*}_noConsensus.bam.bai")
+        bam = "sequences/UMI/{tag, [^\/_]*}_noConsensus.bam",
+        index = "sequences/UMI/{tag, [^\/_]*}_noConsensus.bam.bai"
     shadow: "minimal"
     threads: 1
     resources:
