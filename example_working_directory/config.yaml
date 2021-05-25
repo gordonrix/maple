@@ -51,6 +51,10 @@ threads_demux: 4
 merge_paired_end: False            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
+# NanoPlot
+nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
+nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
+
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
 UMI_mismatches: 1           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
@@ -76,7 +80,7 @@ do_AA_analysis: True                        # If set to False, only nucleotide-l
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 mutations_frequencies_raw: True            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
-analyze_seqs_w_frameshift_indels: False      # Set to true if sequences containing frameshift indels should be analyzed 
+analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count

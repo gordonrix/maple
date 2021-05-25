@@ -311,7 +311,7 @@ rule minimap2:
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.tempRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
+        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
         if [ $(grep 'ERROR' {output}.log | wc -l) -gt 0 ]; then exit 1; else rm {output}.log; fi
         """
 
@@ -333,6 +333,48 @@ rule aligner_sam2bam:
         """
         {config[bin_singularity][samtools]} view -b {input.sam} | {config[bin_singularity][samtools]} sort -m 4G > {output.bam}
         {config[bin_singularity][samtools]} index {output.bam}
+        """
+
+# Use NanoPlot package to generate and organize plots that describe sequencing data and alignments
+
+rule NanoPlot_fastq:
+    input:
+        'sequences/{tag}.fastq.gz'
+    output:
+        'plots/nanoplot/{tag, [^\/_]*}_fastq_NanoStats.txt'
+    params:
+        fastqType = lambda wildcards: '--fastq_rich' if config['nanopore'] else '--fastq',
+        flags = lambda wildcards: config['nanoplot_flags']
+    shell:
+        """
+        mkdir plots/nanoplot -p
+        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_fastq_ {params.fastqType} {input[0]}
+        """
+
+rule NanoPlot_alignment_preConsensus:
+    input:
+        'sequences/UMI/{tag}_noConsensus.bam'
+    output:
+        'plots/nanoplot/{tag, [^\/_]*}_alignment_preConsensus_NanoStats.txt'
+    params:
+        flags = lambda wildcards: config['nanoplot_flags']
+    shell:
+        """
+        mkdir plots/nanoplot -p
+        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_preConsensus_ --bam {input[0]}
+        """
+
+rule NanoPlot_alignment:
+    input:
+        'alignments/{tag}.bam'
+    output:
+        'plots/nanoplot/{tag, [^\/_]*}_alignment_NanoStats.txt'
+    params:
+        flags = lambda wildcards: config['nanoplot_flags']
+    shell:
+        """
+        mkdir plots/nanoplot -p
+        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_ --bam {input[0]}
         """
 
 # mapping stats

@@ -332,6 +332,7 @@ if config['demux'] == True:
                     raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
             assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
             bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
+            config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
             if os.path.isfile(bcFasta):
                 assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
                 assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"
@@ -432,8 +433,11 @@ def targets_input(wildcards):
     out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
     out.extend(expand('plots/{tag}_mutation-spectra.html', tag=config['runs']))
     out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
+    out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
+    out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
     if config['UMI_consensus']:
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
+        out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
     return out
 
 rule targets:
