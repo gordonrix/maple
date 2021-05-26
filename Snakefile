@@ -241,6 +241,9 @@ for tag in config['runs']:
         print_(f'[ERROR] Reference .fasta file for {tag} (given path: {refFullPath}) not found.', file=sys.stderr)
     if refFullPath not in refSeqFastaFiles:
         refSeqFastaFiles.append(refFullPath)
+    refFastaPrefix = refName.split('.f')[0]
+    alnRefFullPath = os.path.join(config['references_directory'], '.' + refFastaPrefix + '_aln.fasta')
+    config['runs'][tag]['reference_aln'] = alnRefFullPath
 
 for refFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
@@ -252,9 +255,6 @@ for refFasta in refSeqFastaFiles:
     alignmentSeq, nucleotideSeq = referenceSeqs[0], referenceSeqs[1]
 
     # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
-    refFastaPrefix = refFasta.split('.f')[0].split('/')[-1]
-    alnRefFullPath = os.path.join(config['references_directory'], '.' + refFastaPrefix + '_aln.fasta')
-    config['runs'][tag]['reference_aln'] = alnRefFullPath
     if os.path.isfile(alnRefFullPath):
         try:
             refFirstRecord = next(SeqIO.parse(refFullPath, 'fasta'))
@@ -270,8 +270,7 @@ for refFasta in refSeqFastaFiles:
         print_(f'Alignment reference .fasta file for {tag} not found or is different from original reference .fasta file. Generating {alnRefFullPath} from {refFullPath}.', file=sys.stderr)
         with open(alnRefFullPath, 'w') as fastaOut:
             first_record = next(SeqIO.parse(refFullPath, 'fasta'))
-            first_record.seq = first_record.seq.upper()
-            SeqIO.write(first_record, fastaOut, 'fasta')
+            fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
 
     if config['do_AA_analysis'] == True:
         if config['auto_detect_longest_ORF'] == True:
