@@ -292,7 +292,7 @@ for refFasta, alnFasta in refSeqFastaFiles:
     # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
     if os.path.isfile(alnFasta):
         try:
-            refFirstRecord = next(SeqIO.parse(refFullPath, 'fasta'))
+            refFirstRecord = next(SeqIO.parse(refFasta, 'fasta'))
             alnFirstRecord = next(SeqIO.parse(alnFasta, 'fasta'))
             refFirstRecord.seq = refFirstRecord.seq.upper()
             alnFirstRecord.seq = alnFirstRecord.seq.upper()
