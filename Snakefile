@@ -239,13 +239,13 @@ for tag in config['runs']:
     config['runs'][tag]['reference'] = refFullPath
     if not os.path.isfile(refFullPath):
         print_(f'[ERROR] Reference .fasta file for {tag} (given path: {refFullPath}) not found.', file=sys.stderr)
-    if refFullPath not in refSeqFastaFiles:
-        refSeqFastaFiles.append(refFullPath)
     refFastaPrefix = refName.split('.f')[0]
     alnRefFullPath = os.path.join(config['references_directory'], '.' + refFastaPrefix + '_aln.fasta')
     config['runs'][tag]['reference_aln'] = alnRefFullPath
+    if (refFullPath, alnRefFullPath) not in refSeqFastaFiles:
+        refSeqFastaFiles.append((refFullPath, alnRefFullPath))
 
-for refFasta in refSeqFastaFiles:
+for refFasta, alnFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
     if len(referenceSeqs) < 2:
         refSeqErrors.append(f"[ERROR] Reference file {refFasta} must be fasta formatted and contain more than 2 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
@@ -253,24 +253,6 @@ for refFasta in refSeqFastaFiles:
     elif len(referenceSeqs) >3:
         print_(f"[WARNING] Reference file {refFasta} contains more than the maximum usable number of three sequences. Only the first three sequences will be used for alignment and analysis.")
     alignmentSeq, nucleotideSeq = referenceSeqs[0], referenceSeqs[1]
-
-    # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
-    if os.path.isfile(alnRefFullPath):
-        try:
-            refFirstRecord = next(SeqIO.parse(refFullPath, 'fasta'))
-            alnFirstRecord = next(SeqIO.parse(alnRefFullPath, 'fasta'))
-            refFirstRecord.seq = refFirstRecord.seq.upper()
-            alnFirstRecord.seq = alnFirstRecord.seq.upper()
-            # make new file if aln record not the same as first record from ref
-            if (refFirstRecord.seq != alnFirstRecord.seq) or (refFirstRecord.id != alnFirstRecord.id):
-                os.remove(alnRefFullPath)
-        except StopIteration:
-            os.remove(alnRefFullPath)
-    if not os.path.isfile(alnRefFullPath):
-        print_(f'Alignment reference .fasta file for {tag} not found or is different from original reference .fasta file. Generating {alnRefFullPath} from {refFullPath}.', file=sys.stderr)
-        with open(alnRefFullPath, 'w') as fastaOut:
-            first_record = next(SeqIO.parse(refFullPath, 'fasta'))
-            fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
 
     if config['do_AA_analysis'] == True:
         if config['auto_detect_longest_ORF'] == True:
@@ -306,6 +288,25 @@ for refFasta in refSeqFastaFiles:
     for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
         if nt not in list("ATGCN"):
             refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{alignmentSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
+
+    # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
+    if os.path.isfile(alnFasta):
+        try:
+            refFirstRecord = next(SeqIO.parse(refFullPath, 'fasta'))
+            alnFirstRecord = next(SeqIO.parse(alnFasta, 'fasta'))
+            refFirstRecord.seq = refFirstRecord.seq.upper()
+            alnFirstRecord.seq = alnFirstRecord.seq.upper()
+            # make new file if aln record not the same as first record from ref
+            if (refFirstRecord.seq != alnFirstRecord.seq) or (refFirstRecord.id != alnFirstRecord.id):
+                os.remove(alnFasta)
+        except StopIteration:
+            os.remove(alnFasta)
+    if not os.path.isfile(alnFasta):
+        print_(f'Alignment reference .fasta file for {tag} not found or is different from original reference .fasta file. Generating {alnFasta} from {refFasta}.', file=sys.stderr)
+        with open(alnFasta, 'w') as fastaOut:
+            first_record = next(SeqIO.parse(refFasta, 'fasta'))
+            fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
+
 if len(refSeqErrors) > 0:
     for err in refSeqErrors:
         print_(err, file=sys.stderr)
