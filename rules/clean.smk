@@ -36,10 +36,12 @@ rule sequences_clean:
         if [ -d sequences/UMI ]; then
             find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
             find sequences/UMI -type f \( -name "*.tsv" \) | xargs cp -t {params.timestampDir}
+            find sequences/UMI -type f \( -name "*.fastq.gz" \) | xargs cp -t {params.timestampDir}
         fi
         if [ -d sequences/paired ]; then
-            find sequences/paired -type f \( -name "*_failed-merge_*" \) -delete
-            find sequences/paired -type f \( -name "*log" \) -delete
+            find sequences/paired -type f \( -name "*_failed-merge_1.fastq.gz" \) -delete
+            find sequences/paired -type f \( -name "*_failed-merge_2.fastq.gz" \) -delete
+            find sequences/paired -type f \( -name "*_NGmerge.log" \) -delete
         fi
         find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
