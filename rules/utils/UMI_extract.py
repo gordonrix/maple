@@ -119,7 +119,7 @@ class UMI_Extractor:
         BAMout = pysam.AlignmentFile(self.BAMout, 'wb', template=BAMin)
 
         self.logList = []
-        columns = ['read_id', 'umi', 'success', 'failure'] + [f'umi__{i+1}_failure' for i,a in enumerate(self.UMI_contexts)]
+        columns = ['read_id', 'umi', 'success', 'failure'] + [f'umi_{i+1}_failure' for i,a in enumerate(self.UMI_contexts)]
 
         count = 0
         for BAMentry in BAMin.fetch(self.reference.id):

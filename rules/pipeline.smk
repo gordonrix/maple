@@ -208,6 +208,36 @@ rule UMI_extract:
     script:
         'utils/UMI_extract.py'
 
+# collapse UMI extract log files into a single small file that summarizes UMI recognition in aggregate instead of on a read-by-read basis
+rule UMI_extract_summary:
+    input:
+        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = config['runs'])
+    output:
+        'sequences/UMI/UMI-extract-summary.csv'
+    run:
+        import pandas as pd
+        maxUMIs = 0
+        for tag in config['runs']:
+            if 'UMI_contexts' in config['runs'][tag]:
+                numUMIs = len(config['runs'][tag]['UMI_contexts'])
+                if numUMIs > maxUMIs:
+                    maxUMIs = numUMIs
+        UMIcols = [f'umi_{UMInum}_failure' for UMInum in range(1,maxUMIs+1)]
+        outDF = pd.DataFrame(columns=['tag','success','failure']+UMIcols)
+        for f in input:
+            df = pd.read_csv(f, dtype={'umi':str})
+            print(df.head())
+            dfCols = df.columns[2:]
+            tag = f.split('/')[-1].split('_')[0]
+            df['tag'] = tag
+            dfSum = df.groupby(['tag'])[dfCols].sum().reset_index()
+            if len(outDF.columns) != len(dfSum.columns): # add columns to match the maximum number of UMIs in a tag to allow for df concatenation
+                for col in UMIcols:
+                    if col not in dfCols:
+                        dfSum[col] = 'NA'
+            outDF = pd.concat([outDF, dfSum], ignore_index=True)
+        outDF.to_csv(output[0])
+
 rule UMI_group:
     input:
         bam = 'sequences/UMI/{tag}_UMIextract.bam',

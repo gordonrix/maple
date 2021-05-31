@@ -312,7 +312,7 @@ if len(refSeqErrors) > 0:
         print_(err, file=sys.stderr)
     raise RuntimeError("Errors in reference sequences found. See above.")
 
-# ADD CHECKS FOR UMIS.
+# ADD CHECKS FOR UMIS
 
 # ADD A CHECK FOR BARCODE INFO. If 'barcodeInfo' or 'barcodeGroups' is present in {tag}, both must be present and all barcode types in barcode groups
 # must be defined in 'barcodeInfo' dict
