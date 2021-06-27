@@ -111,6 +111,8 @@ for each of the designated tags:
 
 Likewise, if you'd like to restart your analysis without cluttering your working directory with additional tags, or if you just want to package up the key analysis files
 for transfer or storage, the 'clean' rule can be called. This will move or copy all the small files generated during analyses to a timestamped directory
-and removes large files such as alignment files, without modifying large important files such as .fast5 files and unmerged .fastq files.
+and removes large files such as alignment files, without modifying large important files such as .fast5 files and .fastq files. If analysis rules that
+produce files in the 'sequences' directory need to be rerun, such as UMI rules or paired end merging, the outputs of those rules must be manually deleted
+to enable rule re-run.
 
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 clean
