@@ -34,18 +34,20 @@ rule sequences_clean:
         """
         mkdir -p {params.timestampDir}
         if [ -d sequences/UMI ]; then
-            find sequences/UMI -type f \( -name "*UMI-extract.csv" \) -delete
-            find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
-            find sequences/UMI -type f \( -name "*.tsv" \) | xargs mv -t {params.timestampDir}
-            find sequences/UMI -type f \( -name "*.fastq.gz" \) | xargs cp -t {params.timestampDir}
-            rm -r sequences/UMI
+            if [ -d sequences/UMI ]; then
+                find sequences/UMI -type f \( -name "*UMI-extract.csv" \) -delete
+                find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
+                find sequences/UMI -type f \( -name "*.tsv" \) | xargs mv -t {params.timestampDir}
+                find sequences/UMI -type f \( -name "*.fastq.gz" \) | xargs cp -t {params.timestampDir}
+                rm -r sequences/UMI
+            fi
+            if [ -d sequences/paired ]; then
+                find sequences/paired -type f \( -name "*_failed-merge_1.fastq.gz" \) -delete
+                find sequences/paired -type f \( -name "*_failed-merge_2.fastq.gz" \) -delete
+                find sequences/paired -type f \( -name "*_NGmerge.log" \) -delete
+            fi
+            find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         fi
-        if [ -d sequences/paired ]; then
-            find sequences/paired -type f \( -name "*_failed-merge_1.fastq.gz" \) -delete
-            find sequences/paired -type f \( -name "*_failed-merge_2.fastq.gz" \) -delete
-            find sequences/paired -type f \( -name "*_NGmerge.log" \) -delete
-        fi
-        find sequences -maxdepth 1 -type f -name '*.fastq.gz' -delete
         """
 
 # clean up compute batches alignment
