@@ -5,12 +5,13 @@ mutation-rich next generation sequencing data from highly parallelized targeted 
 special focus on Oxford Nanopore Technology (ONT) data. It provides consensus sequence generation using
 unique molecular identifiers (UMIs), easy-to-use and versatile demultiplexing, and a suite of analyses and plots.
 
-Analysis is primarily performed by custom python scripts, but several external tools are integrated
-and critical:
+Analysis is primarily performed by a mix of custom python scripts and several external tools:
  - [Guppy](https://nanoporetech.com/nanopore-sequencing-data-analysis)
+ - [medaka](https://github.com/nanoporetech/medaka)
  - [minimap2](https://doi.org/10.1093/bioinformatics/bty191)
  - [Samtools](http://www.htslib.org/)
  - [NGmerge](https://github.com/harvardinformatics/NGmerge)
+ - [NanoPlot](https://github.com/wdecoster/NanoPlot)
 
 Additionally, many concepts and code are borrowed from the (very sophisticated) snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
 
@@ -18,9 +19,22 @@ Additionally, many concepts and code are borrowed from the (very sophisticated) 
 
 Maple requires conda, which can be installed by following [these instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/).
 Miniconda is lighter weight and provides all that is needed by Maple. If basecalling ONT data is needed,
-then GPU hardware and [cuda](https://docs.nvidia.com/cuda/) are also required. To accomodate use on
-compute clusters, the only steps that require root privileges are installation of conda and cuda,
-which should already be available on most clusters.
+then GPU hardware and [cuda](https://docs.nvidia.com/cuda/) are also required. CPU basecalling is not available
+by default because it is prohibitively slow. If CPU basecalling is desired, or if basecalling is not needed,
+comment/uncomment the appropriate rules in rules/install.smk
+
+Additionally, the following software packages are required:
+ - git gcc g++ wget rsync
+ - binutils autoconf make cmake
+ - libgomp1
+ - zlib1g-dev
+ - bzip2 libbz2-dev
+ - liblzma-dev libncurses5-dev
+ - libcunit1 libhdf5-100 libidn11 libopenblas-base
+ - libgssapi-krb5-2
+ - libzstd-dev
+ 
+These are likely already present in most production environments.
 
 Clone the repository:
 
@@ -57,6 +71,7 @@ needed for execution of the pipeline:
 
     snakemake --snakefile rules/install.smk --directory ~/.conda/envs/maple -j 4 all
 
+If basecalling ONT data is not needed, `all` in the above command may be replaced with `all_but_guppy`
 
 ## Usage
 
@@ -70,9 +85,10 @@ organized by 'tags' which will be applied to all filenames. Detailed information
 
 Following installation, the steps required for basic usage of the pipeline are as follows:
 1. Create a directory for the dataset(s) that you wish to analyze by copying the example_working_directory to a location of your choice,
-rename it as desired, and navigate to this new directory.
+rename it as desired, and navigate to this new directory. It is recommended that a new directory be made for distinct experiments
 2. Modify the config.yaml file within the new directory as appropriate. Most of these settings can remain unchanged, but the settings for individual
-tag(s) should be changed, such as the sequencing data and reference sequences file locations and barcode information (if demultiplexing is required)
+tag(s) should be changed, such as the sequencing data and reference sequences file locations and barcode information (if demultiplexing is required),
+and boolean settings such as `do_basecalling`, and `merge_paired_end`, 
 3. Modify the reference sequence and barcode .fasta files (located in the 'ref' directory) as appropriate. Use the exampleReferences.fasta file
 for assistance with determining the appropriate reference sequences.
 4. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
@@ -85,7 +101,8 @@ files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The pat
 
 Use of the '-n' flag is recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
 not executed. Because many checks are performed to identify any potential problems in how things were set up (e.g. checking that reference files
-exist), this will better guarantee that the entire pipeline will run to completion prior to starting it.
+exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The '-q' flag can also be useful if
+long snakemake print statements prohibit reading warnings that appear.
 
 In place of a specific file name, 'targets' can be used to invoke a rule that automatically carries out most of the analysis that maple can do
 for each of the designated tags:

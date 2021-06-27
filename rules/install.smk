@@ -37,58 +37,6 @@ import os, sys, site
 rule default:
     shell : ""
 
-# rule demux:
-#     input:
-#         "bin/deepbinner"
-
-# rule basecalling:
-#     input:
-#         "bin/guppy_basecaller",
-#         "bin/flappie",
-
-# rule alignment:
-#     input:
-#         "bin/minimap2",
-#         "bin/graphmap2",
-#         "bin/ngmlr",
-#         "bin/samtools",
-#         "bin/bedtools",
-#         "bin/bedGraphToBigWig"
-
-# rule methylation:
-#     input:
-#         "bin/nanopolish",
-#         "bin/samtools",
-#         "bin/bedtools",
-#         "bin/bedGraphToBigWig"
-
-# rule assembly:
-#     input:
-#         "bin/minimap2",
-#         "bin/samtools",
-#         "bin/flye",
-#         "bin/wtdbg2"
-
-# rule sv:
-#     input:
-#         "bin/sniffles",
-#         "bin/svim"
-
-# rule transcript_core:
-#     input:
-#         "bin/minimap2",
-#         "bin/samtools",
-#         "bin/racon",
-#         "bin/cluster_gff",
-#         "bin/collapse_partials",
-#         "bin/polish_clusters",
-#         "bin/spliced_bam2gff"
-
-# rule transcript:
-#     input:
-#         rules.transcript_core.input,
-#         "bin/cdna_classifier.py"
-
 rule all:
     input:
         "bin/guppy_basecaller",
@@ -96,6 +44,11 @@ rule all:
         "bin/samtools",
         "bin/NGmerge"
 
+rule all_but_guppy:
+    input:
+        "bin/minimap2",
+        "bin/samtools",
+        "bin/NGmerge"
 
 # helper functions
 def find_go():
@@ -251,16 +204,35 @@ rule guppy:
         # wget https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy-cpu_3.1.5_linux64.tar.gz &&
         # wget https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy-cpu_3.4.4_linux64.tar.gz &&
         # wget https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy-cpu_4.0.11_linux64.tar.gz &&
+        # wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_4.5.4_linux64.tar.gz &&
         mkdir -p src/guppy && cd src/guppy && rm -rf *
-        wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_4.5.4_linux64.tar.gz
-        tar -xzkf ont-guppy_4.5.4_linux64.tar.gz -C ./ --strip 1 && \
-        rm ont-guppy_4.5.4_linux64.tar.gz
+        wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_5.0.11_linux64.tar.gz
+        tar -xzkf ont-guppy_5.0.11_linux64.tar.gz -C ./ --strip 1 && \
+        rm ont-guppy_5.0.11_linux64.tar.gz
         # copy everything except toplevel softlinks e.g.
         # skip libhdf5.so
         # copy libhdf5.so.1.8.11
         rsync --files-from=<(find . ! \( -type l -and -regex '^.*so$' \) -print) --links . ../../
         rm -r *
         """
+
+###             If CPU basecalling is desired, comment out the above rule and uncomment this rule
+# rule guppy_cpu:
+#     output:
+#         basecaller = "bin/guppy_basecaller",
+#         barcoder = "bin/guppy_barcoder"
+#     shell:
+#         """
+#         mkdir -p src/guppy && cd src/guppy && rm -rf *
+#         wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy-cpu_5.0.11_linux64.tar.gz
+#         tar -xzkf ont-guppy-cpu_5.0.11_linux64.tar.gz -C ./ --strip 1 && \
+#         rm ont-guppy-cpu_5.0.11_linux64.tar.gz
+#         # copy everything except toplevel softlinks e.g.
+#         # skip libhdf5.so
+#         # copy libhdf5.so.1.8.11
+#         rsync --files-from=<(find . ! \( -type l -and -regex '^.*so$' \) -print) --links . ../../
+#         rm -r *
+#         """
 
 rule NGmerge:
     output:
