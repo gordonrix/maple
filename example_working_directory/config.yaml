@@ -17,19 +17,19 @@ storage_runname:
     field_kit: 3
 
 # basecalling
-do_basecalling: False                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
+do_basecalling: True                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
 # config file for guppy basecalling
 basecalling_guppy_config: 'dna_r9.4.1_450bps_hac.cfg'
 # quality qscore filter for guppy. 0 means all reads are written to the output
 basecalling_guppy_qscore_filter: 0
 # command line flags directly passed to guppy
-basecalling_guppy_flags: '-x cuda:0'
+basecalling_guppy_flags: ''
 
 # porechop
-porechop: False                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
+porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
 
 # medaka
-medaka_model: 'r941_min_high_g360'
+medaka_model: 'r941_min_sup_g507'
 medaka_conensus_flags: '--quiet'        # flags to add to medaka consensus shell command. threads, chunk-len, and model flags are already added.
 medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell command. Threads flag already added
 
@@ -52,7 +52,7 @@ merge_paired_end: False            # set to True if merging of paired end reads 
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # NanoPlot
-nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
+nanopore: False      # Set to true if sequencing data is derived from ONT nanopore platform
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus
