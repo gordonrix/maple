@@ -26,10 +26,10 @@ basecalling_guppy_qscore_filter: 0
 basecalling_guppy_flags: ''
 
 # porechop
-porechop: False                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
+porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
 
 # medaka
-medaka_model: 'r941_min_high_g360'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507
+medaka_model: 'r941_min_sup_g507'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507
 medaka_conensus_flags: '--quiet'        # flags to add to medaka consensus shell command. threads, chunk-len, and model flags are already added.
 medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell command. Threads flag already added
 
