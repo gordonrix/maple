@@ -19,7 +19,7 @@ storage_runname:
 # basecalling
 do_basecalling: True                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
 # config file for guppy basecalling
-basecalling_guppy_config: 'dna_r9.4.1_450bps_hac.cfg'
+basecalling_guppy_config: 'dna_r9.4.1_450bps_sup.cfg'
 # quality qscore filter for guppy. 0 means all reads are written to the output
 basecalling_guppy_qscore_filter: 0
 # command line flags directly passed to guppy
