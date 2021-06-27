@@ -222,8 +222,12 @@ else:
             else:
                 for runname in config['runs'][tag]['runname']:
                     batch = os.path.join('sequences', 'batches', runname)
-                    if not os.path.exists(batch):
-                        print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
+                    if config['porechop']:
+                        porechopBatch = batch + '_porechop'
+                        if not os.path.exists(batch) and not os.path.exists(porechopBatch):
+                            print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, basecalled sequence batch folder `{batch}` not found, and porechop sequence batch folder `{porechopBatch}` not found.", file=sys.stderr)
+                    elif not os.path.exists(batch):
+                        print_(f"[WARNING] `do_basecalling` set to False, `porechop` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
 
 # check reference sequences
 for option in ['do_AA_analysis', 'auto_detect_longest_ORF']:

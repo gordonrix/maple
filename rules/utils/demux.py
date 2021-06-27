@@ -423,7 +423,7 @@ class BarcodeParser:
 
         demuxStats = pd.DataFrame(rows, columns=colNames)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
-        demuxStats.to_csv(outputStats)
+        demuxStats.to_csv(outputStats, index=False)
 
         # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory
         banishDir = os.path.join(outputDir, 'no_subsequent_analysis')
@@ -440,15 +440,6 @@ class BarcodeParser:
                 original = os.path.join(outputDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 target = os.path.join(banishDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 shutil.move(original, target)
-
-        # demuxStatsLowCount = demuxStats[demuxStats['count']<self.config['demux_threshold']]
-        # if len(demuxStatsLowCount) > 0:
-        #     noAnalysisDir = os.path.join(outputDir, 'no_subsequent_analysis')
-        #     os.makedirs(lowCountDir, exist_ok=True)
-        #     for row in demuxStatsLowCount.itertuples():
-        #         original = os.path.join(outputDir, f'{self.tag}_{row.output_file_barcodes}.bam')
-        #         target = os.path.join(lowCountDir, f'{self.tag}_{row.output_file_barcodes}.bam')
-        #         shutil.move(original, target)
 
 
 if __name__ == '__main__':

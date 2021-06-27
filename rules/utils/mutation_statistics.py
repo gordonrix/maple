@@ -1,4 +1,4 @@
-""" script for nanoMACE pipeline
+""" script for maple pipeline
 
 Uses output data files from rule mutation_analysis for all files being processed, calculates
 interesting statistics from these data files, and outputs these statistics into a .csv file

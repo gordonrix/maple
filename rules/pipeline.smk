@@ -493,6 +493,27 @@ rule mut_stats:
 	script:
 		'utils/mutation_statistics.py'
 
+def dms_view_input(wildcards):
+    for tag in config['runs']:
+        if config['demux']:
+            checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+            checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+            checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+            out = expand('mutation_data/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
+        else:
+            out = expand('mutation_data/{tag}_all_AA-muts-frequencies.csv', tag=tag)
+    assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
+    return out
+
+# combines all AA mutation frequency data into a table that is compatible with dms-view (https://dms-view.github.io/) which visualizes mutations onto a crystal structure
+rule dms_view:
+    input:
+        dms_view_input
+    output:
+        'dms_view_table.csv'
+    script:
+        'utils/frequencies_to_dmsview.py'
+
 rule plot_mutation_spectrum:
     input:
         '{tag}_mutation-stats.csv'

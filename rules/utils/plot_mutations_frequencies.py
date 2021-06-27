@@ -17,7 +17,7 @@ config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
 inputFrequencies = snakemake.input.frequencies
-mutStatsDF = pd.read_csv(snakemake.input.mutStats)
+mutStatsDF = pd.read_csv(snakemake.input.mutStats, dtype={'tag':str,'barcode_group':str})
 if config['mutations_frequencies_raw'] == True:
     yAxisLabel = 'total mutation count'
 elif config['mutations_frequencies_raw'] == False:
