@@ -141,7 +141,7 @@ if config['merge_paired_end']:
             NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
             """
 
-else:
+elif config['nanopore']:
     rule basecaller_merge_tag: # combine batches of basecalled reads into a single file
         input:
             lambda wildcards: get_batches_basecaller(wildcards)

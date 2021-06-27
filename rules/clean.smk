@@ -39,7 +39,6 @@ rule sequences_clean:
                 find sequences/UMI -type f \( -name "*.csv" \) | xargs mv -t {params.timestampDir}
                 find sequences/UMI -type f \( -name "*.tsv" \) | xargs mv -t {params.timestampDir}
                 find sequences/UMI -type f \( -name "*.fastq.gz" \) | xargs cp -t {params.timestampDir}
-                rm -r sequences/UMI
             fi
             if [ -d sequences/paired ]; then
                 find sequences/paired -type f \( -name "*_failed-merge_1.fastq.gz" \) -delete

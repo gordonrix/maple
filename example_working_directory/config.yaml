@@ -52,7 +52,7 @@ merge_paired_end: False            # set to True if merging of paired end reads 
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # NanoPlot
-nanopore: False      # Set to true if sequencing data is derived from ONT nanopore platform
+nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus
@@ -94,7 +94,7 @@ AA_distribution_plot_x_max: 30                    # maximum x value to show for 
     #   to use, this barcode group name must be present within all sample tags being analyzed
 # background: Y390-1000
 
-# runs to be analyzed, organized into separate run tags
+# runs to be analyzed, organized into separate run 'tags'
 runs:
     
     example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.

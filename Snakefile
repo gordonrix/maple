@@ -199,13 +199,16 @@ if config['do_basecalling']:
             elif not os.path.exists(os.path.join(loc, config['fast5_dir'])) or not os.listdir(os.path.join(loc, config['fast5_dir'])):
                 print_("[WARNING] {runname} configured but with missing/empty reads directory.".format(
                     runname=runname), file=sys.stderr)
+    if not config['nanopore']:
+        print_("[WARNING] 'do_basecalling' set to True but 'nanopore' set to False. This will not end well.")
 # check for sequences
 else:
     for tag in config['runs']:
         sequences = os.path.join('sequences', tag+'.fastq.gz')
 
-        if config['merge_paired_end'] == True:
-            if not os.path.exists(sequences):
+        if not os.path.exists(sequences):
+
+            if config['merge_paired_end'] == True:
                 if 'fwdReads' not in config['runs'][tag] or 'fwdReads' not in config['runs'][tag]:
                     print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`")
                 fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
@@ -213,11 +216,10 @@ else:
                 if not all((os.path.exists(fwd), os.path.exists(rvs))):
                     print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files provided for {tag}, {fwd}, {rvs} do not exist")
 
-        elif 'runname' not in config['runs'][tag]:
-            if not os.path.exists(sequences):
-                print_(f"[WARNING] `do_basecalling` set to False and runname director(y/ies) not set for {config['runs'][tag]}, but sequences file `{sequences}` not found", file=sys.stderr)
-        else:
-            if not os.path.exists(sequences):
+            elif 'runname' not in config['runs'][tag]:
+                print_(f"[WARNING] `do_basecalling` set to False and runname director(y/ies) not set for tag `{tag}`, but sequences file `{sequences}` not found", file=sys.stderr)
+
+            else:
                 for runname in config['runs'][tag]['runname']:
                     batch = os.path.join('sequences', 'batches', runname)
                     if not os.path.exists(batch):
@@ -321,26 +323,34 @@ if 'demux' not in config:
 if config['demux'] == True:
     for tag in config['runs']:
         if 'barcodeInfo' not in config['runs'][tag]:
-            raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`.")
+            print_(f"[WARNING] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`. Demultiplexing will fail.")
         if len(config['runs'][tag]['barcodeInfo']) == 0:
-            raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} `barcodeInfo` does not contain any barcode types.")
+            print_(f"[WARNING] `demux` set to True, but tag {tag} `barcodeInfo` does not contain any barcode types. Demultiplexing will fail.")
         refFasta = config['runs'][tag]['reference']
         alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
         for barcodeType in config['runs'][tag]['barcodeInfo']:
             for requiredKey in ['context', 'fasta', 'reverseComplement']:
                 if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                    raise RuntimeError(f"[ERROR] `demux` set to True, but tag {tag} barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
-            assert str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) != -1, f"Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`"
+                    print_(f"[WARNING] `demux` set to True, but tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
+            if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
+                print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`")
             bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
             config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
             if os.path.isfile(bcFasta):
-                assert len(list(SeqIO.parse(bcFasta, 'fasta'))) != 0, f"Barcode fasta file `{bcFasta}` empty or not fasta format"
-                assert type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])==bool, f"Barcode type {barcodeType} reverseComplement not bool (True or False)"
+                if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
+                    print_(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format")
+                if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
+                    print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
+            
 elif config['demux'] == False:
     for tag in config['runs']:
         if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
             print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
         
+if len(refSeqErrors) > 0:
+    for err in refSeqErrors:
+        print_(err, file=sys.stderr)
+    raise RuntimeError("Errors in config file found. See above.")
 
 # # include modules
 include : "rules/storage.smk"
