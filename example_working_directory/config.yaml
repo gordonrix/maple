@@ -26,10 +26,10 @@ basecalling_guppy_qscore_filter: 0
 basecalling_guppy_flags: ''
 
 # porechop
-porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
+porechop: False                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
 
 # medaka
-medaka_model: 'r941_min_sup_g507'
+medaka_model: 'r941_min_high_g360'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507
 medaka_conensus_flags: '--quiet'        # flags to add to medaka consensus shell command. threads, chunk-len, and model flags are already added.
 medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell command. Threads flag already added
 
@@ -79,7 +79,7 @@ sequence_length_threshold: 0.1              # Proportion of sequence length to b
 do_AA_analysis: True                        # If set to False, only nucleotide-level analysis will be generated. If set to true, AA-level analysis generated as well and, to prevent mismatch between nucleotide and amino acid -level analysis, sequences that do not pass AA-level quality checks will not be analyzed (e.g. sequences with frameshift mutations)
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
-mutations_frequencies_raw: True            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
+mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
@@ -88,6 +88,12 @@ unique_genotypes_count_threshold: 5         # minimum number of reads of a parti
 # plot_mutation_distributions
 NT_distribution_plot_x_max: 45                    # maximum x value to show for all nucleotide mutation distribution plots
 AA_distribution_plot_x_max: 30                    # maximum x value to show for all amino acid mutation distribution plots
+
+# settings for dms view, which visualizes mutations onto a protein structure. These settings are required if a valid input file for that tool is desired
+    # Data for all sample+barcode combinations will be converted to the proper format and output as dms_view_table.csv. See https://dms-view.github.io/ for instructions on how to use the tool
+    # To use, all tags must use the same protein sequence and .pdb file
+dms_view_chain: A    # chain(s) in .pdb file being used. Numbering should coincide with numbering of protein sequence mutation analysis. If more than one, separate with spaces
+dms_view_chain_numbering_difference: 0   # difference in numbering between protein chain in structure and amino acid level analysis. ex. if numbering for AA analysis starts at residue corresponding to residue 10 on the crystal structure, set to 10
 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum
@@ -137,7 +143,7 @@ runs:
             #     fasta: ref/barcodes_internal.fa
             #     reverseComplement: False
             #     hammingDistance: 3
-            #     generate: 2                 # automatically generates a fasta file with this number of barcodes if the fasta file does not already exist
+            #     generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
