@@ -314,10 +314,21 @@ if len(refSeqErrors) > 0:
         print_(err, file=sys.stderr)
     raise RuntimeError("Errors in reference sequences found. See above.")
 
-# ADD CHECKS FOR UMIS
+# UMI checks
+if 'UMI_consensus' not in config:
+    raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
+if config['UMI_consensus'] == True:
+    for tag in config['runs']:
+        if 'UMI_contexts' not in config['runs'][tag]:
+            print_(f"[WARNING] `UMI_contexts` set to True, but tag `{tag}` does not contain the required key `UMI_contexts`. UMI consensus steps will fail.")
+        else:
+            refFasta = config['runs'][tag]['reference']
+            alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
+            for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
+                if str(alignmentSeq.seq).upper().find(context.upper()) == -1:
+                    print_(f"[WARNING] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus steps will fail.")
 
-# ADD A CHECK FOR BARCODE INFO. If 'barcodeInfo' or 'barcodeGroups' is present in {tag}, both must be present and all barcode types in barcode groups
-# must be defined in 'barcodeInfo' dict
+# Demultiplexing checks
 if 'demux' not in config:
     raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
 if config['demux'] == True:
@@ -347,10 +358,6 @@ elif config['demux'] == False:
         if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
             print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
         
-if len(refSeqErrors) > 0:
-    for err in refSeqErrors:
-        print_(err, file=sys.stderr)
-    raise RuntimeError("Errors in config file found. See above.")
 
 # # include modules
 include : "rules/storage.smk"
