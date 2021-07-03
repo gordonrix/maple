@@ -494,14 +494,16 @@ rule mut_stats:
 		'utils/mutation_statistics.py'
 
 def dms_view_input(wildcards):
+    out = []
     for tag in config['runs']:
         if config['demux']:
             checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
             checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
             checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-            out = expand('mutation_data/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
+            tagFiles = expand('mutation_data/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
         else:
-            out = expand('mutation_data/{tag}_all_AA-muts-frequencies.csv', tag=tag)
+            tagFiles = expand('mutation_data/{tag}_all_AA-muts-frequencies.csv', tag=tag)
+        out.extend(tagFiles)
     assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
     return out
 

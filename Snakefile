@@ -459,6 +459,8 @@ def targets_input(wildcards):
     if config['UMI_consensus']:
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
         out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
+    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
+        out.append('dms_view_table.csv')
     return out
 
 rule targets:
