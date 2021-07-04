@@ -35,7 +35,7 @@ medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell co
 
 ### end nanopore only section ###
 
-references_directory: ref   # directory name for reference files, located in working directory
+# references_directory: ref   # directory name for reference files, located in working directory
 
 # threads per processing batch, if given enough threads with -j n multiple
 # batches run in parallel. Also used as resource for cluster jobs.
@@ -71,7 +71,7 @@ alignment_minimap2_flags: '-a -A2 -B4 -O18 -E4 --secondary=no --end-bonus=15'   
 # demultiplexing
 demux: True
 demux_screen_failures: False  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
-demux_threshold: 0          # count threshold for carrying through to subsequent rules. A demultiplexed file must contain at least this many sequences for further processing
+demux_threshold: 0.05          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
@@ -144,6 +144,7 @@ runs:
             #     reverseComplement: False
             #     hammingDistance: 3
             #     generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
+            #     noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to separate sequences into distinct files. Default, False
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types

@@ -185,6 +185,16 @@ else:
 if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
+# check for required options
+required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot_flags', 'UMI_consensus', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'demux', 'demux_screen_failures', 'demux_threshold', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'do_AA_analysis', 'auto_detect_longest_ORF', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'dms_view_chain', 'dms_view_chain_numbering_difference', 'runs']
+missing = []
+for option in required:
+    if option not in config:
+        missing.append(option)
+if len(missing) > 0:
+    text = [f"`{o}`" for o in missing]
+    print_(f"[WARNING] Required option(s) missing from the config file: {', '.join(text)}. Please add these options to the config file. See example_working_directory/config.yaml for example.")
+
 # check raw data archive
 if config['do_basecalling']:
     if not os.path.exists(config['storage_data_raw']):

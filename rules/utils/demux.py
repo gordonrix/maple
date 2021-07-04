@@ -418,6 +418,8 @@ class BarcodeParser:
             count = 1
             rows.append([self.tag, outputBarcodes, count] + BAMentryBarcodeData)
 
+        totalSeqs = len(rows)
+
         for sortedBAM in outFileDict:
             outFileDict[sortedBAM].close()
 
@@ -431,7 +433,7 @@ class BarcodeParser:
         os.makedirs(banishDir, exist_ok=True)
         for i, row in demuxStats.iterrows():
             banish = False
-            if row['count'] <= self.config['demux_threshold']:
+            if row['count'] <= self.config['demux_threshold'] * totalSeqs:
                 banish = True
             if self.config['demux_screen_failures']:
                 for barcodeType in self.barcodeDicts:
