@@ -390,10 +390,10 @@ class BarcodeParser:
         outFileDict = {}
         
         # columns names for dataframe to be generated from rows output by id_seq_barcodes
-        colNames = ['output_file_barcodes', 'count']
+        colNames = ['tag', 'output_file_barcodes', 'count']
 
         # column names and dictionary for grouping rows in final dataframe
-        groupByColNames = ['output_file_barcodes']
+        groupByColNames = ['tag', 'output_file_barcodes']
         sumColsDict = {'count':'sum'}
 
         for barcodeType in self.barcodeDicts:
@@ -416,13 +416,14 @@ class BarcodeParser:
                 outFileDict[outputBarcodes] = pysam.AlignmentFile(fName, 'wb', template=bamfile)
                 outFileDict[outputBarcodes].write(BAMentry)
             count = 1
-            rows.append([outputBarcodes,count] + BAMentryBarcodeData)
+            rows.append([self.tag, outputBarcodes, count] + BAMentryBarcodeData)
 
         for sortedBAM in outFileDict:
             outFileDict[sortedBAM].close()
 
         demuxStats = pd.DataFrame(rows, columns=colNames)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
+        demuxStats.sort_values('count', ascending=False, inplace=True)
         demuxStats.to_csv(outputStats, index=False)
 
         # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory

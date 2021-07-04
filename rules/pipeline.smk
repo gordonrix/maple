@@ -440,9 +440,20 @@ if config['demux']:
         output:
             flag = touch('demux/.{tag, [^\/_]*}_demultiplex.done'),
             # checkpoint outputs have the following structure: demux/{tag}_{barcodeGroup}.BAM'
-            stats = '{tag, [^\/_]*}_demuxStats.csv'
+            stats = 'demux/{tag, [^\/_]*}_demux-stats.csv'
         script:
             'utils/demux.py'
+
+    rule merge_demux_stats:
+        input:
+            expand('demux/{tag}_demux-stats.csv', tag=config['runs'])
+        output:
+            'demux-stats.csv'
+        run:
+            import pandas as pd
+            dfs = [pd.read_csv(f) for f in input]
+            combined = pd.concat(dfs)
+            combined.to_csv(output[0], index=False)
 
     rule index_demuxed:
         input:
@@ -489,9 +500,20 @@ rule mut_stats:
 	input:
 		mut_stats_input
 	output:
-		'{tag, [^\/]*}_mutation-stats.csv'
+		'mutation_data/{tag, [^\/]*}_mutation-stats.csv'
 	script:
 		'utils/mutation_statistics.py'
+
+rule merge_mut_stats:
+    input:
+        expand('mutation_data/{tag}_mutation-stats.csv', tag=config['runs'])
+    output:
+        'mutation-stats.csv'
+    run:
+        import pandas as pd
+        dfs = [pd.read_csv(f) for f in input]
+        combined = pd.concat(dfs)
+        combined.to_csv(output[0], index=False)
 
 def dms_view_input(wildcards):
     out = []
@@ -518,7 +540,7 @@ rule dms_view:
 
 rule plot_mutation_spectrum:
     input:
-        '{tag}_mutation-stats.csv'
+        'mutation_data/{tag}_mutation-stats.csv'
     output:
         'plots/{tag, [^\/]*}_mutation-spectra.html'
     script:
@@ -536,7 +558,7 @@ def plot_mutations_frequencies_input(wildcards):
 rule plot_mutations_frequencies:
     input:
         frequencies = plot_mutations_frequencies_input,
-        mutStats = '{tag}_mutation-stats.csv'
+        mutStats = 'mutation_data/{tag}_mutation-stats.csv'
     output:
         'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-frequencies.html'
     script:
