@@ -312,7 +312,6 @@ class MutationAnalysis:
             else:
                 avgQscore = np.average(np.array(cleanAln[3]))
             seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
-            print(bamEntry.query_name)
             genotypesList.append(seqGenotype)
 
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
