@@ -366,6 +366,16 @@ if config['demux'] == True:
                     print_(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format")
                 if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                     print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
+            if 'noSplit' in config['runs'][tag]['barcodeInfo'][barcodeType]:
+                if config['runs'][tag]['barcodeInfo'][barcodeType]['noSplit'] == True:
+                    for group in config['runs'][tag]['barcodeGroups']:
+                        for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                            if bcType == barcodeType:
+                                print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
+        for group in config['runs'][tag]['barcodeGroups']:
+            for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                if bcType not in config['runs'][tag]['barcodeInfo']:
+                    print_(f"[WARNING] At least one barcode type in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
             
 elif config['demux'] == False:
     for tag in config['runs']:
@@ -472,7 +482,7 @@ def targets_input(wildcards):
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
         out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
-        out.append('dms_view_table.csv')
+        out.append('dms-view-table.csv')
     return out
 
 rule targets:

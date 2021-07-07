@@ -309,7 +309,9 @@ rule UMI_merge_consensus_seqs:
                 raise RuntimeError(f"Consensus sequences not found for tag `{wildcards.tag}`.")
             for f in input:
                 with open(f, 'r') as fp_in:
-                    fp_out.write(fp_in.read())
+                    readID = f.split('/')[-1].strip('_medaka_consensus.fasta')
+                    fp_out.write(f'>{readID}\n')
+                    fp_out.write(fp_in.readlines()[1])
 
 rule UMI_compress_consensus:
     input:
@@ -534,7 +536,7 @@ rule dms_view:
     input:
         dms_view_input
     output:
-        'dms_view_table.csv'
+        'dms-view-table.csv'
     script:
         'utils/frequencies_to_dmsview.py'
 

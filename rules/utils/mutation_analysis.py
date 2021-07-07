@@ -123,14 +123,14 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 1: #insertion, not added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
                 insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift deletion', queryIndex)
                     return None
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
@@ -312,6 +312,7 @@ class MutationAnalysis:
             else:
                 avgQscore = np.average(np.array(cleanAln[3]))
             seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
+            print(bamEntry.query_name)
             genotypesList.append(seqGenotype)
 
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
@@ -340,7 +341,9 @@ class MutationAnalysis:
                 iterator = nameIndexedBAM.find(seqID)
                 for BAMentry in iterator:
                     break
-                ref, alignString, seq, _, _, _ = self.clean_alignment(BAMentry)
+                x = self.clean_alignment(BAMentry)
+                if x == None: print(BAMentry.query_name)
+                ref, alignString, seq, _, _, _ = x
                 txtOut.write(f'Genotype {row.genotype} representative sequence. Sequence ID: {seqID}\n')
                 for string in [ref, alignString, seq]:
                     txtOut.write(string+'\n')

@@ -79,7 +79,7 @@ rule mutation_data_clean:
         touch('.mutation_data_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp'],
-        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms_view_table.csv']]
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv']]
     shell:
         """
         if [ ! -z "{params.keep}" ]; then

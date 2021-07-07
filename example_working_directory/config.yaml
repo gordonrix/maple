@@ -35,7 +35,7 @@ medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell co
 
 ### end nanopore only section ###
 
-# references_directory: ref   # directory name for reference files, located in working directory
+references_directory: ref   # directory name for reference files, located in working directory
 
 # threads per processing batch, if given enough threads with -j n multiple
 # batches run in parallel. Also used as resource for cluster jobs.
@@ -80,7 +80,7 @@ do_AA_analysis: True                        # If set to False, only nucleotide-l
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
-analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
+analyze_seqs_w_frameshift_indels: False      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
@@ -138,13 +138,13 @@ runs:
                 fasta: barcodes.fasta
                 reverseComplement: True
                 hammingDistance: 1
-            # lineage:
-            #     context: NNNNNNNNNNNNNNNN
-            #     fasta: ref/barcodes_internal.fa
-            #     reverseComplement: False
-            #     hammingDistance: 3
-            #     generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
-            #     noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to separate sequences into distinct files. Default, False
+            lineage:
+                context: NNNNNNNNNNNNNNNN
+                fasta: barcodes_internal.fa
+                reverseComplement: False
+                hammingDistance: 3
+                generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
+                noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files, and cannot be used to name output and plots. Default, False
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types

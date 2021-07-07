@@ -239,9 +239,9 @@ class BarcodeParser:
         return refAln
 
     def add_group_barcode_type(self):
-        """adds a list of the barcodeTypes that are used for grouping, and a list of barcodeTypes that are not
-        used for grouping, and throws an error if there are different types of groups
-        defined within the barcodeGroups dictionary
+        """adds a list of the barcodeTypes that are used for grouping, a list of barcodeTypes that are not
+        used for grouping, and a list of barcodes used for sequence ID but not demultiplexing,
+        and throws an error if there are different types of groups defined within the barcodeGroups dictionary
         
         Example: if self.barcodeGroups = {'group1':{'fwd':'barcode1','rvs':'barcode2'},'group2':{'fwd':'barcode3','rvs':'barcode4'}},
             will set self.barcodeGroupType as ['fwd', 'rvs']"""
@@ -266,6 +266,7 @@ class BarcodeParser:
 
         self.groupedBarcodeTypes = groupedBarcodeTypes
         self.ungroupedBarcodeTypes = ungroupedBarcodeTypes
+        self.noSplitBarcodeTypes = [barcodeType for barcodeType in self.barcodeInfo if self.barcodeInfo[barcodeType].get('noSplit', False)]
 
     def add_barcode_name_dict(self):
         """adds the inverse of dictionary of barcodeGroups, where keys are tuples of
@@ -297,7 +298,7 @@ class BarcodeParser:
         if the order of barcodes in barcodeInfo is 'fwd','rvs','alt' and 
         barcodeNamesDict == {'fwd':'one', 'rvs':'two', 'alt':'three'} and self.barcodeGroups == {'group1':{'fwd':'one','rvs':'two'}}:
 
-        self.get_demux_output_prefix(barcodeNamesList) will return 'group1–three'
+        self.get_demux_output_prefix(barcodeNamesList) will return 'group1-three'
         
 
         2)
@@ -305,7 +306,7 @@ class BarcodeParser:
         if the order of barcodes in barcodeInfo is 'fwd','rvs','alt' and 
         barcodeNamesList == ['one', 'two', 'three'] and self.barcodeGroups == {'group1':{'fwd':'two','rvs':'two'}}:
 
-        self.get_demux_output_prefix(barcodeNamesList) will return 'one–two–three'
+        self.get_demux_output_prefix(barcodeNamesList) will return 'one-two-three'
         """
         # split barcodes into those utilized by groups and those not utilized by groups. Group tuple used as dictionary key to look up group name
         ungroupSequenceBarcodes = []
@@ -318,7 +319,8 @@ class BarcodeParser:
                     return '-'.join(sequenceBarcodesDict.values())
                 groupBarcodes += tuple([bc])
             else:
-                ungroupSequenceBarcodes.append(bc)
+                if barcodeType not in self.noSplitBarcodeTypes:
+                    ungroupSequenceBarcodes.append(bc)
 
         try:
             groupName = self.barcodeGroupNameDict[groupBarcodes]
@@ -372,7 +374,7 @@ class BarcodeParser:
             sequenceBarcodesDict[barcodeType] = barcodeName
             outList += [barcodeName, notExactMatch] + list(failureReason.values())
 
-        return self.get_demux_output_prefix(sequenceBarcodesDict), outList
+        return sequenceBarcodesDict, outList
 
 
     def demux_BAM(self, BAMin, outputDir, outputStats):
@@ -408,7 +410,11 @@ class BarcodeParser:
 
         for BAMentry in bamfile.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
-            outputBarcodes, BAMentryBarcodeData = self.id_seq_barcodes(refAln, BAMentry)
+            sequenceBarcodesDict, BAMentryBarcodeData = self.id_seq_barcodes(refAln, BAMentry)
+            if len(self.noSplitBarcodeTypes) > 0:
+                noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict[noSplitBarcode] for noSplitBarcode in self.noSplitBarcodeTypes])
+                BAMentry.set_tag('BC', noSplitBarcodeBAMtag)
+            outputBarcodes = self.get_demux_output_prefix(sequenceBarcodesDict)
             try:
                 outFileDict[outputBarcodes].write(BAMentry)
             except KeyError:
