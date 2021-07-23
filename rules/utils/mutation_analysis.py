@@ -285,6 +285,7 @@ class MutationAnalysis:
             self.fastq = False
             if bamEntry.query_alignment_qualities:
                 self.fastq = True
+            bamFile.reset()
             break
 
         for bamEntry in bamFile:
