@@ -33,7 +33,7 @@ def dmsviewDF_from_mut_data(filename):
             mut = row[mutAA]
             if mut == 0:
                 continue
-            rows.append([posi, 'pos'+str(posi), wtAA, mutAA, condition, proteinChain, posi, mut, site])
+            rows.append([posi, wtAA+str(posi), wtAA, mutAA, condition, proteinChain, posi, mut, site])
     df = pd.DataFrame(rows, columns=cols)
     return df
 

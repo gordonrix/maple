@@ -248,7 +248,7 @@ class BarcodeParser:
 
         groupedBarcodeTypes = []
         ungroupedBarcodeTypes = []
-        
+        noSplitBarcodeTypes = []
         first = True
         for group in self.barcodeGroups:
             groupDict = self.barcodeGroups[group]
@@ -256,9 +256,12 @@ class BarcodeParser:
                 for barcodeType in self.barcodeInfo: # add barcode types in the order they appear in barcodeInfo
                     if barcodeType in groupDict:
                         groupedBarcodeTypes.append(barcodeType)
+                    elif self.barcodeInfo[barcodeType].get('noSplit', False):
+                        noSplitBarcodeTypes.append(barcodeType)
                     else:
                         ungroupedBarcodeTypes.append(barcodeType)
                 first = False
+                firstGroup = group
                 firstGroupDict = groupDict
             else:
                 assert (all([bcType in groupDict for bcType in firstGroupDict])), f'All barcode groups do not use the same set of barcode types. Group {group} differs from group {firstGroup}'
@@ -266,7 +269,7 @@ class BarcodeParser:
 
         self.groupedBarcodeTypes = groupedBarcodeTypes
         self.ungroupedBarcodeTypes = ungroupedBarcodeTypes
-        self.noSplitBarcodeTypes = [barcodeType for barcodeType in self.barcodeInfo if self.barcodeInfo[barcodeType].get('noSplit', False)]
+        self.noSplitBarcodeTypes = noSplitBarcodeTypes
 
     def add_barcode_name_dict(self):
         """adds the inverse of dictionary of barcodeGroups, where keys are tuples of
@@ -319,8 +322,7 @@ class BarcodeParser:
                     return '-'.join(sequenceBarcodesDict.values())
                 groupBarcodes += tuple([bc])
             else:
-                if barcodeType not in self.noSplitBarcodeTypes:
-                    ungroupSequenceBarcodes.append(bc)
+                ungroupSequenceBarcodes.append(bc)
 
         try:
             groupName = self.barcodeGroupNameDict[groupBarcodes]
@@ -392,11 +394,11 @@ class BarcodeParser:
         outFileDict = {}
         
         # columns names for dataframe to be generated from rows output by id_seq_barcodes
-        colNames = ['tag', 'output_file_barcodes', 'count']
+        colNames = ['tag', 'output_file_barcodes', 'barcodes_count']
 
         # column names and dictionary for grouping rows in final dataframe
-        groupByColNames = ['tag', 'output_file_barcodes']
-        sumColsDict = {'count':'sum'}
+        groupByColNames = ['tag', 'output_file_barcodes', 'demuxed_count']
+        sumColsDict = {'barcodes_count':'sum'}
 
         for barcodeType in self.barcodeDicts:
             groupByColNames.append(barcodeType)
@@ -412,7 +414,7 @@ class BarcodeParser:
             refAln = self.align_reference(BAMentry)
             sequenceBarcodesDict, BAMentryBarcodeData = self.id_seq_barcodes(refAln, BAMentry)
             if len(self.noSplitBarcodeTypes) > 0:
-                noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict[noSplitBarcode] for noSplitBarcode in self.noSplitBarcodeTypes])
+                noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict.pop(noSplitBarcode) for noSplitBarcode in self.noSplitBarcodeTypes])
                 BAMentry.set_tag('BC', noSplitBarcodeBAMtag)
             outputBarcodes = self.get_demux_output_prefix(sequenceBarcodesDict)
             try:
@@ -429,26 +431,34 @@ class BarcodeParser:
         for sortedBAM in outFileDict:
             outFileDict[sortedBAM].close()
 
+        # add counts for both number of sequences in file as well as number of sequences with same exact barcodes
         demuxStats = pd.DataFrame(rows, columns=colNames)
+        fileCounts = demuxStats['output_file_barcodes'].value_counts()
+        fileCountsCol = demuxStats.apply(lambda x:
+            fileCounts[x['output_file_barcodes']], axis=1)
+        demuxStats.insert(2, 'demuxed_count', fileCountsCol)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
-        demuxStats.sort_values('count', ascending=False, inplace=True)
+        demuxStats.sort_values(['demuxed_count','barcodes_count'], ascending=False, inplace=True)
         demuxStats.to_csv(outputStats, index=False)
 
         # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory
         banishDir = os.path.join(outputDir, 'no_subsequent_analysis')
         os.makedirs(banishDir, exist_ok=True)
+        banished = [] # prevent banishing same file more than once
         for i, row in demuxStats.iterrows():
+            if row['output_file_barcodes'] in banished: continue
             banish = False
-            if row['count'] < self.config['demux_threshold'] * totalSeqs:
+            if row['demuxed_count'] < self.config['demux_threshold'] * totalSeqs:
                 banish = True
             if self.config['demux_screen_failures']:
-                for barcodeType in self.barcodeDicts:
+                for barcodeType in self.groupedBarcodeTypes+self.ungroupedBarcodeTypes:
                     if row[barcodeType] == 'fail':
                         banish = True
             if banish:
                 original = os.path.join(outputDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 target = os.path.join(banishDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 shutil.move(original, target)
+                banished.append(row['output_file_barcodes'])
 
 
 if __name__ == '__main__':

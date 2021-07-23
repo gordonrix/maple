@@ -36,7 +36,7 @@ for inFile in inputList:
 
     xLabel, yLabel = data.columns
 
-    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(0,N))
+    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,N))
     plotDict[bc].vbar(x=data['n'], top=data.iloc[:,1], width=0.5, bottom=0, color='black')
     plotDict[bc].xaxis.axis_label = xLabel
     plotDict[bc].yaxis.axis_label = yLabel
