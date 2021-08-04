@@ -37,11 +37,16 @@ def normalized_spectrum_df(mutStatsRow, backgroundRow, backgroundBool, mutTypes,
         if mutStatsRow['total_NT_mutations'] == 0:  # set all mutation types to 0 if no mutations are observed to avoid divide by 0
             spectrumNormalizedDict[mutType] = [ 0 ]
         elif backgroundBool:
-            spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * ((mutStatsRow[mutType] - backgroundRow[mutType])/ (mutStatsRow['total_NT_mutations'] - backgroundRow['total_NT_mutations'])) ]    # normalization factor * ((number of type of mutation for row - number of type of mutation for background) / (total number of mutations for row - total number of mutations for background))
+            backgroundNorm = mutStatsRow['total_NT_mutations'] / backgroundRow['total_NT_mutations']
+            spectrumNormalizedDict[mutType] = [ max(0, nt_normal_dict[wtNT] * ((mutStatsRow[mutType] - (backgroundNorm * backgroundRow[mutType]))/ (mutStatsRow['total_NT_mutations']))) ]    # reference sequence normalization factor * ((number of type of mutation for row - number of type of mutation for background, normalized by number of mutations observed) / (total number of mutations for row - total number of mutations for background)) if negative, will be 0
         else:
-            spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * (mutStatsRow[mutType] / mutStatsRow['total_NT_mutations']) ]    # normalization factor * (number of type of mutation for row / total number of mutations for row)
+            spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * (mutStatsRow[mutType] / mutStatsRow['total_NT_mutations']) ]    # reference sequence normalization factor * (number of type of mutation for row / total number of mutations for row)
 
-    return pd.DataFrame(spectrumNormalizedDict).reset_index(drop=True)
+    outDF = pd.DataFrame(spectrumNormalizedDict).reset_index(drop=True)
+    finalNorm = 1 / outDF.to_numpy().sum()
+    outDF = outDF * finalNorm
+
+    return outDF
 
 def main():
     ### Asign variables from config file and inputs

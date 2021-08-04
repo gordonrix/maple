@@ -273,7 +273,7 @@ for refFasta, alnFasta in refSeqFastaFiles:
     if config['do_AA_analysis'] == True:
         if config['auto_detect_longest_ORF'] == True:
             try:
-                longestORF = max(re.findall(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', nucleotideSeq.seq.upper()), key = len) # taken from https://stackoverflow.com/questions/31757876/python-find-longest-orf-in-dna-sequence#31758161
+                longestORF = max(re.findall(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', str(nucleotideSeq.seq.upper())), key = len) # taken from https://stackoverflow.com/questions/31757876/python-find-longest-orf-in-dna-sequence#31758161
                 proteinSeq = nucleotideSeq
                 proteinSeq.id = proteinSeq.id + '_prot'
                 proteinSeq.seq = longestORF
