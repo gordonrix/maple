@@ -68,7 +68,7 @@ class UMI_Extractor:
         if sequence[N_end:].find(context) == -1:
             return N_start, N_end
         else:
-            self.logDict[f'context_failure_{i+1}_appears_in_alignment_more_than_once'][0] += 1
+            self.logFailure[i] += 1
             return 'fail', 'fail'
 
 
