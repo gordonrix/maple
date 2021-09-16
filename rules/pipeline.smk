@@ -160,7 +160,8 @@ rule UMI_minimap2:
         sequence = 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam")
+        aln = pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
+        log = "sequences/UMI/{tag, [^\/_]*}_noConsensus.log"
     threads: config['threads_alignment']
     group: "minimap2"
     resources:
@@ -169,8 +170,8 @@ rule UMI_minimap2:
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
-        if [ $(grep 'ERROR' {output}.log | wc -l) -gt 0 ]; then exit 1; else rm {output}.log; fi
+        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
+        if [ $(grep 'ERROR' {output.log} | wc -l) -gt 0 ]; then exit 1; fi
         """
 
 # sam to bam conversion
@@ -226,7 +227,6 @@ rule UMI_extract_summary:
         outDF = pd.DataFrame(columns=['tag','success','failure']+UMIcols)
         for f in input:
             df = pd.read_csv(f, dtype={'umi':str})
-            print(df.head())
             dfCols = df.columns[2:]
             tag = f.split('/')[-1].split('_')[0]
             df['tag'] = tag
@@ -334,7 +334,8 @@ rule minimap2:
         sequence = alignment_sequence_input,
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        pipe("alignments/{tag, [^\/_]*}.sam")
+        aln = pipe("alignments/{tag, [^\/_]*}.sam"),
+        log = "alignments/{tag, [^\/_]*}.log"
     threads: config['threads_alignment']
     group: "minimap2"
     resources:
@@ -343,8 +344,8 @@ rule minimap2:
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output} 2> >(tee {output}.log >&2)
-        if [ $(grep 'ERROR' {output}.log | wc -l) -gt 0 ]; then exit 1; else rm {output}.log; fi
+        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
+        if [ $(grep 'ERROR' {output.log} | wc -l) -gt 0 ]; then exit 1; fi
         """
 
 # sam to bam conversion
@@ -599,3 +600,20 @@ rule plot_mutations_distribution_barcodeGroup:
         'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
     script:
         'utils/plot_mutation_distribution.py'
+
+rule plot_pipeline_throughput:
+    input:
+        initial = 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_alignment = 'sequences/UMI/{tag}_noConsensus.bam' if config['UMI_consensus'] else None,
+        UMI_preconsensus_log = 'sequences/UMI/{tag}_noConsensus.log' if config['UMI_consensus'] else None,
+        UMI_extract = lambda wildcards: 'sequences/UMI/{tag}_UMI-extract.csv' if config['UMI_consensus'] else None,
+        UMI_group = lambda wildcards: 'sequences/UMI/{tag}_UMIgroup-distribution.csv' if config['UMI_consensus'] else None,
+        UMI_consensus = lambda wildcards: 'sequences/UMI/{tag}_UMIconsensus.fasta.gz' if config['UMI_consensus'] else None,
+        alignment = 'alignments/{tag}.bam',
+        alignment_log = 'alignments/{tag}.log',
+        demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else None
+    output:
+        plot = 'plots/{tag, [^\/_]*}_pipeline_seq_throughput.html',
+        csv = 'maple/{tag, [^\/_]*}_pipeline_throughput.csv'
+    script:
+        'utils/plot_pipeline_throughput.py'

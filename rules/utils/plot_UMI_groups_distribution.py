@@ -40,5 +40,5 @@ plot.vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=Colum
 plot.xaxis.axis_label = xLabel
 plot.yaxis.axis_label = yLabel
 
-plotDF.to_csv(outCSV)
+plotDF.to_csv(outCSV, index=False)
 save(plot)

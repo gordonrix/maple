@@ -35,6 +35,8 @@ medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell co
 
 ### end nanopore only section ###
 
+nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
+
 references_directory: ref   # directory name for reference files, located in working directory
 
 # threads per processing batch, if given enough threads with -j n multiple
@@ -52,7 +54,7 @@ merge_paired_end: False            # set to True if merging of paired end reads 
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # NanoPlot
-nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
+nanoplot: True              # set to True if NanoPlot plot outputs are desired (sequencing/alignment quality plots)
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus

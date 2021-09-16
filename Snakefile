@@ -476,11 +476,14 @@ def targets_input(wildcards):
     out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
     out.extend(expand('plots/{tag}_mutation-spectra.html', tag=config['runs']))
     out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
-    out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
-    out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
+    if config['nanoplot']:
+        out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
+        out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
     if config['UMI_consensus']:
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
-        out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
+        if config['nanoplot']:
+            out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
+        out.append('sequences/UMI/UMI-extract-summary.csv')
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
         out.append('dms-view-table.csv')
     return out
