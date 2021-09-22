@@ -484,7 +484,7 @@ def targets_input(wildcards):
         if config['nanoplot']:
             out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
         out.append('sequences/UMI/UMI-extract-summary.csv')
-    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
+    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
         out.append('dms-view-table.csv')
     return out
 
