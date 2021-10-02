@@ -1,6 +1,6 @@
 from bokeh.plotting import figure, output_file, show, save
 from bokeh.layouts import column
-from bokeh.models.ranges import DataRange1d
+from bokeh.models import ColumnDataSource
 import os
 import pandas as pd
 import numpy as np
@@ -36,8 +36,9 @@ for inFile in inputList:
 
     xLabel, yLabel = data.columns
 
-    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,N))
-    plotDict[bc].vbar(x=data['n'], top=data.iloc[:,1], width=0.5, bottom=0, color='black')
+    TOOLTIPS = [(xLabel, f'@{xLabel}'), (yLabel, f'@{yLabel}')]
+    plotDict[bc] = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,N), tooltips=TOOLTIPS)
+    plotDict[bc].vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=ColumnDataSource(data))
     plotDict[bc].xaxis.axis_label = xLabel
     plotDict[bc].yaxis.axis_label = yLabel
 

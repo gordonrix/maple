@@ -613,7 +613,7 @@ rule plot_pipeline_throughput:
         alignment_log = 'alignments/{tag}.log',
         demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else None
     output:
-        plot = 'plots/{tag, [^\/_]*}_pipeline_seq_throughput.html',
-        csv = 'maple/{tag, [^\/_]*}_pipeline_throughput.csv'
+        plot = 'plots/{tag, [^\/_]*}_pipeline-throughput.html',
+        csv = 'maple/{tag, [^\/_]*}_pipeline-throughput.csv'
     script:
         'utils/plot_pipeline_throughput.py'

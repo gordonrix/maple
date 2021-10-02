@@ -486,6 +486,7 @@ def targets_input(wildcards):
         out.append('sequences/UMI/UMI-extract-summary.csv')
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
         out.append('dms-view-table.csv')
+    out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
     return out
 
 rule targets:
