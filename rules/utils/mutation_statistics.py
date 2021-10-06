@@ -17,21 +17,23 @@ inputList = snakemake.input
 
 
 def main():
-    statsList = [] # list to be populated with one row of mutation data per sample/barcode combination
+    statsList = [] # list to be populated with one row of mutation data per tag/barcode combination
     fDict = inFileDict(inputList)
     datatypes = ['genotypes', 'failures', 'NT-muts-frequencies', 'NT-muts-distribution']
     if config['do_AA_analysis']:
-        cols = ['sample', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
-        'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
+        cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
+        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions']
         datatypes.extend(['AA-muts-distribution', 'AA-muts-frequencies'])
     else:
-        cols = ['sample', 'barcode_group', 'total_seqs', 'total_failed_seqs',
-        'total_NT_mutations', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'transversions', 'transitions']
-    for sample in fDict:
-        for bcGroup in fDict[sample]:
+        cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs',
+        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions']
+    for tag in fDict:
+        refSeqfasta = config['runs'][tag]['reference']
+        referenceLength = len(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq)
+        for bcGroup in fDict[tag]:
             DFdict = {}
             for dType in datatypes:
-                DFdict[dType] = pd.read_csv(fDict[sample][bcGroup][dType], index_col=0)
+                DFdict[dType] = pd.read_csv(fDict[tag][bcGroup][dType], index_col=0)
             
             NTdist = DFdict['NT-muts-distribution']['seqs_with_n_NTsubstitutions']
             totalSeqs = NTdist.sum()
@@ -43,30 +45,40 @@ def main():
             if not config['mutations_frequencies_raw']:
                 NTmuts = NTmuts * totalSeqs
                 NTmuts = NTmuts.astype('int')
+            NTmuts_unique = NTmuts.where(NTmuts == 0, 1) # gnerate a dataframe that uses only 1s instead of tracking the number of occurences of a particular mutation
             total_NT_mutations = NTmuts.values.sum()
+            unique_NT_mutations = NTmuts_unique.values.sum()
             NTmuts.reset_index(inplace=True)
+            NTmuts_unique.reset_index(inplace=True)
             transNTmuts = NTmuts.apply(lambda row:
+                transversions_transitions(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
+            transNTmuts_unique = NTmuts_unique.apply(lambda row:
                 transversions_transitions(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
             allMutTypes = NTmuts.apply(lambda row:
                 mut_type(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
+            allMutTypes_unique = NTmuts_unique.apply(lambda row:
+                mut_type(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand').add_suffix('_unique')
             NTmuts = pd.concat([NTmuts, transNTmuts, allMutTypes], axis='columns')
+            NTmuts_unique = pd.concat([NTmuts_unique, transNTmuts_unique, allMutTypes_unique], axis='columns')
 
-            valuesList = [sample, bcGroup, totalSeqs, failCount]
+            valuesList = [tag, bcGroup, totalSeqs, failCount]
 
             if config['do_AA_analysis']:
                 AAdist = DFdict['AA-muts-distribution']['seqs_with_n_AAsubstitutions']
                 if config['mutations_frequencies_raw']:
                     total_AA_mutations = DFdict['AA-muts-frequencies'].values.sum()
                 else:
-                    total_AA_mutations = (DFdict['AA-muts-frequencies'] * totalSeqs).values.sum()
-                valuesList.extend([total_AA_mutations, compute_mean_from_dist(AAdist), compute_median_from_dist(AAdist)])
+                    total_AA_mutations = round((DFdict['AA-muts-frequencies'] * totalSeqs).values.sum())
+                unique_AA_mutations = DFdict['AA-muts-frequencies'].where(DFdict['AA-muts-frequencies'] == 0, 1).values.sum()
+                valuesList.extend([total_AA_mutations, unique_AA_mutations, compute_mean_from_dist(AAdist), compute_median_from_dist(AAdist)])
 
-            valuesList.extend([total_NT_mutations, compute_mean_from_dist(NTdist), compute_median_from_dist(NTdist),
-                NTmuts['transversions'].sum(), NTmuts['transitions'].sum()] + [allMutTypes[mutType].sum() for mutType in allMutTypes])
+            mean_NT_muts_per_seq = compute_mean_from_dist(NTdist)
+            valuesList.extend([total_NT_mutations,  unique_NT_mutations, mean_NT_muts_per_seq/referenceLength, mean_NT_muts_per_seq, compute_median_from_dist(NTdist),
+                NTmuts['transversions'].sum(), NTmuts['transitions'].sum(), NTmuts_unique['transversions'].sum(), NTmuts_unique['transitions'].sum()] + [allMutTypes[mutType].sum() for mutType in allMutTypes] + [allMutTypes_unique[mutType].sum() for mutType in allMutTypes_unique])
             
             statsList.append(valuesList)
 
-    cols.extend([column for column in allMutTypes])
+    cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])
     statsDF = pd.DataFrame(statsList, columns=cols)
 
     statsDF.to_csv(str(snakemake.output), index=False)

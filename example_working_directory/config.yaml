@@ -17,7 +17,7 @@ storage_runname:
     field_kit: 3
 
 # basecalling
-do_basecalling: True                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
+do_basecalling: False                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
 # config file for guppy basecalling
 basecalling_guppy_config: 'dna_r9.4.1_450bps_sup.cfg'
 # quality qscore filter for guppy. 0 means all reads are written to the output
@@ -54,26 +54,26 @@ merge_paired_end: False            # set to True if merging of paired end reads 
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # NanoPlot
-nanoplot: True              # set to True if NanoPlot plot outputs are desired (sequencing/alignment quality plots)
+nanoplot: True
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus
 UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
-UMI_mismatches: 1           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
-UMI_consensus_minimum: 3  # minimum required number of reads with a particular UMI. if set to <=1, all UMI groups will be included
-UMI_consensus_maximum: 1000     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
+UMI_mismatches: 4           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
+UMI_consensus_minimum: 10  # minimum required number of reads with a particular UMI. if set to <=1, all UMI groups will be included
+UMI_consensus_maximum: 10     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
 
 # alignment
 # alignment flags for samtools
 alignment_samtools_flags: ''
 # command line flags for minimap2 DNA alignment
-alignment_minimap2_flags: '-a -A2 -B4 -O18 -E4 --secondary=no --end-bonus=15'   # options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
+alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --secondary=no'   # options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
 
 
 # demultiplexing
 demux: True
-demux_screen_failures: False  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
-demux_threshold: 0.05          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
+demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
+demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
@@ -82,111 +82,151 @@ do_AA_analysis: True                        # If set to False, only nucleotide-l
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
-analyze_seqs_w_frameshift_indels: False      # Set to true if sequences containing frameshift indels should be analyzed 
+analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
-NT_distribution_plot_x_max: 45                    # maximum x value to show for all nucleotide mutation distribution plots
-AA_distribution_plot_x_max: 30                    # maximum x value to show for all amino acid mutation distribution plots
+NT_distribution_plot_x_max: 20                    # maximum x value to show for all nucleotide mutation distribution plots
+AA_distribution_plot_x_max: 10                    # maximum x value to show for all amino acid mutation distribution plots
 
 # settings for dms view, which visualizes mutations onto a protein structure. These settings are required if a valid input file for that tool is desired
     # Data for all sample+barcode combinations will be converted to the proper format and output as dms_view_table.csv. See https://dms-view.github.io/ for instructions on how to use the tool
-    # To use, all tags must use the same protein sequence and .pdb file
-dms_view_chain: A    # chain(s) in .pdb file being used. Numbering should coincide with numbering of protein sequence mutation analysis. If more than one, separate with spaces
-dms_view_chain_numbering_difference: 0   # difference in numbering between protein chain in structure and amino acid level analysis. ex. if numbering for AA analysis starts at residue corresponding to residue 10 on the crystal structure, set to 10
+#     # To use, all tags must use the same protein sequence and .pdb file
+# dms_view_chain: A    # chain(s) in .pdb file being used. Numbering should coincide with numbering of protein sequence mutation analysis. If more than one, separate with spaces
+# dms_view_chain_numbering_difference: 0   # difference in numbering between protein chain in structure and amino acid level analysis. ex. if numbering for AA analysis starts at residue corresponding to residue 10 on the crystal structure, set to 10
 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum
     #   to use, this barcode group name must be present within all sample tags being analyzed
-# background: Y390-1000
+background: pControl
 
 # runs to be analyzed, organized into separate run 'tags'
 runs:
     
-    example: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
+    P0: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 
         # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
         #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
         runname:
-            - 20210114_2207_MN35267_AFJ386_c4941675
-            - 20210116_1641_MN35267_AFL239_42b6c1fa
-
-        # filenames for paired end sequencing input. Must be located in sequences/paired directory. If using paired end input, `merge_paired_end` must be set to True and .fast5 inputs must be removed
-        # fwdReads: P0_R1_001.fastq.gz
-        # rvsReads: P0_R2_001.fastq.gz
+            - 20210922_1252_MN35267_AFK635_b27b41b7
+            - 20210930_1641_MN35267_AIC456_1249ffb5
 
         # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
         #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
-        reference: refSeqs.fasta
+        reference: trp5-trp5-noTAG-ref.fasta
 
         # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
         UMI_contexts:
-            - NNNNTNNNNTNNNN
-            - NNNNANNNNANNNNANNNN
+            - NNNYRNNNYRNNNYRNNNg
+            - cNNNYRNNNYRNNNYRNNN
 
         # list barcode types to be used for demultiplexing. Demux'd files are named according to these barcodes in the order provided
         barcodeInfo: # different types of barcodes present within each sequence, distinguished by their location within the sequence
             fwd: 
-                context: CNNNNNNG                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
-                fasta: barcodes.fasta           # fasta file containing barcode sequences, located in references_directory
+                context: NNNNNNC                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
+                fasta: barcodes_subset.fa           # fasta file containing barcode sequences, located in references_directory
                 reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
                 hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
             rvs:
                 context: TNNNNNN  
-                fasta: barcodes.fasta
+                fasta: barcodes_subset.fa
                 reverseComplement: True
                 hammingDistance: 1
-            lineage:
-                context: NNNNNNNNNNNNNNNN
-                fasta: barcodes_internal.fa
-                reverseComplement: False
-                hammingDistance: 3
-                generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
-                noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files, and cannot be used to name output and plots. Default, False
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
                         #   Names must also be a string. If a numerical barcodeGroup is desired, it must be flanked with quotation marks to convert it to a string.
-            Y390-1000:
+            453-A1:
                 fwd: Barcode1
-                rvs: Barcode2
-            A1-1000:
-                fwd: Barcode5
-                rvs: Barcode2
-            C1-1000:
-                fwd: Barcode5
-                rvs: Barcode6
-            E1-1000:
-                fwd: Barcode5
-                rvs: Barcode10
-            G1-1000:
-                fwd: Barcode5
-                rvs: Barcode14
-            A1-100:
-                fwd: Barcode9
-                rvs: Barcode2
-            C1-100:
-                fwd: Barcode9
-                rvs: Barcode6
-            E1-100:
-                fwd: Barcode9
-                rvs: Barcode10
-            G1-100:
-                fwd: Barcode9
-                rvs: Barcode14
-            A1-10:
-                fwd: Barcode13
-                rvs: Barcode2
-            C1-10:
-                fwd: Barcode13
-                rvs: Barcode6
-            E1-10:
-                fwd: Barcode13
-                rvs: Barcode10
-            G1-10:
-                fwd: Barcode13
-                rvs: Barcode14
+                rvs: Barcode1
+            453-A2:
+                fwd: Barcode1
+                rvs: Barcode4
+            515-2A:
+                fwd: Barcode1
+                rvs: Barcode7
+            515-2B:
+                fwd: Barcode4
+                rvs: Barcode1
+            A8:
+                fwd: Barcode4
+                rvs: Barcode4
+            D3:
+                fwd: Barcode4
+                rvs: Barcode7
+            G3:
+                fwd: Barcode7
+                rvs: Barcode1
+            G4:
+                fwd: Barcode7
+                rvs: Barcode4
+            pControl:
+                fwd: Barcode7
+                rvs: Barcode7
+
+
+    P10: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
+
+        # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
+        #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
+        runname:
+            - 20210920_2111_MN35267_agl986_fa2774d4
+
+        # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
+        #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
+        #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
+        #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
+        reference: trp5-trp5-noTAG-ref.fasta 
+
+        # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
+        UMI_contexts:
+            - NNNYRNNNYRNNNYRNNNg
+            - cNNNYRNNNYRNNNYRNNN
+
+        # list barcode types to be used for demultiplexing. Demux'd files are named according to these barcodes in the order provided
+        barcodeInfo: # different types of barcodes present within each sequence, distinguished by their location within the sequence
+            fwd: 
+                context: NNNNNNC                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
+                fasta: barcodes_subset.fa           # fasta file containing barcode sequences, located in references_directory
+                reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
+                hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
+            rvs:
+                context: TNNNNNN  
+                fasta: barcodes_subset.fa
+                reverseComplement: True
+                hammingDistance: 1
+
+        barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
+                        #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
+                        #   Names must also be a string. If a numerical barcodeGroup is desired, it must be flanked with quotation marks to convert it to a string.
+            453-A1:
+                fwd: Barcode1
+                rvs: Barcode1
+            453-A2:
+                fwd: Barcode1
+                rvs: Barcode4
+            515-2A:
+                fwd: Barcode1
+                rvs: Barcode7
+            515-2B:
+                fwd: Barcode4
+                rvs: Barcode1
+            A8:
+                fwd: Barcode4
+                rvs: Barcode4
+            D3:
+                fwd: Barcode4
+                rvs: Barcode7
+            G3:
+                fwd: Barcode7
+                rvs: Barcode1
+            G4:
+                fwd: Barcode7
+                rvs: Barcode4
+            pControl:
+                fwd: Barcode7
+                rvs: Barcode7

@@ -94,10 +94,11 @@ for assistance with determining the appropriate reference sequences.
 4. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
 and designating a number of threads. In most cases, at least 4 threads should be used. Take care to run the pipeline only when in the working
 directory (e.g. example_working_directory), otherwise the --directory flag must be used to specify a directory that contains the appropriate
-files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The path to the maple snakefile must also be modified as appropriate:
+files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The path to the maple snakefile must also be modified as appropriate.
+Here I will ask maple to produce the mutation stats summary file for the P0 tag, which is defined in the config file:
 
     conda activate maple
-    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 example_mutation-stats.csv
+    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 P0_mutation-stats.csv
 
 Use of the '-n' flag is recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
 not executed. Because many checks are performed to identify any potential problems in how things were set up (e.g. checking that reference files
@@ -112,7 +113,7 @@ for each of the designated tags:
 Likewise, if you'd like to restart your analysis without cluttering your working directory with additional tags, or if you just want to package up the key analysis files
 for transfer or storage, the 'clean' rule can be called. This will move or copy all the small files generated during analyses to a timestamped directory
 and removes large files such as alignment files, without modifying large important files such as .fast5 files and .fastq files. If analysis rules that
-produce files in the 'sequences' directory need to be rerun, such as UMI rules or paired end merging, the outputs of those rules must be manually deleted
+produce files in the 'sequences' directory need to be rerun, such as UMI rules or paired end merging, the outputs of those rules must be manually deleted or renamed
 to enable rule re-run.
 
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 clean
