@@ -37,8 +37,7 @@ def normalized_spectrum_df(mutStatsRow, backgroundRow, backgroundBool, mutTypes,
         if mutStatsRow['total_NT_mutations'] == 0:  # set all mutation types to 0 if no mutations are observed to avoid divide by 0
             spectrumNormalizedDict[mutType] = [ 0 ]
         elif backgroundBool:
-            backgroundNorm = mutStatsRow['total_NT_mutations'] / backgroundRow['total_NT_mutations']
-            spectrumNormalizedDict[mutType] = [ max(0, nt_normal_dict[wtNT] * ((mutStatsRow[mutType] - (backgroundNorm * backgroundRow[mutType]))/ (mutStatsRow['total_NT_mutations']))) ]    # reference sequence normalization factor * ((number of type of mutation for row - number of type of mutation for background, normalized by number of mutations observed) / (total number of mutations for row - total number of mutations for background)) if negative, will be 0
+            spectrumNormalizedDict[mutType] = [ max(0, nt_normal_dict[wtNT] * ( (mutStatsRow[mutType] / mutStatsRow['total_seqs']) - (backgroundRow[mutType] / backgroundRow['total_seqs']) )) ]    # reference sequence normalization factor * ((number of type of mutation for row / total number of sequences for row) - (number of type of mutation for background / total number of sequences for background)) if negative, will be 0
         else:
             spectrumNormalizedDict[mutType] = [ nt_normal_dict[wtNT] * (mutStatsRow[mutType] / mutStatsRow['total_NT_mutations']) ]    # reference sequence normalization factor * (number of type of mutation for row / total number of mutations for row)
 
@@ -71,7 +70,9 @@ def main():
     for wt in nts:
         for mut in nts:
             if wt != mut:
-                mutTypes.append(f'{wt}->{mut}')
+                if config['uniques_only']:  col = f'{wt}->{mut}_unique'
+                else:                       col = f'{wt}->{mut}'
+                mutTypes.append(col)
 
     # dictionary of normalization factors for each nucleotide based on reference sequence
     nt_normal_dict = {}
@@ -106,7 +107,7 @@ def main():
         bcGroupSpectrumMelted['wtNT'] = bcGroupSpectrumMelted.apply(lambda row:
             row['variable'][0], axis=1)
         bcGroupSpectrumMelted['mutNT'] = bcGroupSpectrumMelted.apply(lambda row:
-            row['variable'][-1], axis=1)
+            row['variable'][3], axis=1)
         
         bcGroupSpectrumPivot = bcGroupSpectrumMelted.pivot(index='wtNT', columns='mutNT', values = 'value')
 
@@ -118,7 +119,7 @@ def main():
         bcGroupSpectrumPivot = bcGroupSpectrumPivot.fillna(0.0) # replace NaNs with 0
         bcGroupSpectrumPivot = bcGroupSpectrumPivot.clip(lower=0) # convert negative values to 0
         
-        TOOLTIPS = [('Substitutions per base', '@$name')]
+        TOOLTIPS = [('mutation type', '@wtNT'+'->'+'$name'), ('proportion of mutations', '@$name')]
         plotTitle = f"{tag}_{row['barcode_group']}"
         spectrumPlot = figure(title=plotTitle, plot_height=400, plot_width=400, x_range=list('ATGC'), tooltips=TOOLTIPS)
 

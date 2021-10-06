@@ -54,7 +54,7 @@ merge_paired_end: False            # set to True if merging of paired end reads 
 NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
 
 # NanoPlot
-nanoplot: True
+nanoplot: False
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus
@@ -85,7 +85,7 @@ mutations_frequencies_raw: False            # If set to True, outputs mutation f
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
-unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
+unique_genotypes_count_threshold: 0         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
 NT_distribution_plot_x_max: 20                    # maximum x value to show for all nucleotide mutation distribution plots
@@ -101,6 +101,7 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
     # barcode group name to be used as the background for calculating the mutation spectrum
     #   to use, this barcode group name must be present within all sample tags being analyzed
 background: pControl
+uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # runs to be analyzed, organized into separate run 'tags'
 runs:
