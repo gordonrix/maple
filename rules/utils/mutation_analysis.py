@@ -382,7 +382,7 @@ class MutationAnalysis:
             AAmutDF.set_index('wt_residues', inplace=True)
             AAmutDF = AAmutDF.transpose()
             AAmutDF.index.name = 'AA_mutation_count'
-            if not self.config['mutations_frequencies_raw']:
+            if not self.config['mutations_frequencies_raw'] and totalSeqs > 0:
                 AAmutDF = AAmutDF.divide(totalSeqs)
             AAmutDF.to_csv(self.outputList[5])
 
