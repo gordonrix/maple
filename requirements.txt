@@ -15,3 +15,5 @@ ont-fast5-api
 porechop
 medaka==1.4.3
 nanoplot
+holoviews
+networkx
