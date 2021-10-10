@@ -44,7 +44,7 @@ def main():
             NTmuts = DFdict['NT-muts-frequencies'].transpose()
             if not config['mutations_frequencies_raw']:
                 NTmuts = NTmuts * totalSeqs
-                NTmuts = NTmuts.astype('int')
+                NTmuts = np.rint(NTmuts)
             NTmuts_unique = NTmuts.where(NTmuts == 0, 1) # gnerate a dataframe that uses only 1s instead of tracking the number of occurences of a particular mutation
             total_NT_mutations = NTmuts.values.sum()
             unique_NT_mutations = NTmuts_unique.values.sum()
