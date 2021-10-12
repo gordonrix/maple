@@ -45,7 +45,7 @@ def main():
             if not config['mutations_frequencies_raw']:
                 NTmuts = NTmuts * totalSeqs
                 NTmuts = np.rint(NTmuts)
-            NTmuts_unique = NTmuts.where(NTmuts == 0, 1) # gnerate a dataframe that uses only 1s instead of tracking the number of occurences of a particular mutation
+            NTmuts_unique = NTmuts.where(NTmuts == 0, 1) # generate a dataframe that uses only 1s instead of tracking the number of occurences of a particular mutation
             total_NT_mutations = NTmuts.values.sum()
             unique_NT_mutations = NTmuts_unique.values.sum()
             NTmuts.reset_index(inplace=True)
@@ -80,6 +80,7 @@ def main():
 
     cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])
     statsDF = pd.DataFrame(statsList, columns=cols)
+    statsDF.sort_values('barcode_group', inplace=True)
 
     statsDF.to_csv(str(snakemake.output), index=False)
 
