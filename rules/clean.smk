@@ -35,7 +35,7 @@ rule sequences_clean:
         mkdir -p {params.timestampDir}
         if [ -d sequences ]; then
             if [ -d sequences/UMI ]; then
-                find sequences/UMI -type f \( -name "sequences/UMI/UMI-extract-summary.csv" \) | xargs cp -t {params.timestampDir}
+                find sequences/UMI -type f \( -name "UMI-extract-summary.csv" \) | xargs cp -t {params.timestampDir}
                 find sequences/UMI -type f \( -name "*.fasta.gz" \) | xargs cp -t {params.timestampDir}
             fi
             if [ -d sequences/paired ]; then
@@ -77,7 +77,7 @@ rule mutation_data_clean:
         touch('.mutation_data_clean.done')
     params:
         timestampDir = lambda wildcards: config['timestamp'],
-        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv']]
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv', 'maple']]
     shell:
         """
         if [ ! -z "{params.keep}" ]; then
@@ -102,8 +102,7 @@ rule logs_clean:
             mv .snakemake/log/* {params.timestampDir}/snakemakeLogs
         fi
         if [ -d maple ]; then
-            mkdir -p {params.timestampDir}/maple
-            mv maple/* {params.timestampDir}/maple
+            mv maple {params.timestampDir}
         fi
         cp *.yaml {params.timestampDir}
         cp ref -r {params.timestampDir}

@@ -601,6 +601,17 @@ rule plot_mutations_distribution_barcodeGroup:
     script:
         'utils/plot_mutation_distribution.py'
 
+rule plot_mutation_diversity:
+    input:
+        'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_genotypes.csv'
+    output:
+        HamDistPlot = 'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.html',
+        HamDistCSV = 'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.csv',
+        GraphPlot = 'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_diversity-graph.html',
+        GraphFile = 'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_diversity-graph.gexf'
+    script:
+        'utils/plot_mutation_diversity.py'
+
 rule plot_pipeline_throughput:
     input:
         initial = 'sequences/{tag}.fastq.gz',
