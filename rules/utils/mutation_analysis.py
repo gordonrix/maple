@@ -245,12 +245,14 @@ class MutationAnalysis:
                     AAsynonymous.append(wtAA+str(codon+1))
 
         genotype = [', '.join(NTsubstitutions)]
+        genotype.append(len(NTsubstitutions))
         genotype.append(insOutput)
         genotype.append(delOutput)
 
         if self.doAAanalysis:
             for subType in [AAnonsynonymous, AAsynonymous]:
                 genotype.append(', '.join(subType))
+            genotype.append(len(AAnonsynonymous))
         else:
             totalAAmuts = None
             
@@ -267,16 +269,16 @@ class MutationAnalysis:
         failuresList = []                                                           # list of data for failed sequences that will be used to generate DataFrame
         failuresColumns = ['seq_ID', 'failure_reason', 'failure_index']             # columns for failures DataFrame
         genotypesList = []                                                          # list of genotypes to be converted into a DataFrame
-        genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_insertions', 'NT_deletions'] # columns for genotypes DataFrame
+        genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions'] # columns for genotypes DataFrame
         wildTypeCount = 0
-        wildTypeRow = [wildTypeCount, 0, '', '', '']
+        wildTypeRow = [wildTypeCount, 0, '', '', '', 0]
 
         if self.doAAanalysis:
             protLength = int( len(self.refProtein) / 3 )
             AAmutArray = np.zeros((protLength, len(self.AAs)), dtype=int)
             AAmutDist = np.zeros(protLength, dtype=int)
-            genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous'])
-            wildTypeRow.extend(['', ''])
+            genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count'])
+            wildTypeRow.extend(['', '', 0])
 
         bamFile = pysam.AlignmentFile(self.BAMin, 'rb')
 
@@ -320,7 +322,6 @@ class MutationAnalysis:
         
         genotypesDFcondensed = genotypesDF.groupby(by=genotypesColumns[2:], as_index=False).agg({'seq_ID':'count', 'avg_quality_score':'max'})[list(genotypesDF.columns)]
         genotypesDFcondensed.sort_values(['seq_ID'], ascending=False, ignore_index=True, inplace=True)
-        wildTypeRow[0] = wildTypeCount
         wildTypeDF = pd.DataFrame([wildTypeRow], columns=genotypesColumns)
         genotypesDFcondensed = pd.concat([wildTypeDF,genotypesDFcondensed], ignore_index=True)
         genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
