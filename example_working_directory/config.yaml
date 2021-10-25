@@ -85,7 +85,7 @@ mutations_frequencies_raw: False            # If set to True, outputs mutation f
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
 
 # mutation statistics
-unique_genotypes_count_threshold: 0         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
+unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
 
 # plot_mutation_distributions
 NT_distribution_plot_x_max: 20                    # maximum x value to show for all nucleotide mutation distribution plots
@@ -103,10 +103,16 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 background: pControl
 uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
+# plot mutation diversity
+# diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
+diversity_plot_subset: P10-full_453-A1, P10-full_453-A2              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
+hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
+force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
+
 # runs to be analyzed, organized into separate run 'tags'
 runs:
-    
-    P0: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
+
+    P0-full: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 
         # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
         #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
@@ -118,7 +124,7 @@ runs:
         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
         #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
-        reference: trp5-trp5-noTAG-ref.fasta
+        reference: trp5-trp5-ref.fasta
 
         # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
         UMI_contexts:
@@ -170,7 +176,7 @@ runs:
                 rvs: Barcode7
 
 
-    P10: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
+    P10-full: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 
         # for .fast5 input. list of folder names that hold raw fast5 data in a reads directory ( {storage_data_raw}/{runname}/reads/ ). After basecalling, fastq files from each of these will be combined in a directory for this tag ( sequences/batches/{tag}/{runname}/ ).
         #   If using .fast5 input, must set `do_basecalling` to True, and paired end inputs must be removed
@@ -181,7 +187,7 @@ runs:
         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
         #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
-        reference: trp5-trp5-noTAG-ref.fasta 
+        reference: trp5-trp5-ref.fasta 
 
         # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
         UMI_contexts:

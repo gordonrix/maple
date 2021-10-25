@@ -27,13 +27,13 @@ refID = list(SeqIO.parse(snakemake.config['runs'][tag]['reference'], 'fasta'))[0
 
 # retrieve data from each pipeline step that was performed
 
-# count lines in fastq file quickly, but not perfectly accurately
 def linecount(filename):
     f = open(filename, 'rb')
-    bufgen = itertools.takewhile(lambda x: x, (f.raw.read(1024*1024) for _ in itertools.repeat(None)))
-    out = sum( buf.count(b'\n') for buf in bufgen )
+    out = 0
+    for _ in f:
+        out += 1
     f.close()
-    return out
+    return out/4
 
 # get time from minimap2 log file
 def get_runtime(logfile):
@@ -45,7 +45,7 @@ def get_runtime(logfile):
     return float(loglines[start:end])
 
 # initial fastq file
-outList.append(['initial', linecount(snakemake.input.initial)/4, 0])
+outList.append(['initial', linecount(snakemake.input.initial), 0])
 
 if snakemake.config['UMI_consensus']:
 

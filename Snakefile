@@ -487,6 +487,10 @@ def targets_input(wildcards):
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
         out.append('dms-view-table.csv')
     out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
+
+    if config['diversity_plot_subset']!=False:
+        out.extend(expand('plots/{tag_barcode}_{plotType}.html', tag_barcode=config['diversity_plot_subset'].split(', '), plotType = ['hamming-distance-distribution', 'diversity-graph']))
+
     return out
 
 rule targets:
