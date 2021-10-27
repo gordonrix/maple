@@ -271,7 +271,7 @@ class MutationAnalysis:
         genotypesList = []                                                          # list of genotypes to be converted into a DataFrame
         genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions'] # columns for genotypes DataFrame
         wildTypeCount = 0
-        wildTypeRow = [wildTypeCount, 0, '', '', '', 0]
+        wildTypeRow = [wildTypeCount, 0, '', 0, '', '']
 
         if self.doAAanalysis:
             protLength = int( len(self.refProtein) / 3 )
@@ -322,6 +322,7 @@ class MutationAnalysis:
         
         genotypesDFcondensed = genotypesDF.groupby(by=genotypesColumns[2:], as_index=False).agg({'seq_ID':'count', 'avg_quality_score':'max'})[list(genotypesDF.columns)]
         genotypesDFcondensed.sort_values(['seq_ID'], ascending=False, ignore_index=True, inplace=True)
+        wildTypeRow[0] = wildTypeCount
         wildTypeDF = pd.DataFrame([wildTypeRow], columns=genotypesColumns)
         genotypesDFcondensed = pd.concat([wildTypeDF,genotypesDFcondensed], ignore_index=True)
         genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
