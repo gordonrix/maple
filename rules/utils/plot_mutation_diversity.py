@@ -153,5 +153,5 @@ interceptA = 0.1 - (slopeA*minWeight)
 
 networkPlot = hv.Graph.from_networkx(G, nx.layout.fruchterman_reingold_layout).opts(
     hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap='blues',
-                    edge_line_width=(np.log(hv.dim('weight'))*slopeW)+interceptW, edge_color=np.log(hv.dim('weight')), edge_cmap='viridis', edge_alpha=np.log(hv.dim('weight'))*slopeA+interceptA))
+                    edge_line_width=(np.log(hv.dim('weight'))*slopeW)+interceptW, edge_color=np.log(hv.dim('weight')), edge_cmap='Inferno', edge_alpha=np.log(hv.dim('weight'))*slopeA+interceptA))
 hv.save(networkPlot, snakemake.output.GraphPlot, backend='bokeh')

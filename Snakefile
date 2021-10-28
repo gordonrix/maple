@@ -488,8 +488,22 @@ def targets_input(wildcards):
         out.append('dms-view-table.csv')
     out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
 
-    if config['diversity_plot_subset']!=False:
-        out.extend(expand('plots/{tag_barcode}_{plotType}.html', tag_barcode=config['diversity_plot_subset'].split(', '), plotType = ['hamming-distance-distribution', 'diversity-graph']))
+    if config['diversity_plot_all']:
+        if config['demux']:
+            for tag in config['runs']:
+                checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+                checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
+                checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+                out.extend( expand('mutation_data/{tag}_{barcodes}_{dataType}', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+                out.extend( expand('plots/{tag}_{barcodes}_{plotType}', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'hamming-distance-distribution.html']) )
+        else:
+            for tag in config['runs']:
+                out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=tag, dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+                out.extend( expand('plots/{tag}_all_{plotType}', tag=tag, plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+    elif config['diversity_plot_subset']!=False:
+        for tag in config['runs']:
+            out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=config['diversity_plot_subset'].split(', '), dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+            out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=config['diversity_plot_subset'].split(', '), plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
 
     return out
 

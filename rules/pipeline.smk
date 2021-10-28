@@ -556,7 +556,7 @@ def plot_mutations_frequencies_input(wildcards):
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
-        return 'mutation_data/{tag}_all_{AAorNT}-muts-frequencies.csv'
+        return expand('mutation_data/{tag}_all_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
 
 rule plot_mutations_frequencies:
     input:
@@ -583,7 +583,7 @@ def plot_mutations_distribution_input(wildcards):
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
         return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
-        return 'mutation_data/{tag}_all_{AAorNT}-muts-distribution.csv'
+        return expand('mutation_data/{tag}_all_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
 
 rule plot_mutations_distribution:
     input:
@@ -615,14 +615,14 @@ rule plot_mutation_diversity:
 rule plot_pipeline_throughput:
     input:
         initial = 'sequences/{tag}.fastq.gz',
-        UMI_preconsensus_alignment = 'sequences/UMI/{tag}_noConsensus.bam' if config['UMI_consensus'] else None,
-        UMI_preconsensus_log = 'sequences/UMI/{tag}_noConsensus.log' if config['UMI_consensus'] else None,
-        UMI_extract = lambda wildcards: 'sequences/UMI/{tag}_UMI-extract.csv' if config['UMI_consensus'] else None,
-        UMI_group = lambda wildcards: 'sequences/UMI/{tag}_UMIgroup-distribution.csv' if config['UMI_consensus'] else None,
-        UMI_consensus = lambda wildcards: 'sequences/UMI/{tag}_UMIconsensus.fasta.gz' if config['UMI_consensus'] else None,
+        UMI_preconsensus_alignment = 'sequences/UMI/{tag}_noConsensus.bam' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_log = 'sequences/UMI/{tag}_noConsensus.log' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_extract = lambda wildcards: 'sequences/UMI/{tag}_UMI-extract.csv' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_group = lambda wildcards: 'sequences/UMI/{tag}_UMIgroup-distribution.csv' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_consensus = lambda wildcards: 'sequences/UMI/{tag}_UMIconsensus.fasta.gz' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
         alignment = 'alignments/{tag}.bam',
         alignment_log = 'alignments/{tag}.log',
-        demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else None
+        demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else 'sequences/{tag}.fastq.gz'
     output:
         plot = 'plots/{tag, [^\/_]*}_pipeline-throughput.html',
         csv = 'maple/{tag, [^\/_]*}_pipeline-throughput.csv'
