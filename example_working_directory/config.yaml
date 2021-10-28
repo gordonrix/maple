@@ -100,15 +100,15 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 # plot_mut_spectrum
     # barcode group name to be used as the background for calculating the mutation spectrum
     #   to use, this barcode group name must be present within all sample tags being analyzed
-background: pControl
+# background: pControl
 uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity
-# diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
+diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
 diversity_plot_subset: P10-full_453-A1, P10-full_453-A2, P10-full_515-2A, P10-full_515-2B, P10-full_A8, P10-full_D3, P10-full_G3, P10-full_G4, P10-full_pControl              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
 hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
 force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
-force_directed_plot_node_color: NT_substitutions_count        # genotypes column to use for node color. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
+force_directed_plot_node_color: NT_substitutions_count       # genotypes column to use for node color. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
 
 # runs to be analyzed, organized into separate run 'tags'
 runs:

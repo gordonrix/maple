@@ -16,7 +16,7 @@ from snakemake.io import Namedlist
 config = snakemake.config
 tag = snakemake.wildcards.tag
 AAorNT = snakemake.wildcards.AAorNT
-inputFrequencies = snakemake.input.frequencies
+inputList = snakemake.input.frequencies
 mutStatsDF = pd.read_csv(snakemake.input.mutStats, dtype={'tag':str,'barcode_group':str})
 if config['mutations_frequencies_raw'] == True:
     yAxisLabel = 'total mutation count'
@@ -26,17 +26,19 @@ elif config['mutations_frequencies_raw'] == False:
 
 output_file(snakemake.output[0])
 
-if type(inputFrequencies) == Namedlist:
+if type(inputList) == Namedlist:
     mode = 'grouped'
 else:
     mode = 'individual'
-    inputFrequencies = [inputFrequencies]
+    inputList = [inputList]
+
+inputList = sorted(inputList)
 
 wtColumn = f'wt_{AAorNT}'
 
 plotList = []
 first = True #add legend only for first plot
-for inFile in inputFrequencies:
+for inFile in inputList:
 
     ### Get mutation data, convert to more readily plottable format
     barcodeGroup = inFile.split('_')[-2]

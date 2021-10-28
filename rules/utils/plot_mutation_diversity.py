@@ -141,13 +141,13 @@ minCount = genotypesDF[config['force_directed_plot_node_size']].min()
 slopeN = (25-5) / (maxCount-minCount)
 interceptN = 5 - (slopeN*minCount)
 
-# equation to scale cube root of edge widths 0.05-7 (for edge weight)
+# equation to scale log of edge widths 0.05-7 (for edge weight)
 maxWeight = np.log(hammingDistanceEdgesDF['weight'].max())
 minWeight = np.log(hammingDistanceEdgesDF['weight'].min())
 slopeW = (10-0.05) / (maxWeight-minWeight)
 interceptW = 0.1 - (slopeW*minWeight)
 
-# equation to scale cube root of edge widths 0.05-0.4 (for edge Alpha, or opacity)
+# equation to scale log of edge widths 0.05-0.4 (for edge Alpha, or opacity)
 slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
 interceptA = 0.1 - (slopeA*minWeight)
 

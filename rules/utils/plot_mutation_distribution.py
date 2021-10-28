@@ -24,6 +24,8 @@ else:
     mode = 'individual'
     inputList = [snakemake.input.dist]
 
+inputList = sorted(inputList)
+
 plotDict = {}
 
 for inFile in inputList:    
