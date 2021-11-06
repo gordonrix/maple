@@ -280,6 +280,14 @@ class MutationAnalysis:
             genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count'])
             wildTypeRow.extend(['', '', 0])
 
+        # if any barcodes are not used to demultiplex, add a column that shows what these barcodes are
+        self.barcodeColumn = False
+        for bcType in self.config['runs'][tag]['barcodeInfo']:
+            if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
+                self.barcodeColumn = True
+                genotypesColumns.append('barcode(s)')
+                wildTypeRow.append('')
+
         bamFile = pysam.AlignmentFile(self.BAMin, 'rb')
 
         # set whether to use quality score features based on whether or not quality scores are present
@@ -306,7 +314,7 @@ class MutationAnalysis:
                 seqTotalAAmuts = sum(sum(seqAAmutArray))
                 AAmutDist[seqTotalAAmuts] += 1
 
-            if all(mutType=='' for mutType in seqGenotype):     # keep a counter for wild type sequences instead of adding them to genotypes dataframe
+            if all(mutType=='' for mutType in seqGenotype) and not self.barcodeColumn:     # keep a counter for wild type sequences instead of adding them to genotypes dataframe. 'wildtype' doesn't make sense if using noSplit barcodes, so this will be skipped and there will not be a wildtype row
                 wildTypeCount += 1
                 continue
 
@@ -315,6 +323,8 @@ class MutationAnalysis:
             else:
                 avgQscore = np.average(np.array(cleanAln[3]))
             seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
+            if self.barcodeColumn:
+                seqGenotype.append(bamEntry.get_tag('BC'))
             genotypesList.append(seqGenotype)
 
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
@@ -326,12 +336,13 @@ class MutationAnalysis:
         wildTypeDF = pd.DataFrame([wildTypeRow], columns=genotypesColumns)
         genotypesDFcondensed = pd.concat([wildTypeDF,genotypesDFcondensed], ignore_index=True)
         genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
+        if self.barcodeColumn:
+            genotypesDFcondensed.drop(index='wildtype', inplace=True)
         genotypesDFcondensed.reset_index(inplace=True)
         genotypesDFcondensed.rename(columns={'index':'genotype', 'seq_ID':'count'}, inplace=True)
 
         # iterate through x genotypes with highest counts (x defined in config file under 'num_representative_seqs'), get the representative sequence, and write alignments to file
         topHitsDF = genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,]
-        seqIDlist = []
         with open(self.outputList[0], 'w') as txtOut:
             nameIndexedBAM = pysam.IndexedReads(bamFile)
             nameIndexedBAM.build()

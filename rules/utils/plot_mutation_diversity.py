@@ -134,6 +134,7 @@ hv.extension('bokeh')
 defaults = dict(width=800, height=800, xaxis=None, yaxis=None, tools=['tap', 'hover', 'box_select'])
 hv.opts.defaults(
     hv.opts.EdgePaths(**defaults), hv.opts.Graph(**defaults), hv.opts.Nodes(**defaults))
+nodeColorMap = 'blues' if config['force_directed_plot_node_color']!='barcode(s)' else 'rainbow'
 
 # linear equation to scale Node sizes to range from 5-25 (for node weight)
 maxCount = genotypesDF[config['force_directed_plot_node_size']].max()
@@ -152,6 +153,6 @@ slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
 interceptA = 0.1 - (slopeA*minWeight)
 
 networkPlot = hv.Graph.from_networkx(G, nx.layout.fruchterman_reingold_layout).opts(
-    hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap='blues',
+    hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap=nodeColorMap,
                     edge_line_width=(np.log(hv.dim('weight'))*slopeW)+interceptW, edge_color=np.log(hv.dim('weight')), edge_cmap='Inferno', edge_alpha=np.log(hv.dim('weight'))*slopeA+interceptA))
 hv.save(networkPlot, snakemake.output.GraphPlot, backend='bokeh')
