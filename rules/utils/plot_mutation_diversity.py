@@ -134,7 +134,7 @@ hv.extension('bokeh')
 defaults = dict(width=800, height=800, xaxis=None, yaxis=None, tools=['tap', 'hover', 'box_select'])
 hv.opts.defaults(
     hv.opts.EdgePaths(**defaults), hv.opts.Graph(**defaults), hv.opts.Nodes(**defaults))
-nodeColorMap = 'blues' if config['force_directed_plot_node_color']!='barcode(s)' else 'rainbow'
+nodeColorMap = 'blues' if config['force_directed_plot_node_color'] in ['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', ] else 'rainbow'
 
 # linear equation to scale Node sizes to range from 5-25 (for node weight)
 maxCount = genotypesDF[config['force_directed_plot_node_size']].max()

@@ -288,6 +288,22 @@ class MutationAnalysis:
                 genotypesColumns.append('barcode(s)')
                 wildTypeRow.append('')
 
+        # if there are any mutations of interest for this tag, add genotype columns for these
+        if self.config['runs'][tag].get('NT_muts_of_interest', False):
+            genotypesColumns.append('NT_muts_of_interest')
+            wildTypeRow.append('')
+            self.NT_muts_of_interest = self.config['runs'][tag]['NT_muts_of_interest'].split(', ')
+            for mut in self.NT_muts_of_interest:
+                genotypesColumns.append(mut)
+                wildTypeRow.append(0)
+        if self.doAAanalysis and self.config['runs'][tag].get('AA_muts_of_interest', False):
+            genotypesColumns.append('AA_muts_of_interest')
+            wildTypeRow.append('')
+            self.AA_muts_of_interest = self.config['runs'][tag]['AA_muts_of_interest'].split(', ')
+            for mut in self.AA_muts_of_interest:
+                genotypesColumns.append(mut)
+                wildTypeRow.append(0)
+
         bamFile = pysam.AlignmentFile(self.BAMin, 'rb')
 
         # set whether to use quality score features based on whether or not quality scores are present
@@ -323,8 +339,35 @@ class MutationAnalysis:
             else:
                 avgQscore = np.average(np.array(cleanAln[3]))
             seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
+
             if self.barcodeColumn:
                 seqGenotype.append(bamEntry.get_tag('BC'))
+
+            if self.config['runs'][tag].get('NT_muts_of_interest', False):
+                mutStr = ''
+                mutOneHot = []
+                for mut in self.NT_muts_of_interest:
+                    if mut in seqGenotype[genotypesColumns.index('NT_substitutions')].split(', '):
+                        mutStr += mut
+                        mutOneHot.append(1)
+                    else:
+                        mutOneHot.append(0)
+                seqGenotype.append(mutStr)
+                seqGenotype.extend(mutOneHot)
+
+            if self.doAAanalysis and self.config['runs'][tag].get('AA_muts_of_interest', False):
+                mutStr = ''
+                mutOneHot = []
+                for mut in self.AA_muts_of_interest:
+                    if mut in seqGenotype[genotypesColumns.index('AA_substitutions_nonsynonymous')].split(', '):
+                        mutStr += mut
+                        mutOneHot.append(1)
+                    else:
+                        mutOneHot.append(0)
+                seqGenotype.append(mutStr)
+                seqGenotype.extend(mutOneHot)
+            
+
             genotypesList.append(seqGenotype)
 
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)

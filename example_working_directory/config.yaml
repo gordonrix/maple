@@ -82,7 +82,7 @@ do_AA_analysis: True                        # If set to False, only nucleotide-l
 auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
-analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed 
+analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
@@ -108,7 +108,8 @@ diversity_plot_all: True                                   # set to True if dive
 diversity_plot_subset: P10-full_453-A1, P10-full_453-A2, P10-full_515-2A, P10-full_515-2B, P10-full_A8, P10-full_D3, P10-full_G3, P10-full_G4, P10-full_pControl              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
 hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
 force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
-force_directed_plot_node_color: NT_substitutions_count       # genotypes column to use for node color. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
+force_directed_plot_node_color: 'AA_muts_of_interest'       # genotypes column to use for node color. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow.
+
 
 # runs to be analyzed, organized into separate run 'tags'
 runs:
@@ -144,6 +145,7 @@ runs:
                 fasta: barcodes_subset.fa
                 reverseComplement: True
                 hammingDistance: 1
+                # noSplit: True
 
         barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
                         #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
@@ -175,6 +177,9 @@ runs:
             pControl:
                 fwd: Barcode7
                 rvs: Barcode7
+
+        NT_muts_of_interest: 'T1221A'                       # comma separated list of specific nucleotide mutations to be added to genotypes output. If not needed, set as 'False'. For comma separated list of length L, L+1 columns will be added to genotype output. One column to encode all mutations of interest as a list, and one column for each mutation of interest for one-hot encoding
+        AA_muts_of_interest: '*384K'                       # same as above except for AA mutations
 
 
     P10-full: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
@@ -238,3 +243,6 @@ runs:
             pControl:
                 fwd: Barcode7
                 rvs: Barcode7
+
+        NT_muts_of_interest: 'T1221A'                       # comma separated list of specific nucleotide mutations to be added to genotypes output. If not needed, set as 'False'. For comma separated list of length L, L+1 columns will be added to genotype output. One column to encode all mutations of interest as a list, and one column for each mutation of interest for one-hot encoding
+        AA_muts_of_interest: '*384K'                       # same as above except for AA mutations

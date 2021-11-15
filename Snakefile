@@ -260,6 +260,9 @@ for tag in config['runs']:
     config['runs'][tag]['reference_aln'] = alnRefFullPath
     if (refFullPath, alnRefFullPath) not in refSeqFastaFiles:
         refSeqFastaFiles.append((refFullPath, alnRefFullPath))
+    if config['do_AA_analysis'] == False:
+        if 'AA_muts_of_interest' in config['runs'][tag]:
+            print_(f'[WARNING] AA_muts_of_interest provided for {tag}, but `do_AA_analysis` set to False. AA muts of interest will not be evaluated.', file=sys.stderr)
 
 for refFasta, alnFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
