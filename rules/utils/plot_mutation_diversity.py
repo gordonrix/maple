@@ -25,7 +25,7 @@ bc = snakemake.wildcards.barcodes
 ###
 
 genotypesDF = pd.read_csv(snakemake.input[0], na_filter=False)
-genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=True)
+# genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=True)
 genotypesDF.drop(genotypesDF[genotypesDF['NT_deletions'] != ''].index, inplace=True)
 genotypesDF.drop(genotypesDF[genotypesDF['count'] == 0].index, inplace=True) # removes wildtype row if count is 0
 genotypesDF.drop(['NT_insertions','NT_deletions'], axis=1, inplace=True)
@@ -117,13 +117,13 @@ hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(geno
 hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
 hammingDistanceEdgesDF = hammingDistanceMatrixDF.stack().reset_index()
 hammingDistanceEdgesDF.columns = ['source', 'target', 'hammingDistance']
-hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(hammingDistanceBinCounts))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
+if len(hammingDistanceEdgesDF)>1000:
+    hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(hammingDistanceBinCounts))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
 
 def mutCountHDweighting(source,target, hammingDistance):
     sourceMutCount = int(genotypesDF.loc[source,'NT_substitutions_count'])
     targetMutCount = int(genotypesDF.loc[target,'NT_substitutions_count'])
     return np.e**((sourceMutCount+targetMutCount)/2-hammingDistance)       # weight is e^(the average mutation count of the two mutants minus the hamming distance). This makes weight dependent on both hamming distance and # of mutations, resulting in better clustering of similar clades
-
 hammingDistanceEdgesDF['weight'] = hammingDistanceEdgesDF.apply(lambda row:
     mutCountHDweighting(row['source'], row['target'], row['hammingDistance']), axis=1)
 # hammingDistanceEdgesDF['weight'] = 2**(3-hammingDistanceEdgesDF['hammingDistance'])       # weighting based on hamming distance alone. Result is less structured plot that just has concentric rings of nodes that track with increasing hamming distance from WT
@@ -139,18 +139,27 @@ nodeColorMap = 'blues' if config['force_directed_plot_node_color'] in ['count', 
 # linear equation to scale Node sizes to range from 5-25 (for node weight)
 maxCount = genotypesDF[config['force_directed_plot_node_size']].max()
 minCount = genotypesDF[config['force_directed_plot_node_size']].min()
-slopeN = (25-5) / (maxCount-minCount)
-interceptN = 5 - (slopeN*minCount)
+if maxCount==minCount: # set all to 10 if no difference between max and min
+    slopeN, interceptN = 0, 10
+else:
+    slopeN = (25-5) / (maxCount-minCount)
+    interceptN = 5 - (slopeN*minCount)
 
 # equation to scale log of edge widths 0.05-7 (for edge weight)
 maxWeight = np.log(hammingDistanceEdgesDF['weight'].max())
 minWeight = np.log(hammingDistanceEdgesDF['weight'].min())
-slopeW = (10-0.05) / (maxWeight-minWeight)
-interceptW = 0.1 - (slopeW*minWeight)
+if maxWeight==minWeight: # set all to 1 if no difference between max and min
+    slopeW, interceptW = 0, 1
+else:
+    slopeW = (10-0.05) / (maxWeight-minWeight)
+    interceptW = 0.1 - (slopeW*minWeight)
 
 # equation to scale log of edge widths 0.05-0.4 (for edge Alpha, or opacity)
-slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
-interceptA = 0.1 - (slopeA*minWeight)
+if maxWeight==minWeight: # set all to 10 if no difference between max and min
+    slopeA, interceptA = 0, 0.4
+else:
+    slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
+    interceptA = 0.1 - (slopeA*minWeight)
 
 networkPlot = hv.Graph.from_networkx(G, nx.layout.fruchterman_reingold_layout).opts(
     hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap=nodeColorMap,

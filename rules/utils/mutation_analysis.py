@@ -6,6 +6,7 @@ import pandas as pd
 import re
 import pysam
 import sys
+import pprint
 
 ### Asign variables from config file
 config = snakemake.config
@@ -126,7 +127,8 @@ class MutationAnalysis:
                 if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
-                insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
+                if self.refTrimmedStart <= queryIndex < self.refTrimmedEnd:
+                    insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
@@ -138,7 +140,8 @@ class MutationAnalysis:
                 alignStr += ' '*cTuple[1]
                 if self.fastq:
                     queryQualities += [0]*cTuple[1]
-                deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
+                if self.refTrimmedStart <= queryIndex < self.refTrimmedEnd:
+                    deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
                 refIndex += cTuple[1]
 
         return  [refAln[self.refTrimmedStart:self.refTrimmedEnd],

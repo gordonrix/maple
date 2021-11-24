@@ -76,21 +76,36 @@ class splitBAM:
             batch_DF = UMI_groups_above_threshold[UMI_groups_above_threshold['batch']==batch_index]
             batch_UMI_IDs = list(batch_DF['unique_id'])
             UMI_BAMbatchDict = {}
-
-            # dictionary that keeps track of the number of sequences being used for the consensus. If this number goes above the set maximum, the associated UMI group ID will be removed from the list of UMI IDs
-            UMI_group_counts = {}
-            for UMIgroup in batch_UMI_IDs:
-                UMI_group_counts[UMIgroup] = 0
+            UMI_strandTrackDict = {}     # dict to keep track of how many fwd/rvs strands have been encountered to aim for similar amounts to reduce systematic errors. fwd recorded as 1, rvs recorded as -1 such that the sum of the list indicates the bias
 
             for BAMentry in BAMin:
                 ID = BAMentry.get_tag('UG')
                 if ID in batch_UMI_IDs:
                     if ID not in UMI_BAMbatchDict:
                         UMI_BAMbatchDict[ID] = []
+                        UMI_strandTrackDict[ID] = []
                     UMI_BAMbatchDict[ID].append(BAMentry)
-                    UMI_group_counts[ID] += 1
-                    if UMI_group_counts[ID] >= self.maximum:
-                        while ID in batch_UMI_IDs: batch_UMI_IDs.remove(ID)
+                    if BAMentry.is_reverse:
+                        UMI_strandTrackDict[ID].append(-1)
+                    else:
+                        UMI_strandTrackDict[ID].append(1)
+
+                    # UMI IDs will be removed from list if the maximum # of reads have been reached and the difference
+                        # in counts of reads of one strand vs another is either 0 (for even maximum reads) or 1 (for odd maximum reads)
+                        # As more reads over the maximum are encountered, reads are removed to approach a strand bias of 0
+                    UMI_group_strandBias = sum(UMI_strandTrackDict[ID])
+                    if len(UMI_BAMbatchDict[ID]) > self.maximum:
+                        if UMI_group_strandBias < 0:
+                            removeIndex = UMI_strandTrackDict[ID].index(-1)
+                            UMI_BAMbatchDict[ID].pop(removeIndex)
+                            UMI_strandTrackDict[ID].pop(removeIndex)
+                        elif UMI_group_strandBias > 0:
+                            removeIndex = UMI_strandTrackDict[ID].index(1)
+                            UMI_BAMbatchDict[ID].pop(removeIndex)
+                            UMI_strandTrackDict[ID].pop(removeIndex)
+                    if len(UMI_BAMbatchDict[ID]) == self.maximum:
+                        if (self.maximum%2 == 0 and UMI_group_strandBias == 0) or (self.maximum%2 == 1 and np.absolute(UMI_group_strandBias) <= 1):   # stop searching for this UMI if maximum is reached and strandbias is as close to 0 as possible
+                            while ID in batch_UMI_IDs: batch_UMI_IDs.remove(ID)
                 if len(batch_UMI_IDs) == 0: # stop searching for more reads if user defined maximum reads have been found for all UMI groups 
                     break
             BAMin.reset()  # allows for looping through again for the next batch

@@ -364,7 +364,7 @@ class BarcodeParser:
                     if barcodeType in self.hammingDistanceBarcodeDict:
                         try:
                             closestBarcode = self.hammingDistanceBarcodeDict[barcodeType][barcode]
-                            barcodeName = self.barcodeDicts[closestBarcode]
+                            barcodeName = self.barcodeDicts[barcodeType][closestBarcode]
                             notExactMatch = 1
                         except KeyError:
                             barcodeName = 'fail'

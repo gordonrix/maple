@@ -81,6 +81,8 @@ def main():
     cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])
     statsDF = pd.DataFrame(statsList, columns=cols)
     statsDF.sort_values('barcode_group', inplace=True)
+    statsDF['mean_NT_mutations_per_base'] = statsDF['mean_NT_mutations_per_base'].round(10)
+    statsDF['mean_NT_mutations_per_seq'] = statsDF['mean_NT_mutations_per_seq'].round(2)
 
     statsDF.to_csv(str(snakemake.output), index=False)
 
@@ -90,7 +92,7 @@ def compute_mean_from_dist(dist):
     for n, count in enumerate(dist):
         total += n*count
     if total!=0:
-        return round(total/dist.sum(), 2)
+        return total/dist.sum()
     else:
         return 0
 

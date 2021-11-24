@@ -212,7 +212,7 @@ rule UMI_extract:
 # collapse UMI extract log files into a single small file that summarizes UMI recognition in aggregate instead of on a read-by-read basis
 rule UMI_extract_summary:
     input:
-        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = config['runs'])
+        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )))
     output:
         'sequences/UMI/UMI-extract-summary.csv'
     run:
@@ -325,7 +325,7 @@ rule UMI_compress_consensus:
 
 def alignment_sequence_input(wildcards):
     if config['UMI_consensus']:
-        return 'sequences/UMI/{tag}_UMIconsensus.fasta.gz'
+        return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     else:
         return 'sequences/{tag}.fastq.gz'
 
@@ -612,14 +612,29 @@ rule plot_mutation_diversity:
     script:
         'utils/plot_mutation_diversity.py'
 
+def all_diversity_plots_input(wildcards):
+    out = []
+    checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
+    checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
+    checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+    out.extend( expand('mutation_data/{tag}_{barcodes}_{dataType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+    out.extend( expand('plots/{tag}_{barcodes}_{plotType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'hamming-distance-distribution.html']) )
+    return out
+
+rule plot_mutation_diversity_all:
+    input:
+        all_diversity_plots_input
+    output:
+        touch('plots/.{tag}_allDiversityPlots.done')
+
 rule plot_pipeline_throughput:
     input:
         initial = 'sequences/{tag}.fastq.gz',
-        UMI_preconsensus_alignment = 'sequences/UMI/{tag}_noConsensus.bam' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_preconsensus_log = 'sequences/UMI/{tag}_noConsensus.log' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_extract = lambda wildcards: 'sequences/UMI/{tag}_UMI-extract.csv' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_group = lambda wildcards: 'sequences/UMI/{tag}_UMIgroup-distribution.csv' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_consensus = lambda wildcards: 'sequences/UMI/{tag}_UMIconsensus.fasta.gz' if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_alignment = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.bam', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_log = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.log', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_extract = lambda wildcards: expand('sequences/UMI/{tag}_UMI-extract.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_group = lambda wildcards: expand('sequences/UMI/{tag}_UMIgroup-distribution.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_consensus = lambda wildcards: expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
         alignment = 'alignments/{tag}.bam',
         alignment_log = 'alignments/{tag}.log',
         demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else 'sequences/{tag}.fastq.gz'

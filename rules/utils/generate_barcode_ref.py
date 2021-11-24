@@ -21,6 +21,7 @@ import gzip
 import itertools
 import pprint
 import pandas as pd
+import sys
 
 import pysam
 from Bio import Align, pairwise2, Seq
@@ -69,6 +70,8 @@ def main():
 
             try:
                 barcode = BAMentry.query_alignment_sequence[ start:stop ]
+                if 'N' in barcode:
+                    barcodeName = 'fail'
             except TypeError:
                 barcodeName = 'fail'
                 pass
@@ -86,7 +89,6 @@ def main():
         for barcode in barcodeDict[barcodeType]:
             barcodeRowList.append([barcode, barcodeDict[barcodeType][barcode]])
         df = pd.DataFrame(barcodeRowList, columns=['barcode', 'count'])
-        df = df[df['count']>1] # ignore barcodes that only appear once
         df = df.sort_values('count', ascending=False).reset_index(drop=True)
         barcodeDFs[barcodeType] = df
 

@@ -27,7 +27,6 @@ start_time = datetime.now()
 min_version("5.5.2")
 configfile: "config.yaml"
 
-
 # filter output depending on run mode
 def print_(*args, **kwargs):
     if workflow.mode == snakemake.common.Mode.default:
@@ -321,7 +320,7 @@ for refFasta, alnFasta in refSeqFastaFiles:
         except StopIteration:
             os.remove(alnFasta)
     if not os.path.isfile(alnFasta):
-        print_(f'Alignment reference .fasta file for {tag} not found or is different from original reference .fasta file. Generating {alnFasta} from {refFasta}.', file=sys.stderr)
+        print_(f'Alignment reference .fasta file not found or is different from original reference .fasta file. Generating {alnFasta} from {refFasta}.', file=sys.stderr)
         with open(alnFasta, 'w') as fastaOut:
             first_record = next(SeqIO.parse(refFasta, 'fasta'))
             fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
@@ -335,15 +334,39 @@ if len(refSeqErrors) > 0:
 if 'UMI_consensus' not in config:
     raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
 if config['UMI_consensus'] == True:
+    consensusCopyDict = {}      # dictionary that is used to reuse consensus sequences from a different tag if they are generated using the same files. Keys are tags, and values are tags whose consensus sequences will be used for downstream files for the key tag
+    consensusFilesDict = {}     # nested dictionary that keeps track of the runnames and reference sequence used for each tag. keys, subkeys, and subsubkeys are the alignment sequence, a list of the runnames, and a list of the UMIs respectively, and values are the first tag encountered that uses those runnames and alignment sequences
     for tag in config['runs']:
         if 'UMI_contexts' not in config['runs'][tag]:
             print_(f"[WARNING] `UMI_contexts` set to True, but tag `{tag}` does not contain the required key `UMI_contexts`. UMI consensus steps will fail.")
-        else:
+        elif 'UMI_contexts' in config['runs'][tag]:
             refFasta = config['runs'][tag]['reference']
             alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
             for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
                 if str(alignmentSeq.seq).upper().find(context.upper()) == -1:
                     print_(f"[WARNING] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus steps will fail.")
+            runnames = config['runs'][tag]['runname']
+            runnames.sort()
+            runnames = tuple(runnames)
+            UMIcontexts = config['runs'][tag]['UMI_contexts']
+            UMIcontexts.sort()
+            UMIcontexts = tuple(UMIcontexts)
+            if str(alignmentSeq.seq).upper() not in consensusFilesDict:
+                consensusFilesDict[str(alignmentSeq.seq).upper()] = {runnames:{UMIcontexts:tag}}
+                consensusCopyDict[tag] = tag
+            else:
+                if runnames not in consensusFilesDict[str(alignmentSeq.seq).upper()]:
+                    consensusFilesDict[str(alignmentSeq.seq).upper()][runnames] = {UMIcontexts:tag}
+                    consensusCopyDict[tag] = tag
+                else:
+                    if UMIcontexts not in consensusFilesDict[str(alignmentSeq.seq).upper()][runnames]:
+                        consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts] = tag
+                        consensusCopyDict[tag] = tag
+                    else:
+                        consensusTag = consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts]
+                        print_(f"[NOTICE] Runname(s), alignment sequence, and UMI context combination used more than once. Using the consensus .fasta file of tag `{consensusTag}` for tag `{tag}` to reduce computation time and storage requirements")
+                        consensusCopyDict[tag] = consensusTag
+    config['consensusCopyDict'] = consensusCopyDict
 
 # Demultiplexing checks
 if 'demux' not in config:
@@ -483,9 +506,9 @@ def targets_input(wildcards):
         out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
         out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
     if config['UMI_consensus']:
-        out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=config['runs']))
+        out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )) ))
         if config['nanoplot']:
-            out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=config['runs']))
+            out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] ))))
         out.append('sequences/UMI/UMI-extract-summary.csv')
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
         out.append('dms-view-table.csv')
@@ -493,20 +516,13 @@ def targets_input(wildcards):
 
     if config['diversity_plot_all']:
         if config['demux']:
-            for tag in config['runs']:
-                checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
-                checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-                checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-                out.extend( expand('mutation_data/{tag}_{barcodes}_{dataType}', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-                out.extend( expand('plots/{tag}_{barcodes}_{plotType}', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'hamming-distance-distribution.html']) )
+            out.extend( expand('plots/.{tag}_allDiversityPlots.done', tag=config['runs']))
         else:
-            for tag in config['runs']:
-                out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=tag, dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-                out.extend( expand('plots/{tag}_all_{plotType}', tag=tag, plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
-    elif config['diversity_plot_subset']!=False:
-        for tag in config['runs']:
-            out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=config['diversity_plot_subset'].split(', '), dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-            out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=config['diversity_plot_subset'].split(', '), plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
+            out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=config['runs'], dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+            out.extend( expand('plots/{tag}_all_{plotType}', tag=config['runs'], plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+    elif config.get('diversity_plot_subset', False) not in ['',False]:
+        out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=config['diversity_plot_subset'].split(', '), dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+        out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=config['diversity_plot_subset'].split(', '), plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
 
     return out
 

@@ -101,9 +101,6 @@ rule logs_clean:
             mkdir -p {params.timestampDir}/snakemakeLogs
             mv .snakemake/log/* {params.timestampDir}/snakemakeLogs
         fi
-        if [ -d maple ]; then
-            mv maple {params.timestampDir}
-        fi
         cp *.yaml {params.timestampDir}
         cp ref -r {params.timestampDir}
         """
