@@ -402,6 +402,8 @@ if config['demux'] == True:
             for bcType in config['runs'][tag]['barcodeGroups'][group]:
                 if bcType not in config['runs'][tag]['barcodeInfo']:
                     print_(f"[WARNING] At least one barcode type in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
+                if config['runs'][tag]['barcodeGroups'][group][bcType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]:
+                    print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
             
 elif config['demux'] == False:
     for tag in config['runs']:
