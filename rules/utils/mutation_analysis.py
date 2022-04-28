@@ -127,7 +127,7 @@ class MutationAnalysis:
                 if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
-                if self.refTrimmedStart <= queryIndex < self.refTrimmedEnd:
+                if self.refTrimmedStart <= refIndex < self.refTrimmedEnd:
                     insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
                 queryIndex += cTuple[1]
 
@@ -140,7 +140,7 @@ class MutationAnalysis:
                 alignStr += ' '*cTuple[1]
                 if self.fastq:
                     queryQualities += [0]*cTuple[1]
-                if self.refTrimmedStart <= queryIndex < self.refTrimmedEnd:
+                if self.refTrimmedStart <= refIndex < self.refTrimmedEnd:
                     deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
                 refIndex += cTuple[1]
 
@@ -285,11 +285,12 @@ class MutationAnalysis:
 
         # if any barcodes are not used to demultiplex, add a column that shows what these barcodes are
         self.barcodeColumn = False
-        for bcType in self.config['runs'][tag]['barcodeInfo']:
-            if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
-                self.barcodeColumn = True
-                genotypesColumns.append('barcode(s)')
-                wildTypeRow.append('')
+        if self.config['demux']:
+            for bcType in self.config['runs'][tag]['barcodeInfo']:
+                if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
+                    self.barcodeColumn = True
+                    genotypesColumns.append('barcode(s)')
+                    wildTypeRow.append('')
 
         # if there are any mutations of interest for this tag, add genotype columns for these
         if self.config['runs'][tag].get('NT_muts_of_interest', False):
