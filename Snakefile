@@ -507,9 +507,9 @@ def targets_input(wildcards):
     if config['nanoplot']:
         out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
         out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
-    if config['UMI_consensus']:
+    if config['UMI_consensus'] == True:
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )) ))
-        if config['nanoplot']:
+        if config['nanoplot'] == True:
             out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] ))))
         out.append('sequences/UMI/UMI-extract-summary.csv')
     if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
