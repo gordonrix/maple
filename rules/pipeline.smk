@@ -209,34 +209,35 @@ rule UMI_extract:
     script:
         'utils/UMI_extract.py'
 
-# collapse UMI extract log files into a single small file that summarizes UMI recognition in aggregate instead of on a read-by-read basis
-rule UMI_extract_summary:
-    input:
-        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )))
-    output:
-        'sequences/UMI/UMI-extract-summary.csv'
-    run:
-        import pandas as pd
-        maxUMIs = 0
-        for tag in config['runs']:
-            if 'UMI_contexts' in config['runs'][tag]:
-                numUMIs = len(config['runs'][tag]['UMI_contexts'])
-                if numUMIs > maxUMIs:
-                    maxUMIs = numUMIs
-        UMIcols = [f'umi_{UMInum}_failure' for UMInum in range(1,maxUMIs+1)]
-        outDF = pd.DataFrame(columns=['tag','success','failure']+UMIcols)
-        for f in input:
-            df = pd.read_csv(f, dtype={'umi':str})
-            dfCols = df.columns[2:]
-            tag = f.split('/')[-1].split('_')[0]
-            df['tag'] = tag
-            dfSum = df.groupby(['tag'])[dfCols].sum().reset_index()
-            if len(outDF.columns) != len(dfSum.columns): # add columns to match the maximum number of UMIs in a tag to allow for df concatenation
-                for col in UMIcols:
-                    if col not in dfCols:
-                        dfSum[col] = 'NA'
-            outDF = pd.concat([outDF, dfSum], ignore_index=True)
-        outDF.to_csv(output[0])
+    # collapse UMI extract log files into a single small file that summarizes UMI recognition in aggregate instead of on a read-by-read basis
+if config['UMI_consensus'] == True:
+    rule UMI_extract_summary:
+        input:
+            expand('sequences/UMI/{tag}_UMI-extract.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )))
+        output:
+            'sequences/UMI/UMI-extract-summary.csv'
+        run:
+            import pandas as pd
+            maxUMIs = 0
+            for tag in config['runs']:
+                if 'UMI_contexts' in config['runs'][tag]:
+                    numUMIs = len(config['runs'][tag]['UMI_contexts'])
+                    if numUMIs > maxUMIs:
+                        maxUMIs = numUMIs
+            UMIcols = [f'umi_{UMInum}_failure' for UMInum in range(1,maxUMIs+1)]
+            outDF = pd.DataFrame(columns=['tag','success','failure']+UMIcols)
+            for f in input:
+                df = pd.read_csv(f, dtype={'umi':str})
+                dfCols = df.columns[2:]
+                tag = f.split('/')[-1].split('_')[0]
+                df['tag'] = tag
+                dfSum = df.groupby(['tag'])[dfCols].sum().reset_index()
+                if len(outDF.columns) != len(dfSum.columns): # add columns to match the maximum number of UMIs in a tag to allow for df concatenation
+                    for col in UMIcols:
+                        if col not in dfCols:
+                            dfSum[col] = 'NA'
+                outDF = pd.concat([outDF, dfSum], ignore_index=True)
+            outDF.to_csv(output[0])
 
 rule UMI_group:
     input:
@@ -324,7 +325,7 @@ rule UMI_compress_consensus:
         """
 
 def alignment_sequence_input(wildcards):
-    if config['UMI_consensus']:
+    if config['UMI_consensus'] == True:
         return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     else:
         return 'sequences/{tag}.fastq.gz'
@@ -630,11 +631,11 @@ rule plot_mutation_diversity_all:
 rule plot_pipeline_throughput:
     input:
         initial = 'sequences/{tag}.fastq.gz',
-        UMI_preconsensus_alignment = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.bam', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_preconsensus_log = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.log', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_extract = lambda wildcards: expand('sequences/UMI/{tag}_UMI-extract.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_group = lambda wildcards: expand('sequences/UMI/{tag}_UMIgroup-distribution.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
-        UMI_consensus = lambda wildcards: expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus'] else 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_alignment = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.bam', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus']==True else 'sequences/{tag}.fastq.gz',
+        UMI_preconsensus_log = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.log', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus']==True else 'sequences/{tag}.fastq.gz',
+        UMI_extract = lambda wildcards: expand('sequences/UMI/{tag}_UMI-extract.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus']==True else 'sequences/{tag}.fastq.gz',
+        UMI_group = lambda wildcards: expand('sequences/UMI/{tag}_UMIgroup-distribution.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus']==True else 'sequences/{tag}.fastq.gz',
+        UMI_consensus = lambda wildcards: expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['UMI_consensus']==True else 'sequences/{tag}.fastq.gz',
         alignment = 'alignments/{tag}.bam',
         alignment_log = 'alignments/{tag}.log',
         demux = 'demux/{tag}_demux-stats.csv' if config['demux'] else 'sequences/{tag}.fastq.gz'
