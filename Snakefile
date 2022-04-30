@@ -390,6 +390,8 @@ if config['demux'] == True:
             if os.path.isfile(bcFasta):
                 if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
                     print_(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format")
+                if any(['_' in bc.id for bc in list(SeqIO.parse(bcFasta, 'fasta'))]):
+                    print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
                 if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                     print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
             if 'noSplit' in config['runs'][tag]['barcodeInfo'][barcodeType]:
@@ -416,8 +418,8 @@ for tag in config['runs']:
         print_(f"[WARNING] Run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in run tag names.", file=sys.stderr)
     if 'barcodeGroups' in config['runs'][tag]:
         for bcGroup in config['runs'][tag]['barcodeGroups']:
-        if '_' in bcGroup:
-            print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
+            if '_' in bcGroup:
+                print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
 
 # add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timeopoint CSV files are not used more than once
 #   and will instead be assigned to the first tag that uses that file. Also checks that the csv file exists.
