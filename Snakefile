@@ -332,7 +332,7 @@ if len(refSeqErrors) > 0:
 
 # UMI checks
 if 'UMI_consensus' not in config:
-    raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
+    raise RuntimeError("[ERROR] Required boolean option `UMI_consensus` not present in config file.")
 if config['UMI_consensus'] == True:
     consensusCopyDict = {}      # dictionary that is used to reuse consensus sequences from a different tag if they are generated using the same files. Keys are tags, and values are tags whose consensus sequences will be used for downstream files for the key tag
     consensusFilesDict = {}     # nested dictionary that keeps track of the runnames and reference sequence used for each tag. keys, subkeys, and subsubkeys are the alignment sequence, a list of the runnames, and a list of the UMIs respectively, and values are the first tag encountered that uses those runnames and alignment sequences
@@ -409,6 +409,27 @@ elif config['demux'] == False:
     for tag in config['runs']:
         if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
             print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
+
+# check that tags and barcodeGroup names don't contain underscores
+for tag in config['runs']:
+    if '_' in tag:
+        print_(f"[WARNING] Run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in run tag names.", file=sys.stderr)
+    if 'barcodeGroups' in config['runs'][tag]:
+        for bcGroup in config['runs'][tag]['barcodeGroups']:
+        if '_' in bcGroup:
+            print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
+
+# add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timeopoint CSV files are not used more than once
+#   and will instead be assigned to the first tag that uses that file. Also checks that the csv file exists.
+for tag in config['runs']:
+    if 'timepoints' in config['runs'][tag]:
+        CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
+        if 'timepoints' not in config:
+            config['timepoints'] = {}
+        if CSVpath not in config['timepoints'].values():
+            config['timepoints'][tag] = CSVpath
+        if not os.path.isfile(CSVpath):
+            print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.", file=sys.stderr)
         
 
 # # include modules
@@ -499,12 +520,12 @@ to make sure everything is configured correctly.
 def targets_input(wildcards):
     out = []
     out.append('mutation-stats.csv')
-    if config['demux']:
+    if config['demux'] == True:
         out.append('demux-stats.csv')
     out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
     out.extend(expand('plots/{tag}_mutation-spectra.html', tag=config['runs']))
     out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
-    if config['nanoplot']:
+    if config['nanoplot'] == True:
         out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
         out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
     if config['UMI_consensus'] == True:
@@ -512,9 +533,12 @@ def targets_input(wildcards):
         if config['nanoplot'] == True:
             out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] ))))
         out.append('sequences/UMI/UMI-extract-summary.csv')
-    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis']==True:
+    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis'] == True:
         out.append('dms-view-table.csv')
     out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
+    if 'timepoints' in config:
+        out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
+        out.extend(expand('plots/{tag}_mutation-rate-spectrum.html', tag=config['timepoints']))
 
     if config['diversity_plot_all']:
         if config['demux']:
