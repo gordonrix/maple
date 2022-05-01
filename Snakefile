@@ -17,6 +17,7 @@ import snakemake.common
 from datetime import datetime
 from snakemake.utils import min_version
 from Bio import SeqIO
+import pandas as pd
 
 
 
@@ -422,7 +423,8 @@ for tag in config['runs']:
                 print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
 
 # add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timeopoint CSV files are not used more than once
-#   and will instead be assigned to the first tag that uses that file. Also checks that the csv file exists.
+#   and will instead be assigned to the first tag that uses that file. Also checks that the csv file exists and that reference fasta
+#   files for sample/barcodeGroup combinations are the same in each row
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
         CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
@@ -430,8 +432,26 @@ for tag in config['runs']:
             config['timepoints'] = {}
         if CSVpath not in config['timepoints'].values():
             config['timepoints'][tag] = CSVpath
-        if not os.path.isfile(CSVpath):
+        if os.path.isfile(CSVpath):
+            timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+            if len(timepointsCSV.columns) <= 1:
+                print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.", file=sys.stderr)
+            else:
+                rowIndex = 0
+                for _, row in timepointsCSV.iterrows():
+                    rowIndex += 1
+                    firstTP = timepointsCSV.columns[0]
+                    firstSample = row[firstTP].split('_')[0]
+                    rowRefFasta = config['runs'][firstSample]['reference']
+                    rowRefSeq = str(list(SeqIO.parse(rowRefFasta, 'fasta'))[1].seq).upper()
+                    for tp in timepointsCSV.columns[1:]:
+                        tag = row[tp].split('_')[0]
+                        sampleBCgroupRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[1].seq).upper()
+                        if sampleBCgroupRefSeq != rowRefSeq:
+                            print_(f"[WARNING] Row {rowIndex} for timepoints .CSV file `{CSVpath}` Contains samples that use different reference sequences ({row[firstTP]} and {row[tp]}). Analysis may be unreliable.", file=sys.stderr)
+        else:
             print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.", file=sys.stderr)
+        
         
 
 # # include modules
