@@ -550,6 +550,16 @@ rule plot_mutation_spectrum:
     script:
         'utils/plot_mutation_spectrum.py'
 
+rule plot_mutation_rate:
+    input:
+        stats = 'mutation-stats.csv',
+        timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
+    output:
+        rate = 'plots/{tag, [^\/]*}_mutation-rates.html',
+        spectrum = 'plots/{tag, [^\/]*}_mutation-rate-spectrum.html'
+    script:
+        'utils/plot_mutation_rate.py'
+
 def plot_mutations_frequencies_input(wildcards):
     if config['demux']:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
