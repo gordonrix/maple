@@ -98,10 +98,11 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 # dms_view_chain_numbering_difference: 0   # difference in numbering between protein chain in structure and amino acid level analysis. ex. if numbering for AA analysis starts at residue corresponding to residue 10 on the crystal structure, set to 10
 
 # plot_mut_spectrum
-#   barcode group name to be used as the background for calculating the mutation spectrum
+#   barcode group name to be used as the background for analyses that require subtraction of sequencing error
 #   to use, this barcode group name must be present within all sample tags being analyzed.
-#   This is to prevent using as background sequencing error from a sequencing run that is different from a sample's
-background: GR562-ctrl
+#   This is to prevent using a background sequencing error from a different sequencing run than the sample.
+#   Comment out if not using
+# background: GR562-ctrl
 uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity

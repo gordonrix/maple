@@ -422,9 +422,16 @@ for tag in config['runs']:
             if '_' in bcGroup:
                 print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
 
-# add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timeopoint CSV files are not used more than once
-#   and will instead be assigned to the first tag that uses that file. Also checks that the csv file exists and that reference fasta
-#   files for sample/barcodeGroup combinations are the same in each row
+# add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timepoint CSV files are not used more than once
+#   and will instead be assigned to the first tag that uses that file. Also checks for the following:
+#       - csv file exists
+#       - Referenced tags and barcodeGroups are defined in config file
+#       - reference fasta files for sample/barcodeGroup combinations are the same in each row
+#       - at least two timepoints are given
+#       - a row only uses tags from the same sequencing run or, if it uses different sequencing runs, that a 'background'
+#           barcode group is provided in the config file. This is important because background subtraction is necessary
+#           for accurate rate calculations, and sequencing error can of course differ from run to run.
+timepointErrors = []
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
         CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
@@ -437,21 +444,36 @@ for tag in config['runs']:
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.", file=sys.stderr)
             else:
-                rowIndex = 0
+                rowIndex = 2    # start at 2 because first two rows are ignored with pd.read_csv call
                 for _, row in timepointsCSV.iterrows():
                     rowIndex += 1
                     firstTP = timepointsCSV.columns[0]
-                    firstSample = row[firstTP].split('_')[0]
-                    rowRefFasta = config['runs'][firstSample]['reference']
-                    rowRefSeq = str(list(SeqIO.parse(rowRefFasta, 'fasta'))[1].seq).upper()
+                    firstTag = row[firstTP].split('_')[0]
+                    if firstTag in config['runs']:
+                        firstTagRefFasta = config['runs'][firstTag]['reference']
+                        firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
+                        firstTagRunname = config['runs'][firstTag]['runname']
+                    else:
+                        timepointErrors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.")
                     for tp in timepointsCSV.columns[1:]:
                         tag = row[tp].split('_')[0]
-                        sampleBCgroupRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[1].seq).upper()
-                        if sampleBCgroupRefSeq != rowRefSeq:
-                            print_(f"[WARNING] Row {rowIndex} for timepoints .CSV file `{CSVpath}` Contains samples that use different reference sequences ({row[firstTP]} and {row[tp]}). Analysis may be unreliable.", file=sys.stderr)
+                        if tag in config['runs']:
+                            if firstTag in config['runs']:
+                                tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[1].seq).upper()
+                                if tagRefSeq != firstTagRefSeq:
+                                    print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.", file=sys.stderr)
+                                tagRunname = config['runs'][tag]['runname']
+                                if tagRunname != firstTagRunname and 'background' not in config:
+                                    print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.", file=sys.stderr)
+                        else:
+                            timepointErrors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors.")
+                    
         else:
             print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.", file=sys.stderr)
-        
+if len(timepointErrors) > 0:
+    for err in timepointErrors:
+        print_(err, file=sys.stderr)
+    raise RuntimeError("Errors in timepoint CSV files found. See above.")
         
 
 # # include modules
