@@ -441,6 +441,11 @@ for tag in config['runs']:
             config['timepoints'][tag] = CSVpath
         if os.path.isfile(CSVpath):
             timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+            topRow = [x for x in pd.read_csv(CSVpath)).columns if 'Unnamed: ' not in x]
+                if len(topRow) > 1:
+                    print_(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {str(snakemake.input.timepoints)}. Only the first cell in this row will be used for labeling outputs of mutation rate plots.", file=sys.stderr)
+                elif len(topRow) == 0: 
+                    print_(f"[NOTICE] No time unit provided in top row of timepoint CSV file {str(snakemake.input.timepoints)}. Default 'generations' will be used.", file=sys.stderr)
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.", file=sys.stderr)
             else:
@@ -582,7 +587,7 @@ def targets_input(wildcards):
     out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
     if 'timepoints' in config:
         out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
-        out.extend(expand('plots/{tag}_mutation-rate-spectrum.html', tag=config['timepoints']))
+        # out.extend(expand('plots/{tag}_mutation-rate-spectrum.html', tag=config['timepoints']))
 
     if config['diversity_plot_all']:
         if config['demux']:
