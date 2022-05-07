@@ -10,6 +10,7 @@ import os
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import bokeh
 import re
 import scipy
 from bokeh.layouts import column, gridplot
@@ -168,12 +169,12 @@ def main():
     for mt in ['all'] + mutTypes:
         # plot mean as bar
         mtTypeMeanRateDF = meanRatesDF[meanRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
-        meanPlot = hv.Bars(mtTypeMeanRateDF[['sample_label','rate']], y_label=f'per_base_{mt}_substitutions_per_{timeUnit}')
+        meanPlot = hv.Bars(mtTypeMeanRateDF[['sample_label','rate']])
         meanPlot.opts(logy=True, color='grey')
 
         # plot individual replicates as points
         mtTypeRepsRateDF = allRatesDF[allRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
-        repsPlot = hv.Points(mtTypeRepsRateDF[['sample_label','rate']], y_label=f'per_base_{mt}_substitutions_per_{timeUnit}')
+        repsPlot = hv.Points(mtTypeRepsRateDF[['sample_label','rate']])
         repsPlot.opts(logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
 
         plot = meanPlot * repsPlot
