@@ -18,3 +18,4 @@ nanoplot
 holoviews
 networkx
 ipykernel
+seaborn

@@ -118,7 +118,7 @@ def main():
 
         bcGroupSpectrumPivot = bcGroupSpectrumPivot.fillna(0.0) # replace NaNs with 0
         bcGroupSpectrumPivot = bcGroupSpectrumPivot.clip(lower=0) # convert negative values to 0
-        
+
         TOOLTIPS = [('mutation type', '@wtNT'+'->'+'$name'), ('proportion of mutations', '@$name')]
         plotTitle = f"{tag}_{row['barcode_group']}"
         spectrumPlot = figure(title=plotTitle, plot_height=400, plot_width=400, x_range=list('ATGC'), tooltips=TOOLTIPS)

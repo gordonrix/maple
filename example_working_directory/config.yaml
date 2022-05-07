@@ -102,7 +102,7 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 #   to use, this barcode group name must be present within all sample tags being analyzed.
 #   This is to prevent using a background sequencing error from a different sequencing run than the sample.
 #   Comment out if not using
-# background: GR562-ctrl
+background: GR562-ctrl
 uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity

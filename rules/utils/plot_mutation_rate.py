@@ -11,16 +11,14 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import re
-from bokeh.layouts import column
-from bokeh.models import (BasicTicker, ColorBar, ColumnDataSource, FactorRange,
-                          HoverTool, Legend, LinearColorMapper,
-                          PrintfTickFormatter)
+import scipy
+from bokeh.layouts import column, gridplot
+from bokeh.models import ColumnDataSource
 from bokeh.palettes import Blues5
-from bokeh.plotting import figure, output_file, save, show
+from bokeh.plotting import figure, output_file, save
 from Bio import SeqIO
 import holoviews as hv
 from holoviews import opts
-from holoviews.streams import Selection1D
 from scipy import stats
 hv.extension('bokeh')
 
@@ -51,8 +49,9 @@ def trim_normalize_row(mutStatsRow, refSeq, mutTypes):
         wtNT = mut[0]
         mutList.append(normalDict[wtNT] * (mutStatsRow[mut]/totalNTsAnalyzed))
 
-    # calculate mutations per base as the sum of the normalized rates for all mutation types (may differ from the rate
-    # as calculated by total mutations/total nts analyzed due to mutation preferences and A/T/G/C content of reference
+    # output total mutations per base as the sum of the normalized rates for all mutation types (may differ
+    #   slightly from the rate as calculated by total mutations/total nts analyzed due to combination
+    #   of mutation preference and A/T/G/C content of reference)
     outList = [sum(mutList)]
     outList.extend(mutList)
 
@@ -68,7 +67,7 @@ def main():
     if len(topRow) > 0:
         timeUnit = topRow[0]
     else:
-        timeUnit = 'generations'    # use as label for time unit if none is provided in the first row of timepoints CSV
+        timeUnit = 'generations'    # default label for time unit if none is provided in the first row of timepoints CSV
     backgroundBCgroup, backgroundBool = (config['background'], True) if 'background' in config else (None, False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()
@@ -76,12 +75,13 @@ def main():
 
     ### Output variables
     ratePlotOut = snakemake.output.rate
-    # spectrumPlotOut = snakemake.output.spectrum
-    # rateCSVout = snakemake.output.rateCSV
-    # for outFile in [ratePlotOut, spectrumPlotOut, rateCSVout]:
-    #     dir = '/'.join(outFile.split('/')[:-1])
-    #     if not os.path.exists(dir):
-    #         os.mkdir(dir)
+    rateCSVout = snakemake.output.rateCSV
+    spectrumPlotOut = snakemake.output.spectrum
+    spectrumCSVout = snakemake.output.spectrumCSV
+    for outFile in [ratePlotOut, rateCSVout, spectrumPlotOut, spectrumCSVout]:
+        dir = '/'.join(outFile.split('/')[:-1])
+        if not os.path.exists(dir):
+            os.mkdir(dir)
     ###
 
     # generate list of all types of mutations to be used to filter dataframe to only include mutation type columns
@@ -109,184 +109,142 @@ def main():
             normTrimmedRow = trim_normalize_row(row, rowRefSeq, mutTypes)
             backgroundRows[rowTag] = normTrimmedRow
 
-    sampleTimepointDFrowList = [] # list to be populated with one row as a list for each timepoint
-    sampleTimepointDFcolumns = ['sampleLabel', 'replicate', 'generations', 'mutations_per_base'] + ['per_base_'+mt for mt in mutTypes]
-    sampleTimepointDF = pd.DataFrame(sampleTimepointDF, columns=sampleTimepointDFcolumns)
+    allTimepointsDFrowList = [] # list to be populated with one row as a list for each timepoint
+    allTimepointsDFcolumns = ['sample_label', 'replicate', timeUnit, 'per_base_all'] + ['per_base_'+mt for mt in mutTypes]
+    allTimepointsDF = pd.DataFrame(allTimepointsDFrowList, columns=allTimepointsDFcolumns)
 
-    ratesDFrowList = [] # list to be populated with correlations between all types of mutations and timepoints, yielding a mutation rate as slope
-    ratesDFrowColumns = ['sampleLabel', 'replicate', 'rate']
+    allRatesDFrowList = [] # list to be populated with correlations between all types of mutations and timepoints, yielding a mutation rate as slope
+    allRatesDFcolumns = ['sample_label', 'replicate', 'rate_type', 'rate', 'intercept', 'r_value', 'p_value', 'std_err']
+    allRatesDF = pd.DataFrame(allRatesDFrowList, columns=allRatesDFcolumns)
 
     # loop through each row in the timepoints table, then loop through each column in the timepoints table,
     #   grab the total mutations as well as the total of each mutation type, divide by # of sequences,
     #   background subtract if background barcode group is given in config file, divide by # of bases per sequence
     #   (dependent on both sequence length and identity), yielding mutations per base analyzed of each type
 
-    # loop through each row in timepoints, then loop through each column in the timepoints table
-    for sampleLabel, row in timepointsCSV.iterrows():
+    # loop through each unique sample label in timepoints, then loop through each timepoint for
+    #   each of these samples (so that all replicates of a sample are handled at the same time)
+    uniqueSamples = list(timepointsCSV.index.unique())
+    for sampleLabel in uniqueSamples:
 
-        for generations in timepointsCSV.columns:
-            timepointTag, timepointBCgroup = row[generations].split('_')
-            timepointRefSeqfasta = config['runs'][timepointTag]['reference']
-            timepointRefSeq = str(list(SeqIO.parse(timepointRefSeqfasta, 'fasta'))[1].seq).upper()
+        replicateIndex = 0
 
-            # grab row from mut stats corresponding to sample/barcode group
-            timepointSeqsMutStatsRow = (mutStatsCSV.loc[(mutStatsCSV['tag']==timepointTag) & (mutStatsCSV['barcode_group']==timepointBCgroup)]).iloc[0]
+        for _, row in timepointsCSV.loc[timepointsCSV.index==sampleLabel].iterrows():
 
-            # calculate the substitutions per base analyzed for all types of substitutions, normalized to # of sequences
-            normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes)
-            if backgroundBool:
-                normTrimmedRow = list(np.array(normTrimmedRow) - np.array(backgroundRows[timepointTag]))
-            sampleTimepointDFrowList.append([sampleLabel, generations] + normTrimmedRow)
+            replicateIndex += 1
+            sampleTimepointDFrowList = []
+
+            for timepoint in timepointsCSV.columns:
+                timepointTag, timepointBCgroup = row[timepoint].split('_')
+                timepointRefSeqfasta = config['runs'][timepointTag]['reference']
+                timepointRefSeq = str(list(SeqIO.parse(timepointRefSeqfasta, 'fasta'))[1].seq).upper()
+
+                # grab row from mut stats corresponding to sample/barcode group
+                timepointSeqsMutStatsRow = (mutStatsCSV.loc[(mutStatsCSV['tag']==timepointTag) & (mutStatsCSV['barcode_group']==timepointBCgroup)]).iloc[0]
+
+                # calculate the substitutions per base analyzed for all types of substitutions individually and combined, normalized to # of sequences, and subtract sequencing background if given
+                normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes)
+                if backgroundBool:
+                    normTrimmedRow = list(np.array(normTrimmedRow) - np.array(backgroundRows[timepointTag]))
+                sampleTimepointDFrowList.append([sampleLabel, replicateIndex, timepoint] + normTrimmedRow)
+            
+            sampleTimepointDF = pd.DataFrame(sampleTimepointDFrowList, columns=allTimepointsDFcolumns)
+            sampleRatesDFrowList = []
+            for mt in ['per_base_all'] + ['per_base_'+mt for mt in mutTypes]:
+                rate, intercept, r_value, p_value, std_err = scipy.stats.linregress(sampleTimepointDF[timeUnit].astype(float).values.tolist(), sampleTimepointDF[mt].astype(float).values.tolist())
+                sampleRatesDFrowList.append([sampleLabel, replicateIndex, mt+f'_substitutions_per_{timeUnit}', rate, intercept, r_value, p_value, std_err])
+
+            allRatesDF = pd.concat([allRatesDF, pd.DataFrame(sampleRatesDFrowList, columns=allRatesDFcolumns)]).reset_index(drop=True)
+            allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
+
+    # compute mean rates for replicate samples then remove negatives
+    meanRatesDF = allRatesDF.groupby(['sample_label', 'rate_type'])['rate'].mean().reset_index()
+    meanRatesDF['rate'] = meanRatesDF['rate'].clip(lower=10^-9) # convert negative values to 10^-9
+
+    defaults = dict(width=150*len(uniqueSamples), height=400, tools=['tap', 'hover', 'box_select'])
+    hv.opts.defaults(hv.opts.Bars(**defaults), hv.opts.Points(**defaults))
+    ratePlotList = []
+
+    for mt in ['all'] + mutTypes:
+        # plot mean as bar
+        mtTypeMeanRateDF = meanRatesDF[meanRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
+        meanPlot = hv.Bars(mtTypeMeanRateDF[['sample_label','rate']], y_label=f'per_base_{mt}_substitutions_per_{timeUnit}')
+        meanPlot.opts(logy=True, color='grey')
+
+        # plot individual replicates as points
+        mtTypeRepsRateDF = allRatesDF[allRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
+        repsPlot = hv.Points(mtTypeRepsRateDF[['sample_label','rate']], y_label=f'per_base_{mt}_substitutions_per_{timeUnit}')
+        repsPlot.opts(logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
+
+        plot = meanPlot * repsPlot
+
+        # log plots in holoviews currently seem to be quite buggy, so I am using hardcoded y axis bounds. Might be able to make this better adapted to data if holoviews/bokeh fix this. submitted a bug report.
+        plot.opts(ylim=(0.0000009, 0.0005))
+        plot.opts(ylabel=f'per_base_{mt}_substitutions_per_{timeUnit}')
+        ratePlotList.append(plot)
         
-    sampleTimepointDF = pd.DataFrame(sampleTimepointDFrowList, columns=sampleTimepointDFcolumns)
+    # export rate plot and data for replicates
+    hv.save(hv.Layout(ratePlotList).cols(1), ratePlotOut, backend='bokeh')
+    allRatesDF.to_csv(rateCSVout)
+    
+    # DF that will convert the different absolute mutation rates into relative rates
+    relativeSpectrumDF = allRatesDF
+    
+    # make new column that includes both sample name and replicate
+    relativeSpectrumDF['sample_replicate'] = relativeSpectrumDF.apply(lambda row:
+        row['sample_label']+'_'+str(row['replicate']), axis=1)
+    
+    # rename column and column values to serve as better column titles after pivot, e.g. A->T
+    relativeSpectrumDF['mutation_type'] = relativeSpectrumDF.apply(lambda row:
+        row['rate_type'].split('_')[2], axis=1)
+    
+    relativeSpectrumDF = relativeSpectrumDF.pivot(index='sample_replicate', columns='mutation_type', values='rate')
+    relativeSpectrumDF.to_csv('out.csv')
+    # zero out negative rates, compute new total rates, compute relative rates, remove 'all' column
+    relativeSpectrumDF[relativeSpectrumDF<0] = 0
+    relativeSpectrumDF['all'] = relativeSpectrumDF.apply(lambda row:
+        sum(row[mutTypes]), axis=1)
+    for mt in mutTypes:
+        relativeSpectrumDF[mt] = relativeSpectrumDF.apply(lambda row:
+            row[mt]/row['all'], axis=1)
 
+    relativeSpectrumDF.drop(columns='all', inplace=True)
 
-    print(sampleTimepointDF)
+    # melt to manipulate column names
+    relativeSpectrumDF = relativeSpectrumDF.melt(value_vars=relativeSpectrumDF.columns, ignore_index=False)
+    relativeSpectrumDF['wtNT'] = relativeSpectrumDF.apply(lambda row:
+        row['mutation_type'][0], axis=1)
+    relativeSpectrumDF['mutNT'] = relativeSpectrumDF.apply(lambda row:
+        row['mutation_type'][3], axis=1)
 
-    plotList = []
+    # dictionary for renaming columns
+    renameDict = {}
+    for nt in list('ATGC'): renameDict[nt] = 'mut: '+nt
+    spectrumPlotList = []
 
-    # slope, intercept, r_value, p_value, std_err = scipy.stats.linregress(x, y)
+    for sample_replicate in relativeSpectrumDF.index.unique():
+        plotDF = relativeSpectrumDF[relativeSpectrumDF.index==sample_replicate]
+        plotDF = plotDF.pivot(index='wtNT', columns='mutNT', values = 'value')
+        plotDF.rename(columns=renameDict)
+        plotDF = plotDF.fillna(0.0) # replace NaNs with 0
 
-    # generate random data
-    df = pd.DataFrame(data={'col_1': np.random.normal(5, 2, 100)})
+        TOOLTIPS = [('mutation type', '@wtNT'+'->'+'$name'), ('proportion of mutations', '@$name')]
+        spectrumPlot = figure(title=sample_replicate, plot_height=400, plot_width=460, x_range=list('ATGC'), tooltips=TOOLTIPS)
 
-    df['col_2'] = df.col_1 + np.random.gamma(5, 2, 100)
-    df['col_3'] = df.col_1*2 + np.random.normal(0, 10, 100)
-    df['col_4'] = df.col_1**2 + np.random.normal(0, 10, 100)
-    df['col_5'] = np.sin(df.col_1)
-    df['col_6'] = np.cos(df.col_1)
-    corr = df.corr().abs()
-    # mask the upper triangle of the heatmap
-    corr.values[np.triu_indices_from(corr, 0)] = np.nan
+        spectrumPlot.vbar_stack(list('ATGC'), x='wtNT', width = 0.9, source=ColumnDataSource(plotDF),
+            color = Blues5[:4], legend_label=list('ATGC'))
+        spectrumPlot.legend.title = 'mutation'
+        spectrumPlot.add_layout(spectrumPlot.legend[0], 'right')
 
-    heatmap = hv.HeatMap((corr.columns, corr.index, corr))\
-                .opts(tools=['hover'],  height=400, width=400, fontsize=9,
-                    toolbar='above', colorbar=False, cmap='Blues',
-                    invert_yaxis=True, xrotation=90, xlabel='', ylabel='',
-                    title='Correlation Coefficient Heatmap (absolute value)')
+        spectrumPlot.yaxis.axis_label = 'normalized substitution frequency'
 
-    # define tap stream with heatmap as source
-    tap_xy = hv.streams.Tap(source=heatmap, x='col_1', y='col_4')
+        spectrumPlotList.append(spectrumPlot)
 
-    # calculate correlation plot based on tap
-    def tap_corrplot(x, y):
-        # drop missing values if there are any
-        df_notnull = df[[x, y]].dropna(how='any')
+        spectrumPlotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
 
-        # fit a 2nd degree line/curve
-        m1, m2, b = np.polyfit(df_notnull[x], df_notnull[y], deg=2)
-        # generate data to plot fitted line/curve
-        x_curve = np.linspace(df[x].min(), df[x].max())
-        y_curve = m1*x_curve**2 + m2*x_curve+ b
-
-        curve = hv.Curve((x_curve, y_curve), x, y)\
-                .opts(color='#fc4f30', framewise=True)
-
-        scatter = hv.Scatter((df[x], df[y]), x, y)\
-                    .opts(height=400, width=400, fontsize=9, size=5,
-                        alpha=0.2, ylim=(df[y].min(), df[y].max()),
-                        color='#30a2da', framewise=True,
-                        title='Correlation Plot (2nd degree fit)')
-
-        return curve * scatter
-
-    # dynamic map cant be saved as .html, so cant use
-    # maybe can use pd.DataFrame.corr()
-
-    # map tap in heatmap with correlation plot
-    tap_dmap = hv.DynamicMap(tap_corrplot, streams=[tap_xy])
-
-    p = heatmap + tap_dmap
-
-    # defaults = dict(width=800, height=800, xaxis=None, yaxis=None, tools=['tap', 'hover', 'box_select'])
-
-    # p.opts(
-    #     hv.opts.Scatter( color_index=2, tools=['tap', 'hover'], width=600, framewise=True, marker='triangle', cmap='Set1', size=10),
-    #     hv.opts.Overlay( toolbar='above', legend_position='right' ),
-    #     hv.opts.Curve( line_color='black', framewise=True ) )
-
-    # def gen_samples(N, corr=0.8):
-    #     xx = np.array([-0.51, 51.2])
-    #     yy = np.array([0.33, 51.6])
-    #     means = [xx.mean(), yy.mean()]  
-    #     stds = [xx.std() / 3, yy.std() / 3]
-    #     covs = [[stds[0]**2          , stds[0]*stds[1]*corr], 
-    #             [stds[0]*stds[1]*corr,           stds[1]**2]] 
-
-    #     return np.random.multivariate_normal(means, covs, N)
-
-    # data = [('Week %d' % (i%10), np.random.rand(), chr(65+np.random.randint(5)), i) for i in range(100)]
-    # sample_data = hv.NdOverlay({i: hv.Points(gen_samples(np.random.randint(1000, 5000), r2))
-    #                             for _, r2, _, i in data})
-    # points = hv.Scatter(data, kdims=['Date', 'r2'], vdims=['block', 'id']).redim.range(r2=(0., 1))
-    # stream = Selection1D(source=points)
-    # empty = (hv.Points(np.random.rand(0, 2)) * hv.Curve(np.random.rand(0, 2))).relabel('No selection')
-
-    # def regression(index):
-    #     if not index:
-    #         return empty
-    #     scatter = sample_data[index[0]]
-    #     xs, ys = scatter['x'], scatter['y']
-    #     slope, intercep, rval, pval, std = stats.linregress(xs, ys)
-    #     xs = np.linspace(*scatter.range(0)+(2,))
-    #     reg = slope*xs+intercep
-    #     return (scatter * hv.Curve((xs, reg))).relabel('r2: %.3f' % slope)
-
-    # reg = hv.DynamicMap(regression, kdims=[], streams=[stream])
-
-    # average = hv.Curve(points, kdims=['Date'], vdims=['r2']).aggregate(function=np.mean)
-    # p = points * average + reg
-
-    hv.save(p, snakemake.output.rate, backend='bokeh')
-
-    # raise(RuntimeError)
-
-
-
-    # if True:
-
-    #     timepointSamples[generations] = tuple(row[generations].split('_'))
-
-    #     if row['total_seqs'] == 0: continue
-
-    #     bcGroupSpectrum = normalized_spectrum_df(row, backgroundRow, backgroundBool, mutTypes, nt_normal_dict)
-
-    #     bcGroupSpectrumMelted = pd.melt(bcGroupSpectrum, value_vars=bcGroupSpectrum)
-    #     bcGroupSpectrumMelted['wtNT'] = bcGroupSpectrumMelted.apply(lambda row:
-    #         row['variable'][0], axis=1)
-    #     bcGroupSpectrumMelted['mutNT'] = bcGroupSpectrumMelted.apply(lambda row:
-    #         row['variable'][3], axis=1)
-        
-    #     bcGroupSpectrumPivot = bcGroupSpectrumMelted.pivot(index='wtNT', columns='mutNT', values = 'value')
-
-    #     dataOutName = os.path.join(csvOutDir, f'{tag}_{row.barcode_group}_mutSpectrum.csv')
-    #     renameDict = {}
-    #     for nt in list('ATGC'): renameDict[nt] = 'mut: '+nt
-    #     bcGroupSpectrumPivot.rename(columns=renameDict).to_csv(dataOutName)
-
-    #     bcGroupSpectrumPivot = bcGroupSpectrumPivot.fillna(0.0) # replace NaNs with 0
-    #     bcGroupSpectrumPivot = bcGroupSpectrumPivot.clip(lower=0) # convert negative values to 0
-        
-    #     TOOLTIPS = [('mutation type', '@wtNT'+'->'+'$name'), ('proportion of mutations', '@$name')]
-    #     plotTitle = f"{tag}_{row['barcode_group']}"
-    #     spectrumPlot = figure(title=plotTitle, plot_height=400, plot_width=400, x_range=list('ATGC'), tooltips=TOOLTIPS)
-
-    #     if first: # legend only for first plot
-    #         spectrumPlot.vbar_stack(list('ATGC'), x='wtNT', width = 0.9, source=ColumnDataSource(bcGroupSpectrumPivot),
-    #             color = Blues5[:4], legend_label=list('ATGC'))
-    #         spectrumPlot.legend.title = 'mutation'
-    #         first = False
-    #     else:
-    #         spectrumPlot.vbar_stack(list('ATGC'), x='wtNT', width = 0.9, source=ColumnDataSource(bcGroupSpectrumPivot),
-    #             color = Blues5[:4])
-        
-    #     spectrumPlot.yaxis.axis_label = 'normalized substitution frequency'
-
-    #     plotList.append(spectrumPlot)
-    # if len(plotList)>0:
-    #     plotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
-
-    # save(column(plotList))
+    output_file(spectrumPlotOut)
+    save(column(spectrumPlotList))
+    relativeSpectrumDF.to_csv(spectrumCSVout)
 
 if __name__ == '__main__':
     main()

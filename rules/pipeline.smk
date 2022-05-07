@@ -552,11 +552,13 @@ rule plot_mutation_spectrum:
 
 rule plot_mutation_rate:
     input:
-        stats = 'mutation-stats.csv',
+        mutStats = 'mutation-stats.csv',
         timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
     output:
         rate = 'plots/{tag, [^\/]*}_mutation-rates.html',
-        spectrum = 'plots/{tag, [^\/]*}_mutation-rate-spectrum.html'
+        rateCSV = 'mutation_data/{tag, [^\/]*}_mutation-rates.csv',
+        spectrum = 'plots/{tag, [^\/]*}_mutation-rate-spectrum.html',
+        spectrumCSV = 'mutation_data/{tag, [^\/]*}_mutation-rate-spectrum.csv'
     script:
         'utils/plot_mutation_rate.py'
 
