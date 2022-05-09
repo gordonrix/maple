@@ -106,8 +106,8 @@ background: GR562-ctrl
 uniques_only: True      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity
-diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
-diversity_plot_subset: P10-full_453-A1, P10-full_453-A2, P10-full_515-2A, P10-full_515-2B, P10-full_A8, P10-full_D3, P10-full_G3, P10-full_G4, P10-full_pControl              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
+diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
+# diversity_plot_subset: P10-full_453-A1, P10-full_453-A2, P10-full_515-2A, P10-full_515-2B, P10-full_A8, P10-full_D3, P10-full_G3, P10-full_G4, P10-full_pControl              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
 hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
 force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
 force_directed_plot_node_color: 'AA_muts_of_interest'       # genotypes column to use for node color. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow.
@@ -153,49 +153,51 @@ runs:
         #   will only yield one output file of each type.
         timepoints: "timepoints.csv"
 
-        barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
-                        #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
-                        #   Names must also be a string. If a numerical barcodeGroup is desired, it must be flanked with quotation marks to convert it to a string.
-                        #   Barcode group names may not contain underscores.
-            trx-1-P0:
-                fwd: Barcode1
-                rvs: Barcode1
-            trx-2-P0:
-                fwd: Barcode1
-                rvs: Barcode4
-            D3-1-P0:
-                fwd: Barcode1
-                rvs: Barcode7
-            D3-2-P0:
-                fwd: Barcode1
-                rvs: Barcode10
-            trxSgk123-1-P0:
-                fwd: Barcode4
-                rvs: Barcode1
-            trxSgk123-2-P0:
-                fwd: Barcode4
-                rvs: Barcode4
-            trx-1-P10:
-                fwd: Barcode4
-                rvs: Barcode7
-            trx-2-P10:
-                fwd: Barcode4
-                rvs: Barcode10
-            D3-1-P10:
-                fwd: Barcode7
-                rvs: Barcode1
-            D3-2-P10:
-                fwd: Barcode7
-                rvs: Barcode4
-            trxSgk123-1-P10:
-                fwd: Barcode7
-                rvs: Barcode7
-            trxSgk123-2-P10:
-                fwd: Barcode7
-                rvs: Barcode10
-            GR562-ctrl:
-                fwd: Barcode10
-                rvs: Barcode1
+        barcodeGroups: "barcodeGroups.csv"
+
+        # barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
+        #                 #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types
+        #                 #   Names must also be a string. If a numerical barcodeGroup is desired, it must be flanked with quotation marks to convert it to a string.
+        #                 #   Barcode group names may not contain underscores.
+        #     trx-1-P0:
+        #         fwd: Barcode1
+        #         rvs: Barcode1
+        #     trx-2-P0:
+        #         fwd: Barcode1
+        #         rvs: Barcode4
+        #     D3-1-P0:
+        #         fwd: Barcode1
+        #         rvs: Barcode7
+        #     D3-2-P0:
+        #         fwd: Barcode1
+        #         rvs: Barcode10
+        #     trxSgk123-1-P0:
+        #         fwd: Barcode4
+        #         rvs: Barcode1
+        #     trxSgk123-2-P0:
+        #         fwd: Barcode4
+        #         rvs: Barcode4
+        #     trx-1-P10:
+        #         fwd: Barcode4
+        #         rvs: Barcode7
+        #     trx-2-P10:
+        #         fwd: Barcode4
+        #         rvs: Barcode10
+        #     D3-1-P10:
+        #         fwd: Barcode7
+        #         rvs: Barcode1
+        #     D3-2-P10:
+        #         fwd: Barcode7
+        #         rvs: Barcode4
+        #     trxSgk123-1-P10:
+        #         fwd: Barcode7
+        #         rvs: Barcode7
+        #     trxSgk123-2-P10:
+        #         fwd: Barcode7
+        #         rvs: Barcode10
+        #     GR562-ctrl:
+        #         fwd: Barcode10
+        #         rvs: Barcode1
 
     # P0-full: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 

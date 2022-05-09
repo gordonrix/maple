@@ -378,6 +378,17 @@ if config['demux'] == True:
             print_(f"[WARNING] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`. Demultiplexing will fail.")
         if len(config['runs'][tag]['barcodeInfo']) == 0:
             print_(f"[WARNING] `demux` set to True, but tag {tag} `barcodeInfo` does not contain any barcode types. Demultiplexing will fail.")
+        if 'barcodeGroups' in config['runs'][tag]:
+            # add barcodeGroups to tag as a dict if declared as a csv file
+            if type(config['runs'][tag]['barcodeGroups']) == str:
+                CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
+                if os.path.isfile(CSVpath):
+                    barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+                    config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
+                else:
+                    print_(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
+        else:
+            print_(f"[NOTICE] `demux` set to True, but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
         refFasta = config['runs'][tag]['reference']
         alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
         for barcodeType in config['runs'][tag]['barcodeInfo']:
@@ -396,22 +407,23 @@ if config['demux'] == True:
                 if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                     print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
             if 'noSplit' in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                if config['runs'][tag]['barcodeInfo'][barcodeType]['noSplit'] == True:
+                if (config['runs'][tag]['barcodeInfo'][barcodeType]['noSplit'] == True) and ('barcodeGroups' in config['runs'][tag]):
                     for group in config['runs'][tag]['barcodeGroups']:
                         for bcType in config['runs'][tag]['barcodeGroups'][group]:
                             if bcType == barcodeType:
                                 print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
-        for group in config['runs'][tag]['barcodeGroups']:
-            for bcType in config['runs'][tag]['barcodeGroups'][group]:
-                if bcType not in config['runs'][tag]['barcodeInfo']:
-                    print_(f"[WARNING] At least one barcode type in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
-                if config['runs'][tag]['barcodeGroups'][group][bcType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]:
-                    print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
+            if 'barcodeGroups' in config['runs'][tag]:
+                for group in config['runs'][tag]['barcodeGroups']:
+                    for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                        if bcType not in config['runs'][tag]['barcodeInfo']:
+                            print_(f"[WARNING] At least one barcode type in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
+                        if config['runs'][tag]['barcodeGroups'][group][bcType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]:
+                            print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
             
 elif config['demux'] == False:
     for tag in config['runs']:
         if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
-            print_(f"[WARNING] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
+            print_(f"[NOTICE] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
 
 # check that tags and barcodeGroup names don't contain underscores
 for tag in config['runs']:
@@ -421,6 +433,15 @@ for tag in config['runs']:
         for bcGroup in config['runs'][tag]['barcodeGroups']:
             if '_' in bcGroup:
                 print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
+
+# check that 'background' barcodeGroup, if declared, is defined in all tags:
+if 'background' in config:
+    for tag in config['runs']:
+        if 'barcodeGroups' in config['runs'][tag]:
+            if config['background'] not in config['runs'][tag]['barcodeGroups']:
+                print_(f"[WARNING] `background` barcodeGroup declared in config file as {config['background']}, but this barcodeGroup is not defined for `{tag}`. Some pipeline rules will fail.", file=sys.stderr)
+        else:
+            print_(f"[WARNING] `background` barcodeGroup declared in config file, but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Some pipeline rules will fail.", file=sys.stderr)
 
 # add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}. Timepoint CSV files are not used more than once
 #   and will instead be assigned to the first tag that uses that file. Also checks for the following:
@@ -435,7 +456,7 @@ timepointErrors = []
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
         CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
-        if 'timepoints' not in config:
+        if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
             config['timepoints'] = {}
         if CSVpath not in config['timepoints'].values():
             config['timepoints'][tag] = CSVpath

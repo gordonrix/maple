@@ -141,7 +141,15 @@ def main():
                 timepointRefSeq = str(list(SeqIO.parse(timepointRefSeqfasta, 'fasta'))[1].seq).upper()
 
                 # grab row from mut stats corresponding to sample/barcode group
-                timepointSeqsMutStatsRow = (mutStatsCSV.loc[(mutStatsCSV['tag']==timepointTag) & (mutStatsCSV['barcode_group']==timepointBCgroup)]).iloc[0]
+                timepointSeqsMutStatsRow = (mutStatsCSV.loc[(mutStatsCSV['tag']==timepointTag) & (mutStatsCSV['barcode_group']==timepointBCgroup)])
+
+                if len(timepointSeqsMutStatsRow) == 1:
+                    timepointSeqsMutStatsRow = (mutStatsCSV.loc[(mutStatsCSV['tag']==timepointTag) & (mutStatsCSV['barcode_group']==timepointBCgroup)])
+                else:
+                    print(f'Tag / barcodeGroup combination `{timepointTag}` / `{timepointBCgroup}` not present in mutStats CSV file. This timepoint for this sample will not be used to calculate mutation rates. Check demultiplexing definition and output for this sample.')
+                    continue
+
+                timepointSeqsMutStatsRow = timepointSeqsMutStatsRow.iloc[0]
 
                 # calculate the substitutions per base analyzed for all types of substitutions individually and combined, normalized to # of sequences, and subtract sequencing background if given
                 normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes)
@@ -149,6 +157,10 @@ def main():
                     normTrimmedRow = list(np.array(normTrimmedRow) - np.array(backgroundRows[timepointTag]))
                 sampleTimepointDFrowList.append([sampleLabel, replicateIndex, timepoint] + normTrimmedRow)
             
+            if len(sampleTimepointDFrowList) < 2:
+                print(f'Fewer than 2 timepoints identified for sample `{sampleLabel}` replicate `{replicateIndex}`. Mutation rate will not be calculated. Check demultiplexing definition and output for this sample.')
+                continue
+
             sampleTimepointDF = pd.DataFrame(sampleTimepointDFrowList, columns=allTimepointsDFcolumns)
             sampleRatesDFrowList = []
             for mt in ['per_base_all'] + ['per_base_'+mt for mt in mutTypes]:
@@ -179,13 +191,15 @@ def main():
 
         plot = meanPlot * repsPlot
 
-        # log plots in holoviews currently seem to be quite buggy, so I am using hardcoded y axis bounds. Might be able to make this better adapted to data if holoviews/bokeh fix this. submitted a bug report.
+        # log plots in holoviews currently seem to be quite buggy, so I am using hardcoded y axis bounds.
+        #   Might be able to make this better adapted to data if holoviews/bokeh fix this. submitted a bug report.
         plot.opts(ylim=(0.0000009, 0.0005))
         plot.opts(ylabel=f'per_base_{mt}_substitutions_per_{timeUnit}')
         ratePlotList.append(plot)
         
     # export rate plot and data for replicates
-    hv.save(hv.Layout(ratePlotList).cols(1), ratePlotOut, backend='bokeh')
+    if len(ratePlotList) > 0:
+        hv.save(hv.Layout(ratePlotList).cols(1), ratePlotOut, backend='bokeh')
     allRatesDF.to_csv(rateCSVout)
     
     # DF that will convert the different absolute mutation rates into relative rates
@@ -244,7 +258,8 @@ def main():
         spectrumPlotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
 
     output_file(spectrumPlotOut)
-    save(column(spectrumPlotList))
+    if len(spectrumPlotList) > 0:
+        save(column(spectrumPlotList))
     relativeSpectrumDF.to_csv(spectrumCSVout)
 
 if __name__ == '__main__':
