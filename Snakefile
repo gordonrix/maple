@@ -186,7 +186,7 @@ if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
 # check for required options
-required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot_flags', 'UMI_consensus', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'demux', 'demux_screen_failures', 'demux_threshold', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'do_AA_analysis', 'auto_detect_longest_ORF', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_consensus', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'demux', 'demux_screen_failures', 'demux_threshold', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'do_AA_analysis', 'auto_detect_longest_ORF', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
 missing = []
 for option in required:
     if option not in config:
@@ -219,7 +219,7 @@ else:
         if not os.path.exists(sequences):
 
             if config['merge_paired_end'] == True:
-                if 'fwdReads' not in config['runs'][tag] or 'fwdReads' not in config['runs'][tag]:
+                if 'fwdReads' not in config['runs'][tag] or 'rvsReads' not in config['runs'][tag]:
                     print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`")
                 fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
                 rvs = os.path.join('sequences', 'paired', config['runs'][tag]['rvsReads'])
@@ -384,6 +384,7 @@ if config['demux'] == True:
                 CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
                 if os.path.isfile(CSVpath):
                     barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+                    barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
                     config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
                 else:
                     print_(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
@@ -406,20 +407,26 @@ if config['demux'] == True:
                     print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
                 if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                     print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
-            if 'noSplit' in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                if (config['runs'][tag]['barcodeInfo'][barcodeType]['noSplit'] == True) and ('barcodeGroups' in config['runs'][tag]):
-                    for group in config['runs'][tag]['barcodeGroups']:
-                        for bcType in config['runs'][tag]['barcodeGroups'][group]:
-                            if bcType == barcodeType:
-                                print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
             if 'barcodeGroups' in config['runs'][tag]:
                 for group in config['runs'][tag]['barcodeGroups']:
                     for bcType in config['runs'][tag]['barcodeGroups'][group]:
                         if bcType not in config['runs'][tag]['barcodeInfo']:
-                            print_(f"[WARNING] At least one barcode type in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
-                        if config['runs'][tag]['barcodeGroups'][group][bcType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]:
-                            print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
-            
+                            print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
+                    if config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == True:
+                        for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                            if bcType == barcodeType:
+                                print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
+                    elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
+                        if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][group][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
+                            print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
+            if 'generate' in config['runs'][tag]['barcodeInfo'][barcodeType]:
+                numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
+                if (numToGenerate != 'all') and type(numToGenerate) != int:
+                    print_(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.")
+                if os.path.isfile(bcFasta):
+                    print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` exists. Using this file for demultiplexing.")
+                else:
+                    print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.")
 elif config['demux'] == False:
     for tag in config['runs']:
         if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:

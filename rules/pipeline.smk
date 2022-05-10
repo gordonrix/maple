@@ -377,7 +377,7 @@ rule NanoPlot_fastq:
     output:
         'plots/nanoplot/{tag, [^\/_]*}_fastq_NanoStats.txt'
     params:
-        fastqType = lambda wildcards: '--fastq_rich' if config['nanopore'] else '--fastq',
+        fastqType = lambda wildcards: '--fastq_rich' if config['nanopore']==True else '--fastq',
         flags = lambda wildcards: config['nanoplot_flags']
     shell:
         """
@@ -433,7 +433,7 @@ if config['demux']:
         input:
             'alignments/{tag}.bam'
         output:
-            touch('demux/.{tag, [^\/_]*}_generate_barcode_ref.done')
+            'demux/.{tag, [^\/_]*}_generate_barcode_ref.done'
         script:
             'utils/generate_barcode_ref.py'
 

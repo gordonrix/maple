@@ -72,6 +72,7 @@ alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --secondary=no'   # options good f
 
 # demultiplexing
 demux: True
+demux_screen_no_group: True   # set to True if demuxed sequences that are not assigned a named barcode group should be blocked from subsequent analysis steps
 demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
@@ -145,15 +146,16 @@ runs:
                 fasta: barcodes_subset.fasta
                 reverseComplement: True
                 hammingDistance: 1
-                # generate: 2                 # automatically generates a fasta file from the provided sequencing data with this number of barcodes if the fasta file does not already exist
-                # noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files, and cannot be used to name output and plots. Default, False
+                # generate: 2                 # Integer or 'all'.  if the fasta file does not already exist, automatically generates a fasta file from the provided sequencing data with this number of barcodes (ordered by prevalence) or all identified barcodes
+                # noSplit: True               # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files,
+                                                # and cannot be used to name output and plots. Default, False
 
         # .csv file that provides the tag and barcode combinations for timepoints of an experiment. This can be used for generating mutation spectrum and mutation rate plots.
         #   Output files will be labelled with this tag. the timepoints csv can use barcode groups from other tags, but different tags that use the same timepoints csv file
         #   will only yield one output file of each type.
-        timepoints: "timepoints.csv"
+        timepoints: timepoints.csv
 
-        barcodeGroups: "barcodeGroups.csv"
+        barcodeGroups: barcodeGroups.csv
 
         # barcodeGroups:  # names demultiplexed files according to given name instead of using name(s) of individual barcodes. groups must use the same pattern of barcode types.
         #                 #   For instance, if one group contains barcode designations for two barcodes types (e.g., fwd and rvs), then all other groups must contain barcode designations for those two barcode types

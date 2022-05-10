@@ -49,17 +49,13 @@ def main():
     for barcodeType in config['runs'][tag]['barcodeInfo']:
         bcTypeDict = config['runs'][tag]['barcodeInfo'][barcodeType]
         if 'generate' in bcTypeDict:
-            if os.path.exists(bcTypeDict['fasta']):
-                print((f"[WARNING] Barcode type `{barcodeType}` in run tag `{tag}` `generate` option is set, but barcode fasta file `{bcTypeDict['fasta']}` already exists. Not generating fasta file, delete the pre-existing fasta file if a new one should be generated"), file=sys.stderr)
-            else:
+            if not os.path.exists(bcTypeDict['fasta']):
                 barcodeDict[barcodeType] = {}
 
     if len(barcodeDict.keys()) == 0:
         with open(output, 'w') as f:
             f.write('flag file for fasta file generation')
         sys.exit()
-
-    # hammingDistanceListDict # nested dictionary where keys are barcodeType, subkeys are and values are a list of all barcode sequences that are within the set hamming distance from any barcode sequence previously encountered
         
     bamfile = pysam.AlignmentFile(BAMin, 'rb')
     for BAMentry in bamfile.fetch(reference.id):
@@ -96,6 +92,8 @@ def main():
     for barcodeType, df in barcodeDFs.items():
         HDbarcodesList = [] # list to be populated with all sequences that are within the set hamming distance from any barcode that was already written to the file, to prevent hamming distance overlap
         maxBCs = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
+        if maxBCs == 'all':
+            maxBCs = False
         fileName = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
         with open(fileName, 'w') as f:
             count = 0
@@ -105,7 +103,7 @@ def main():
                     f.write(f'>bc{str(count)}\n')
                     f.write(row.barcode + '\n')
 
-                    if count >= maxBCs:
+                    if maxBCs and (count >= maxBCs):
                         break
 
                     # if hamming distance is set, find all sequences that are within the set hamming distance of the observed barcode and add them to a list
@@ -115,6 +113,9 @@ def main():
                         hammingDistanceList = [str(row.barcode)]
 
                     HDbarcodesList.extend(hammingDistanceList)
+    
+    with open(output, 'w') as out:
+        pass
 
 if __name__ == '__main__':
     main()

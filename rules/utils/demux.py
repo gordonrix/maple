@@ -103,7 +103,7 @@ class BarcodeParser:
         dictOfContexts = {}
         for bcType in self.barcodeInfo:
             try:
-                dictOfContexts[bcType] = self.barcodeInfo[bcType]['context']
+                dictOfContexts[bcType] = self.barcodeInfo[bcType]['context'].upper()
                 if str(self.reference.seq).find(dictOfContexts[bcType]) == -1:
                     raise ValueError
             except KeyError:
@@ -151,14 +151,20 @@ class BarcodeParser:
             else:
                 hammingDistanceDict[barcodeType] = 0 #default Hamming distance of 0
             barcodes = [bc for bc in self.barcodeDicts[barcodeType]]
-            barcodeLength = self.barcodeContexts[barcodeType].count('N')
+            context = self.barcodeContexts[barcodeType].upper()
+            barcodeLength = context.rindex('N') - context.index('N') + 1
+            checkHammingDistances = True
+            if len(barcodes)>1000:
+                checkHammingDistances = False
+                print(f'[NOTICE] More than 1000 barcodes present in barcode fasta file {self.barcodeInfo[barcodeType]["fasta"]}, not checking pairwise hamming distances')
             for i,bc in enumerate(barcodes):
                 assert (barcodes.count(bc) == 1), f'Barcode {bc} present more than once in {self.barcodeInfo[barcodeType]["fasta"]} Duplicate barcodes are not allowed.'
                 assert (len(bc) == barcodeLength), f'Barcode {bc} is longer than the expected length of {barcodeLength} based on {self.barcodeContexts[barcodeType]}'
-                otherBCs = barcodes[:i]+barcodes[i+1:]
-                for otherBC in otherBCs:
-                    hamDist = self.hamming_distance(bc, otherBC)
-                    assert (hamDist > hammingDistanceDict[barcodeType]), f'Barcode {bc} is within hammingDistance {hamDist} of barcode {otherBC}'
+                if checkHammingDistances:
+                    otherBCs = barcodes[:i]+barcodes[i+1:]
+                    for otherBC in otherBCs:
+                        hamDist = self.hamming_distance(bc, otherBC)
+                        assert (hamDist > hammingDistanceDict[barcodeType]), f'Barcode {bc} is within hammingDistance {hamDist} of barcode {otherBC}'
         self.hammingDistances = hammingDistanceDict
 
     @staticmethod
@@ -208,7 +214,7 @@ class BarcodeParser:
     def find_N_start_end(self, sequence, context):
         """given a sequence with barcode locations marked as Ns, and a barcode sequence context (e.g. ATCGNNNNCCGA),
         this function will return the beginning and end of the Ns within the appropriate context if it exists only once.
-        If the context does not exist or if the context appears more than once, then will return None, None"""
+        If the context does not exist or if it is uncertain (due to insertions), will return 'fail', 'fail'"""
 
         location = sequence.find(context)
         if location == -1:
@@ -216,12 +222,11 @@ class BarcodeParser:
             return 'fail', 'fail'
         N_start = location + context.find('N')
         N_end = location + len(context) - context[::-1].find('N')
-
-        if sequence[N_end:].find(context) == -1:
-            return N_start, N_end
-        else:
-            self.failureReason = 'context_appears_in_reference_more_than_once'
+        if (sequence[max(N_start-1,0)] or sequence[min(N_end+1,len(sequence)-1)]) == '-':
+            self.failureReason = 'low_confidence_barcode_identification'
             return 'fail', 'fail'
+
+        return N_start, N_end
 
     def align_reference(self, BAMentry):
         """given a pysam.AlignmentFile BAM entry,
@@ -243,8 +248,9 @@ class BarcodeParser:
         used for grouping, and a list of barcodes used for sequence ID but not demultiplexing,
         and throws an error if there are different types of groups defined within the barcodeGroups dictionary
         
-        Example: if self.barcodeGroups = {'group1':{'fwd':'barcode1','rvs':'barcode2'},'group2':{'fwd':'barcode3','rvs':'barcode4'}},
-            will set self.barcodeGroupType as ['fwd', 'rvs']"""
+        Example: if there are 3 barcode types defined in barcodeInfo, fwd, rvs, and alt, and the grouped barcodes
+            are defined as {'group1':{'fwd':'barcode1','rvs':'barcode2'},'group2':{'fwd':'barcode3','rvs':'barcode4'}},
+            will set self.groupedBarcodeTypes as ['fwd', 'rvs'] and self.ungroupedBarcodeTypes as ['alt']"""
 
         groupedBarcodeTypes = []
         ungroupedBarcodeTypes = []
@@ -319,16 +325,16 @@ class BarcodeParser:
             bc = sequenceBarcodesDict[barcodeType]
             if barcodeType in self.groupedBarcodeTypes:
                 if bc == 'fail':
-                    return '-'.join(sequenceBarcodesDict.values())
+                    return '-'.join(sequenceBarcodesDict.values()), False
                 groupBarcodes += tuple([bc])
             else:
                 ungroupSequenceBarcodes.append(bc)
 
-        try:
-            groupName = self.barcodeGroupNameDict[groupBarcodes]
-            return '-'.join([groupName]+ungroupSequenceBarcodes)
-        except KeyError:
-            return '-'.join(sequenceBarcodesDict.values())
+        groupName = self.barcodeGroupNameDict.get(groupBarcodes, False)
+        if groupName:
+            return '-'.join([groupName]+ungroupSequenceBarcodes), True
+        else:
+            return '-'.join(sequenceBarcodesDict.values()), False
 
 
 
@@ -348,7 +354,7 @@ class BarcodeParser:
             self.failureReason = None
             barcodeName = None
             notExactMatch = 0
-            failureReason = {'context_not_present_in_reference_sequence':0, 'context_appears_in_reference_more_than_once':0, 'barcode_not_in_fasta':0}
+            failureReason = {'context_not_present_in_reference_sequence':0, 'barcode_not_in_fasta':0, 'low_confidence_barcode_identification':0}
             start,stop = self.find_N_start_end(refAln, self.barcodeContexts[barcodeType])
 
             try:
@@ -372,6 +378,11 @@ class BarcodeParser:
                     else:
                         barcodeName = 'fail'
                         failureReason['barcode_not_in_fasta'] = 1
+                        print(BAMentry.query_alignment_sequence)
+                        print(refAln)
+                        print(barcode)
+                        print(len(list(self.barcodeDicts[barcodeType].keys())[0]))
+                        print(len(list(self.barcodeDicts[barcodeType].keys())))
             
             sequenceBarcodesDict[barcodeType] = barcodeName
             outList += [barcodeName, notExactMatch] + list(failureReason.values())
@@ -394,15 +405,15 @@ class BarcodeParser:
         outFileDict = {}
         
         # columns names for dataframe to be generated from rows output by id_seq_barcodes
-        colNames = ['tag', 'output_file_barcodes', 'barcodes_count']
+        colNames = ['tag', 'output_file_barcodes', 'barcodes_count', 'named_by_group']
 
         # column names and dictionary for grouping rows in final dataframe
-        groupByColNames = ['tag', 'output_file_barcodes', 'demuxed_count']
+        groupByColNames = ['tag', 'output_file_barcodes', 'demuxed_count', 'named_by_group']
         sumColsDict = {'barcodes_count':'sum'}
 
         for barcodeType in self.barcodeDicts:
             groupByColNames.append(barcodeType)
-            intCols = [f'{barcodeType}:not_exact_match', f'{barcodeType}_failed:context_not_present_in_reference_sequence', f'{barcodeType}_failed:context_appears_in_reference_more_than_once', f'{barcodeType}_failed:barcode_not_in_fasta']
+            intCols = [f'{barcodeType}:not_exact_match', f'{barcodeType}_failed:context_not_present_in_reference_sequence', f'{barcodeType}_failed:barcode_not_in_fasta', f'{barcodeType}_failed:low_confidence_barcode_identification']
             colNames.extend( [barcodeType] + intCols )
             for col in intCols:
                 sumColsDict[col] = 'sum'
@@ -416,15 +427,13 @@ class BarcodeParser:
             if len(self.noSplitBarcodeTypes) > 0:
                 noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict.pop(noSplitBarcode) for noSplitBarcode in self.noSplitBarcodeTypes])
                 BAMentry.set_tag('BC', noSplitBarcodeBAMtag)
-            outputBarcodes = self.get_demux_output_prefix(sequenceBarcodesDict)
-            try:
-                outFileDict[outputBarcodes].write(BAMentry)
-            except KeyError:
+            outputBarcodes, groupedBool = self.get_demux_output_prefix(sequenceBarcodesDict)
+            if not outFileDict.get(outputBarcodes, False):
                 fName = os.path.join(outputDir, f'{self.tag}_{outputBarcodes}.bam')
                 outFileDict[outputBarcodes] = pysam.AlignmentFile(fName, 'wb', template=bamfile)
-                outFileDict[outputBarcodes].write(BAMentry)
+            outFileDict[outputBarcodes].write(BAMentry)
             count = 1
-            rows.append([self.tag, outputBarcodes, count] + BAMentryBarcodeData)
+            rows.append([self.tag, outputBarcodes, count, groupedBool] + BAMentryBarcodeData)
 
         totalSeqs = len(rows)
 
@@ -439,7 +448,6 @@ class BarcodeParser:
         demuxStats.insert(2, 'demuxed_count', fileCountsCol)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
         demuxStats.sort_values(['demuxed_count','barcodes_count'], ascending=False, inplace=True)
-        demuxStats.to_csv(outputStats, index=False)
 
         # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory
         banishDir = os.path.join(outputDir, 'no_subsequent_analysis')
@@ -450,15 +458,20 @@ class BarcodeParser:
             banish = False
             if row['demuxed_count'] < self.config['demux_threshold'] * totalSeqs:
                 banish = True
-            if self.config['demux_screen_failures']:
+            if self.config.get('demux_screen_failures', False):
                 for barcodeType in self.groupedBarcodeTypes+self.ungroupedBarcodeTypes:
                     if row[barcodeType] == 'fail':
                         banish = True
+            if (self.config.get('demux_screen_no_group', False) == True) and not row['named_by_group']:
+                banish = True
             if banish:
                 original = os.path.join(outputDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 target = os.path.join(banishDir, f"{self.tag}_{row['output_file_barcodes']}.bam")
                 shutil.move(original, target)
                 banished.append(row['output_file_barcodes'])
+
+        demuxStats.drop('named_by_group', axis=1, inplace=True)
+        demuxStats.to_csv(outputStats, index=False)
 
 
 if __name__ == '__main__':
