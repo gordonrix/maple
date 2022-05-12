@@ -58,7 +58,6 @@ nanoplot: False
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # UMI clustering and consensus
-UMI_consensus: True         # set to True if reads contain UMIs and consensus sequence generation is desired
 UMI_mismatches: 4           # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
 UMI_consensus_minimum: 10  # minimum required number of reads with a particular UMI. if set to <=1, all UMI groups will be included
 UMI_consensus_maximum: 10     # maximum number of reads that will be used to generate a consensus. UMI groups with more reads than this value 'n' will only use 'n' reads to generate the consensus. 
@@ -71,16 +70,15 @@ alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --secondary=no'   # options good f
 
 
 # demultiplexing
-demux: True
 demux_screen_no_group: True   # set to True if demuxed sequences that are not assigned a named barcode group should be blocked from subsequent analysis steps
-demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps
+demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. If demux_screen_no_group is set to True, this option will not change any results
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
 sequence_length_threshold: 0.1              # Proportion of sequence length to be used as threshold for discarding sequences that are of abberant length. Ex. if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed
 do_AA_analysis: True                        # If set to False, only nucleotide-level analysis will be generated. If set to true, AA-level analysis generated as well and, to prevent mismatch between nucleotide and amino acid -level analysis, sequences that do not pass AA-level quality checks will not be analyzed (e.g. sequences with frameshift mutations)
-auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
+# auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
 highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed
@@ -129,7 +127,7 @@ runs:
         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
         reference: refSeqs.fasta
 
-        # required if UMI_consensus==True. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
+        # List of UMI contexts. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
         UMI_contexts:
             - NNNYRNNNYRNNNYRNNNg
             - cNNNYRNNNYRNNNYRNNN
@@ -153,7 +151,7 @@ runs:
         # .csv file that provides the tag and barcode combinations for timepoints of an experiment. This can be used for generating mutation spectrum and mutation rate plots.
         #   Output files will be labelled with this tag. the timepoints csv can use barcode groups from other tags, but different tags that use the same timepoints csv file
         #   will only yield one output file of each type.
-        timepoints: timepoints.csv
+        # timepoints: timepoints.csv
 
         barcodeGroups: barcodeGroups.csv
 
@@ -199,7 +197,7 @@ runs:
         #         rvs: Barcode10
         #     GR562-ctrl:
         #         fwd: Barcode10
-        #         rvs: Barcode1
+    #     #         rvs: Barcode1
 
     # P0-full: # `tag` that describes the sequencing data being analyzed. applied to filenames for pipeline outputs. Must be a string. If a numerical tag is desired, it must be flanked with quotation marks to convert it to a string.
 

@@ -186,7 +186,7 @@ if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
 # check for required options
-required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_consensus', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'demux', 'demux_screen_failures', 'demux_threshold', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'do_AA_analysis', 'auto_detect_longest_ORF', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
 missing = []
 for option in required:
     if option not in config:
@@ -240,14 +240,13 @@ else:
                         print_(f"[WARNING] `do_basecalling` set to False, `porechop` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
 
 # check reference sequences
-for option in ['do_AA_analysis', 'auto_detect_longest_ORF']:
-    if option not in config:
-        raise RuntimeError(f"[ERROR] required boolean option `{option}` not present in config file.")
-refSeqErrors = []
+errors = []
 refSeqFastaFiles = []   # list files for all tags then check so files not being checked multiple times
+config['do_NT_mutation_analysis'] = {}     # dictionaries to determine if NT/AA analysis should be performed based on how many sequences are present in the ref fasta file
+config['do_AA_mutation_analysis'] = {}
 for tag in config['runs']:
     if 'reference' not in config['runs'][tag]:
-        refSeqErrors.append(f"[ERROR] No reference file provided for tag `{tag}")
+        errors.append(f"[ERROR] No reference file provided for tag `{tag}")
     refName = config['runs'][tag]['reference']
     refFullPath = os.path.join(config['references_directory'], config['runs'][tag]['reference'])
     if not (refName.endswith('fasta') or refName.endswith('.fa')):
@@ -260,53 +259,41 @@ for tag in config['runs']:
     config['runs'][tag]['reference_aln'] = alnRefFullPath
     if (refFullPath, alnRefFullPath) not in refSeqFastaFiles:
         refSeqFastaFiles.append((refFullPath, alnRefFullPath))
-    if config['do_AA_analysis'] == False:
-        if 'AA_muts_of_interest' in config['runs'][tag]:
-            print_(f'[WARNING] AA_muts_of_interest provided for {tag}, but `do_AA_analysis` set to False. AA muts of interest will not be evaluated.', file=sys.stderr)
+    referenceSeqs = list(SeqIO.parse(refFullPath, 'fasta'))
+
+    config['do_NT_mutation_analysis'][tag] = False
+    config['do_AA_mutation_analysis'][tag] = False
+    if len(referenceSeqs) >= 2:
+        config['do_NT_mutation_analysis'][tag] = True
+    if len(referenceSeqs) == 3:
+        config['do_AA_mutation_analysis'][tag] = True
+    if ('AA_muts_of_interest' in config['runs'][tag]) and config['AA_analysis_tags'][tag]:
+        print_(f'[WARNING] AA_muts_of_interest provided for run tag `{tag}`, but no protein seq provided for this tag. AA muts of interest will not be evaluated for this tag.', file=sys.stderr)
 
 for refFasta, alnFasta in refSeqFastaFiles:
     referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
-    if len(referenceSeqs) < 2:
-        refSeqErrors.append(f"[ERROR] Reference file {refFasta} must be fasta formatted and contain more than 2 sequences. See example_working_directory/ref/exampleReferences.fasta for more information.")
-        continue
-    elif len(referenceSeqs) >3:
-        print_(f"[WARNING] Reference file {refFasta} contains more than the maximum usable number of three sequences. Only the first three sequences will be used for alignment and analysis.")
-    alignmentSeq, nucleotideSeq = referenceSeqs[0], referenceSeqs[1]
 
-    if config['do_AA_analysis'] == True:
-        if config['auto_detect_longest_ORF'] == True:
-            try:
-                longestORF = max(re.findall(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', str(nucleotideSeq.seq.upper())), key = len) # taken from https://stackoverflow.com/questions/31757876/python-find-longest-orf-in-dna-sequence#31758161
-                proteinSeq = nucleotideSeq
-                proteinSeq.id = proteinSeq.id + '_prot'
-                proteinSeq.seq = longestORF
-            except ValueError:
-                if len(referenceSeqs) < 3:
-                    refSeqErrors.append(f"[ERROR] Could not auto detect an ORF and no protein sequence provided for {refFasta}.")
-                    continue
-                print_(f"[WARNING] `auto_detect_longest_ORF` set to True, but no standard ORF found in reference sequence `{refFasta}`. Will use provided protein sequence.", file=sys.stderr)
-        else:
-            if len(referenceSeqs) < 3:
-                refSeqErrors.append(f"[ERROR] `do_AA_analysis` set to True but no protein sequence provided for {refFasta}")
-            proteinSeq = referenceSeqs[2]
+    if len(referenceSeqs) not in [1,2,3]:
+        errors.append(f"[ERROR] Reference sequence file {refFasta} Does not contain 1, 2, or 3 sequences. Ensure file is fasta formatted and does not contain erroneous sequences.")
+    alignmentSeq, nucleotideSeq, proteinSeq = False, False, False
+    alignmentSeq = referenceSeqs[0]
+    if len(referenceSeqs) >= 2:
+        nucleotideSeq = referenceSeqs[1]
+    if len(referenceSeqs) == 3:
+        proteinSeq = referenceSeqs[2]
+
+    if nucleotideSeq:
+        if alignmentSeq.seq.upper().find(nucleotideSeq.seq.upper()) == -1:
+            errors.append(f"[ERROR] Nucleotide (second) sequence, `{nucleotideSeq.id}`, is not a subsequence of alignment (first) sequence, `{alignmentSeq.id}`, in reference file `{refFasta}`.")
+
+    if proteinSeq:
         if nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) == -1:
-            refSeqErrors.append(f"[ERROR] Protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a subsequence of nucleotide sequence {nucleotideSeq.id}")
+            errors.append(f"[ERROR] Protein (third) sequence, `{proteinSeq.id}`, is not a subsequence of nucleotide (second) sequence, {nucleotideSeq.id}, in reference file `{refFasta}`.")
         if len(proteinSeq.seq)%3 != 0:
-            refSeqErrors.append(f"[ERROR] Protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` length not a multiple of 3, and therefore cannot be used as ORF")
+            errors.append(f"[ERROR] Length of protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a multiple of 3, and therefore cannot be used as ORF")
         for i, nt in enumerate(str(proteinSeq.seq).upper()):
-            if nt not in list("ATGCN"):
-                refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
-    elif len(referenceSeqs) > 2:
-        print_(f"[WARNING] `do_AA_analysis` set to False, but more than 2 sequences provided in reference file {refFasta}. AA analysis will not be performed.")
-
-    if alignmentSeq.seq.upper().find(nucleotideSeq.seq.upper()) == -1:
-        refSeqErrors.append(f"[ERROR] Nucleotide (second) sequence `{nucleotideSeq.id}` is not a subsequence of alignment (first) `{alignmentSeq.id}` sequence in reference file `{refFasta}`")
-    for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
-        if nt not in list("ATGCN"):
-            refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{nucleotideSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
-    for i, nt in enumerate(str(nucleotideSeq.seq).upper()):
-        if nt not in list("ATGCN"):
-            refSeqErrors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{alignmentSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
+            if nt not in list("ATGC"):
+                errors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide")
 
     # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
     if os.path.isfile(alnFasta):
@@ -326,111 +313,106 @@ for refFasta, alnFasta in refSeqFastaFiles:
             first_record = next(SeqIO.parse(refFasta, 'fasta'))
             fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
 
-if len(refSeqErrors) > 0:
-    for err in refSeqErrors:
-        print_(err, file=sys.stderr)
-    raise RuntimeError("Errors in reference sequences found. See above.")
-
 # UMI checks
-if 'UMI_consensus' not in config:
-    raise RuntimeError("[ERROR] Required boolean option `UMI_consensus` not present in config file.")
-if config['UMI_consensus'] == True:
-    consensusCopyDict = {}      # dictionary that is used to reuse consensus sequences from a different tag if they are generated using the same files. Keys are tags, and values are tags whose consensus sequences will be used for downstream files for the key tag
-    consensusFilesDict = {}     # nested dictionary that keeps track of the runnames and reference sequence used for each tag. keys, subkeys, and subsubkeys are the alignment sequence, a list of the runnames, and a list of the UMIs respectively, and values are the first tag encountered that uses those runnames and alignment sequences
-    for tag in config['runs']:
-        if 'UMI_contexts' not in config['runs'][tag]:
-            print_(f"[WARNING] `UMI_contexts` set to True, but tag `{tag}` does not contain the required key `UMI_contexts`. UMI consensus steps will fail.")
-        elif 'UMI_contexts' in config['runs'][tag]:
-            refFasta = config['runs'][tag]['reference']
-            alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
-            for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
-                if str(alignmentSeq.seq).upper().find(context.upper()) == -1:
-                    print_(f"[WARNING] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus steps will fail.")
-            runnames = config['runs'][tag]['runname']
-            runnames.sort()
-            runnames = tuple(runnames)
-            UMIcontexts = config['runs'][tag]['UMI_contexts']
-            UMIcontexts.sort()
-            UMIcontexts = tuple(UMIcontexts)
-            if str(alignmentSeq.seq).upper() not in consensusFilesDict:
-                consensusFilesDict[str(alignmentSeq.seq).upper()] = {runnames:{UMIcontexts:tag}}
-                consensusCopyDict[tag] = tag
-            else:
-                if runnames not in consensusFilesDict[str(alignmentSeq.seq).upper()]:
-                    consensusFilesDict[str(alignmentSeq.seq).upper()][runnames] = {UMIcontexts:tag}
-                    consensusCopyDict[tag] = tag
-                else:
-                    if UMIcontexts not in consensusFilesDict[str(alignmentSeq.seq).upper()][runnames]:
-                        consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts] = tag
-                        consensusCopyDict[tag] = tag
-                    else:
-                        consensusTag = consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts]
-                        print_(f"[NOTICE] Runname(s), alignment sequence, and UMI context combination used more than once. Using the consensus .fasta file of tag `{consensusTag}` for tag `{tag}` to reduce computation time and storage requirements")
-                        consensusCopyDict[tag] = consensusTag
-    config['consensusCopyDict'] = consensusCopyDict
-
-# Demultiplexing checks
-if 'demux' not in config:
-    raise RuntimeError("[ERROR] Required boolean option `demux` not present in config file.")
-if config['demux'] == True:
-    for tag in config['runs']:
-        if 'barcodeInfo' not in config['runs'][tag]:
-            print_(f"[WARNING] `demux` set to True, but tag {tag} does not contain key `barcodeInfo`. Demultiplexing will fail.")
-        if len(config['runs'][tag]['barcodeInfo']) == 0:
-            print_(f"[WARNING] `demux` set to True, but tag {tag} `barcodeInfo` does not contain any barcode types. Demultiplexing will fail.")
-        if 'barcodeGroups' in config['runs'][tag]:
-            # add barcodeGroups to tag as a dict if declared as a csv file
-            if type(config['runs'][tag]['barcodeGroups']) == str:
-                CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
-                if os.path.isfile(CSVpath):
-                    barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
-                    barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
-                    config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
-                else:
-                    print_(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
-        else:
-            print_(f"[NOTICE] `demux` set to True, but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
+config['do_UMI_analysis'] = {}
+consensusCopyDict = {}      # dictionary that is used to reuse consensus sequences from a different tag if they are generated using the same files. Keys are tags, and values are tags whose consensus sequences will be used for downstream files for the key tag
+consensusFilesDict = {}     # nested dictionary that keeps track of the runnames and reference sequence used for each tag. keys, subkeys, and subsubkeys are the alignment sequence, a list of the runnames, and a list of the UMIs respectively, and values are the first tag encountered that uses those runnames and alignment sequences
+for tag in config['runs']:
+    if 'UMI_contexts' in config['runs'][tag]:
+        config['do_UMI_analysis'][tag] = True
         refFasta = config['runs'][tag]['reference']
         alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
-        for barcodeType in config['runs'][tag]['barcodeInfo']:
-            for requiredKey in ['context', 'fasta', 'reverseComplement']:
-                if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                    print_(f"[WARNING] `demux` set to True, but tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
-            if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
-                print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`")
-            bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
-            config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
-            if os.path.isfile(bcFasta):
-                if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
-                    print_(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format")
-                if any(['_' in bc.id for bc in list(SeqIO.parse(bcFasta, 'fasta'))]):
-                    print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
-                if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
-                    print_(f"[WARNING] Barcode type {barcodeType} reverseComplement not bool (True or False)")
-            if 'barcodeGroups' in config['runs'][tag]:
-                for group in config['runs'][tag]['barcodeGroups']:
-                    for bcType in config['runs'][tag]['barcodeGroups'][group]:
-                        if bcType not in config['runs'][tag]['barcodeInfo']:
-                            print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
-                    if config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == True:
-                        for bcType in config['runs'][tag]['barcodeGroups'][group]:
-                            if bcType == barcodeType:
-                                print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
-                    elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
-                        if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][group][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
-                            print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
-            if 'generate' in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
-                if (numToGenerate != 'all') and type(numToGenerate) != int:
-                    print_(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.")
-                if os.path.isfile(bcFasta):
-                    print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` exists. Using this file for demultiplexing.")
+        for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
+            occurences = str(alignmentSeq.seq).upper().count(context.upper())
+            if occurences == 0:
+                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.")
+            elif occurences > 1:
+                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, present more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.")
+        runnames = config['runs'][tag]['runname']
+        runnames.sort()
+        runnames = tuple(runnames)
+        UMIcontexts = config['runs'][tag]['UMI_contexts']
+        UMIcontexts.sort()
+        UMIcontexts = tuple(UMIcontexts)
+        if str(alignmentSeq.seq).upper() not in consensusFilesDict:
+            consensusFilesDict[str(alignmentSeq.seq).upper()] = {runnames:{UMIcontexts:tag}}
+            consensusCopyDict[tag] = tag
+        else:
+            if runnames not in consensusFilesDict[str(alignmentSeq.seq).upper()]:
+                consensusFilesDict[str(alignmentSeq.seq).upper()][runnames] = {UMIcontexts:tag}
+                consensusCopyDict[tag] = tag
+            else:
+                if UMIcontexts not in consensusFilesDict[str(alignmentSeq.seq).upper()][runnames]:
+                    consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts] = tag
+                    consensusCopyDict[tag] = tag
                 else:
-                    print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.")
-elif config['demux'] == False:
-    for tag in config['runs']:
-        if ('barcodeInfo' or 'barcodeGroups') in config['runs'][tag]:
-            print_(f"[NOTICE] `barcodeInfo` or `barcodeGroups` provided for run tag `{tag}` but `demux` set to False. Demultiplexing will not be performed.", file=sys.stderr)
+                    consensusTag = consensusFilesDict[str(alignmentSeq.seq).upper()][runnames][UMIcontexts]
+                    print_(f"[NOTICE] Runname(s), alignment sequence, and UMI context combination used more than once. Using the consensus .fasta file of tag `{consensusTag}` for tag `{tag}` to reduce computation time and storage requirements")
+                    consensusCopyDict[tag] = consensusTag
+    else:
+        config['do_UMI_analysis'][tag] == False
+config['consensusCopyDict'] = consensusCopyDict
+
+# Demultiplexing checks
+config['do_demux'] = {}
+for tag in config['runs']:
+    if 'barcodeInfo' not in config['runs'][tag]:
+        print_(f"[NOTICE] No keyword 'barcodeInfo' provided for {tag}, not demultiplexing.")
+        config['do_demux'][tag] = False
+        continue
+    else:
+        config['do_demux'][tag] = True
+    if len(config['runs'][tag]['barcodeInfo']) == 0:
+        print_(f"[WARNING] `barcodeInfo` for tag tag `{tag}` does not contain any barcode types. Demultiplexing will fail.")
+    if 'barcodeGroups' in config['runs'][tag]:
+        # add barcodeGroups to tag as a dict if declared as a csv file
+        if type(config['runs'][tag]['barcodeGroups']) == str:
+            CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
+            if os.path.isfile(CSVpath):
+                barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+                barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
+                config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
+            else:
+                print_(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
+    else:
+        print_(f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
+    refFasta = config['runs'][tag]['reference']
+    alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
+    for barcodeType in config['runs'][tag]['barcodeInfo']:
+        for requiredKey in ['context', 'fasta', 'reverseComplement']:
+            if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
+                print_(f"[WARNING] Tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.")
+        if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
+            print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`")
+        bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
+        config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
+        if os.path.isfile(bcFasta):
+            if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
+                print_(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format")
+            if any(['_' in bc.id for bc in list(SeqIO.parse(bcFasta, 'fasta'))]):
+                print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
+            if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
+                print_(f"[WARNING] Tag `{tag}`, barcode type `{barcodeType}` reverseComplement keyword must be set as True or False")
+        if 'barcodeGroups' in config['runs'][tag]:
+            for group in config['runs'][tag]['barcodeGroups']:
+                for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                    if bcType not in config['runs'][tag]['barcodeInfo']:
+                        print_(f"[WARNING] Barcode type `{bcType}` in barcode group `{group}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.")
+                if config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == True:
+                    for bcType in config['runs'][tag]['barcodeGroups'][group]:
+                        if bcType == barcodeType:
+                            print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{group}`. Demultiplexing will fail.")
+                elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
+                    if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][group][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
+                        print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{group}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag")
+        if 'generate' in config['runs'][tag]['barcodeInfo'][barcodeType]:
+            numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
+            if (numToGenerate != 'all') and type(numToGenerate) != int:
+                print_(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.")
+            if os.path.isfile(bcFasta):
+                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` exists. Using this file for demultiplexing.")
+            else:
+                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.")
 
 # check that tags and barcodeGroup names don't contain underscores
 for tag in config['runs']:
@@ -459,9 +441,10 @@ if 'background' in config:
 #       - a row only uses tags from the same sequencing run or, if it uses different sequencing runs, that a 'background'
 #           barcode group is provided in the config file. This is important because background subtraction is necessary
 #           for accurate rate calculations, and sequencing error can of course differ from run to run.
-timepointErrors = []
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
+        if not config['do_NT_mutation_analysis'][tag]:
+            print_(f"[ERROR] Timepoints .CSV file provided for run tag `{tag}`, but no mutation analysis is applied to this tag. Provide at least a nucleotide analysis sequence or remove the timepoints input for this tag.", file=sys.stderr)
         CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
         if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
             config['timepoints'] = {}
@@ -487,7 +470,7 @@ for tag in config['runs']:
                         firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
                         firstTagRunname = config['runs'][firstTag]['runname']
                     else:
-                        timepointErrors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.")
+                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.")
                     for tp in timepointsCSV.columns[1:]:
                         tag = row[tp].split('_')[0]
                         if tag in config['runs']:
@@ -499,14 +482,14 @@ for tag in config['runs']:
                                 if tagRunname != firstTagRunname and 'background' not in config:
                                     print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.", file=sys.stderr)
                         else:
-                            timepointErrors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors.")
+                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors.")
                     
         else:
             print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.", file=sys.stderr)
-if len(timepointErrors) > 0:
-    for err in timepointErrors:
+if len(errors) > 0:
+    for err in errors:
         print_(err, file=sys.stderr)
-    raise RuntimeError("Errors in timepoint CSV files found. See above.")
+    raise RuntimeError("Critical errors found. See above.")
         
 
 # # include modules
@@ -596,33 +579,38 @@ to make sure everything is configured correctly.
 
 def targets_input(wildcards):
     out = []
-    out.append('mutation-stats.csv')
-    if config['demux'] == True:
-        out.append('demux-stats.csv')
-    out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
-    out.extend(expand('plots/{tag}_mutation-spectra.html', tag=config['runs']))
-    out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=config['runs'], AAorNT=['AA','NT'] if config['do_AA_analysis'] else ['NT']))
-    if config['nanoplot'] == True:
-        out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=config['runs']))
-        out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=config['runs']))
-    if config['UMI_consensus'] == True:
+    if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
+        out.append('sequences/UMI/UMI-extract-summary.csv')
+    if any(config['do_NT_mutation_analysis'][tag] for tag in config['runs']):
+        out.append('mutation-stats.csv')
+    if any(config['do_AA_mutation_analysis'][tag] for tag in config['runs']):
+        if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
+            out.append('dms-view-table.csv')
+    if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
+        out.append('sequences/UMI/UMI-extract-summary.csv')
         out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )) ))
         if config['nanoplot'] == True:
             out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] ))))
-        out.append('sequences/UMI/UMI-extract-summary.csv')
-    if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config and config['do_AA_analysis'] == True:
-        out.append('dms-view-table.csv')
-    out.extend(expand('plots/{tag}_pipeline-throughput.html', tag=config['runs']))
+    if any(config['do_demux'][tag] for tag in config['runs']):
+        out.append('demux-stats.csv')
+    for tag in config['runs']:
+        if config['do_NT_mutation_analysis'][tag]:
+            out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
+            out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
+            out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
+        if config['nanoplot'] == True:
+            out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=tag))
+            out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=tag))
+        out.append(f'plots/{tag}_pipeline-throughput.html')
     if 'timepoints' in config:
         out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
-        # out.extend(expand('plots/{tag}_mutation-rate-spectrum.html', tag=config['timepoints']))
 
     if config['diversity_plot_all']:
         if config['demux']:
-            out.extend( expand('plots/.{tag}_allDiversityPlots.done', tag=config['runs']))
+            out.extend( expand('plots/.{tag}_allDiversityPlots.done', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]]))
         else:
-            out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=config['runs'], dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-            out.extend( expand('plots/{tag}_all_{plotType}', tag=config['runs'], plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+            out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]], dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+            out.extend( expand('plots/{tag}_all_{plotType}', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]], plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
     elif config.get('diversity_plot_subset', False) not in ['',False]:
         out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=config['diversity_plot_subset'].split(', '), dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
         out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=config['diversity_plot_subset'].split(', '), plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )

@@ -20,7 +20,7 @@ from Bio import SeqIO
 # generate list to be populated with rows for pipeline step, # of sequences, and time
 # between pipeline steps in minutes, which will be converted to dataframe later
 outList = []
-tag = snakemake.wildcards.tag
+tag = snakemake.input.initial.split('/')[1].strip('.fastq.gz')
 
 # Get reference id
 refID = list(SeqIO.parse(snakemake.config['runs'][tag]['reference'], 'fasta'))[0].id
@@ -47,7 +47,7 @@ def get_runtime(logfile):
 # initial fastq file
 outList.append(['initial', linecount(snakemake.input.initial), 0])
 
-if snakemake.config['UMI_consensus']:
+if snakemake.config['do_UMI_analysis'][tag]:
 
     # UMI_preconsensus_alignment
     BAMin = pysam.AlignmentFile(snakemake.input.UMI_preconsensus_alignment, 'rb')
@@ -90,10 +90,10 @@ time = get_runtime(snakemake.input.alignment_log)
 outList.append(['alignment', count, time/60])
 
 def fail_check(output_barcodes):
-    return 'fail' in output_barcodes
+    return 'fail' not in output_barcodes
 
 # demultiplexing
-if snakemake.config['demux']:
+if snakemake.config['do_demux'][tag]:
     demuxCSV = pd.read_csv(snakemake.input.demux)
     demuxCSVfiltered = demuxCSV[demuxCSV.apply(lambda row:
         fail_check(row['output_file_barcodes']), axis=1)]

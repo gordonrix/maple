@@ -5,14 +5,11 @@ import numpy as np
 import pandas as pd
 import re
 import pysam
-import sys
-import pprint
 
 ### Asign variables from config file
 config = snakemake.config
-tag = snakemake.wildcards.tag
-barcodes = snakemake.wildcards.barcodes
 BAMin = str(snakemake.input.bam)
+tag = BAMin.strip('.bam').split('/')[1].split('_')[0]
 ###
 
 outputDir = 'mutation_data'
@@ -47,34 +44,19 @@ class MutationAnalysis:
         self.highestAbundanceGenotypes = config['highest_abundance_genotypes']
         self.BAMin = BAMin
         self.outputList = output
-
-        assert (str(self.ref.seq).find(str(self.refTrimmed.seq)) != -1), f'Trimmed reference sequence ({self.refTrimmed.id}) must be substring of reference sequence ({self.ref.id})'
-
         self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
         self.refTrimmedEnd = len(self.refTrimmedStr) + self.refTrimmedStart
 
         if 'mutation_analysis_quality_score_minimum' in config:
             self.QSminimum = config['mutation_analysis_quality_score_minimum']
-        self.doAAanalysis = config['do_AA_analysis']
+        self.doAAanalysis = config['do_AA_mutation_analysis'][tag]
 
         if self.doAAanalysis: # define protein sequence
-            self.refProtein = False
-            if config['auto_detect_longest_ORF']:
-                try:
-                    self.refProtein = self.longest_ORF(self.refTrimmedStr)
-                except ValueError:
-                    pass # Snakefile prints warning for this
-            if not self.refProtein:
-                assert (len(list(SeqIO.parse(refSeqfasta, 'fasta'))) >= 3), f'Reference sequence for ORF not provided. Please provide reference ORF as third sequence in reference fasta file `{refSeqfasta}` or consider setting `auto_detect_longest_ORF` to True'
-                refProtein = list(SeqIO.parse(refSeqfasta, 'fasta'))[2]
-                refProteinStr = str(refProtein.seq).upper()
-                assert self.refStr.find(refProteinStr), f'Provided reference for protein sequence `{refProtein.id}` not found within reference sequence ({self.ref.id}). Ensure protein sequence reference is a substring of reference'
-                assert len(refProteinStr)%3 == 0, f'length of protein sequence reference `{refProtein.id}` not a multiple of 3, and therefore cannot be used as ORF'
-                self.refProtein = refProteinStr
+            refProtein = list(SeqIO.parse(refSeqfasta, 'fasta'))[2]
+            refProteinStr = str(refProtein.seq).upper()
+            self.refProtein = refProteinStr
             self.refProteinStart = self.refTrimmedStr.find(self.refProtein)
             self.refProteinEnd = len(self.refProtein) + self.refProteinStart
-            if len(self.refProtein)/len(self.refTrimmedStr) < 0.7:
-                print(f'[WARNING] Length of protein sequence is under 70% of the length of trimmed reference sequence `{self.refTrimmed.id}`', file=sys.stderr)
 
         self.AAs = "ACDEFGHIKLMNPQRSTVWY*"
         self.NTs = "ATGC"
@@ -124,7 +106,7 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 1: #insertion, not added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
                 if self.refTrimmedStart <= refIndex < self.refTrimmedEnd:
@@ -132,7 +114,7 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
-                if self.config['do_AA_analysis'] and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift deletion', queryIndex)
                     return None
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
@@ -285,7 +267,7 @@ class MutationAnalysis:
 
         # if any barcodes are not used to demultiplex, add a column that shows what these barcodes are
         self.barcodeColumn = False
-        if self.config['demux']:
+        if self.config['do_demux'][tag]:
             for bcType in self.config['runs'][tag]['barcodeInfo']:
                 if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
                     self.barcodeColumn = True
