@@ -20,10 +20,6 @@ def main():
 
 class MutationAnalysis:
 
-    @staticmethod
-    def longest_ORF(sequence):
-        return max(re.findall(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', sequence), key = len) # taken from https://stackoverflow.com/questions/31757876/python-find-longest-orf-in-dna-sequence#31758161
-
     def __init__(self, config, tag, BAMin, output):
         """
         arguments:

@@ -214,7 +214,6 @@ def main():
         row['rate_type'].split('_')[2], axis=1)
     
     relativeSpectrumDF = relativeSpectrumDF.pivot(index='sample_replicate', columns='mutation_type', values='rate')
-    relativeSpectrumDF.to_csv('out.csv')
     # zero out negative rates, compute new total rates, compute relative rates, remove 'all' column
     relativeSpectrumDF[relativeSpectrumDF<0] = 0
     relativeSpectrumDF['all'] = relativeSpectrumDF.apply(lambda row:

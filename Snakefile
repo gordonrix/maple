@@ -350,7 +350,7 @@ for tag in config['runs']:
                     print_(f"[NOTICE] Runname(s), alignment sequence, and UMI context combination used more than once. Using the consensus .fasta file of tag `{consensusTag}` for tag `{tag}` to reduce computation time and storage requirements")
                     consensusCopyDict[tag] = consensusTag
     else:
-        config['do_UMI_analysis'][tag] == False
+        config['do_UMI_analysis'][tag] = False
 config['consensusCopyDict'] = consensusCopyDict
 
 # Demultiplexing checks
@@ -588,9 +588,6 @@ def targets_input(wildcards):
             out.append('dms-view-table.csv')
     if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
         out.append('sequences/UMI/UMI-extract-summary.csv')
-        out.extend(expand('plots/{tag}_UMIgroup-distribution.html', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )) ))
-        if config['nanoplot'] == True:
-            out.extend(expand('plots/nanoplot/{tag}_alignment_preConsensus_NanoStats.txt', tag=list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] ))))
     if any(config['do_demux'][tag] for tag in config['runs']):
         out.append('demux-stats.csv')
     for tag in config['runs']:
@@ -598,9 +595,13 @@ def targets_input(wildcards):
             out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
+        if config['do_UMI_analysis'][tag]:
+            out.append(f"plots/{config['consensusCopyDict'][tag]}_UMIgroup-distribution.html")
+            if config['nanoplot'] == True:
+                out.append(f"plots/nanoplot/{config['consensusCopyDict'][tag]}_alignment_preConsensus_NanoStats.txt")
         if config['nanoplot'] == True:
-            out.extend(expand('plots/nanoplot/{tag}_fastq_NanoStats.txt', tag=tag))
-            out.extend(expand('plots/nanoplot/{tag}_alignment_NanoStats.txt', tag=tag))
+            out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
+            out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
         out.append(f'plots/{tag}_pipeline-throughput.html')
     if 'timepoints' in config:
         out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))

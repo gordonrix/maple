@@ -213,7 +213,7 @@ rule UMI_extract:
 
 rule UMI_extract_summary:
     input:
-        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs']] )))
+        expand('sequences/UMI/{tag}_UMI-extract.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs'] if config['do_UMI_analysis'][t]] )))
     output:
         'sequences/UMI/UMI-extract-summary.csv'
     run:
@@ -325,7 +325,7 @@ rule UMI_compress_consensus:
         """
 
 def alignment_sequence_input(wildcards):
-    if config['do_UMI_analysis'][wildcards.tag] == True:
+    if config['do_UMI_analysis'][wildcards.tag]:
         return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     else:
         return 'sequences/{tag}.fastq.gz'
@@ -467,28 +467,27 @@ rule index_demuxed:
         samtools index {input}
         """
 
-for tag in config['runs']:
+# Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output, so creating a separate
+#   rule for which correct input files are only given when AA analysis is not being performed, and giving this rule priority. I truly believe a better solution does not exist currently
+ruleorder: mutation_analysis_NTonly > mutation_analysis
 
-    if config['do_demux'][tag]:
+rule mutation_analysis_NTonly:
+    input:
+        bam = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
+        bai = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
+    output:
+        expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
+    script:
+        'utils/mutation_analysis.py'
 
-        rule mutation_analysis:
-            input:
-                bam = expand('demux/{tag}_{{barcodes}}.bam', tag=tag),
-                bai = expand('demux/{tag}_{{barcodes}}.bam.bai', tag=tag)
-            output:
-                expand('mutation_data/{tag}_{{barcodes}}_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_mutation_analysis'][tag] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
-            script:
-                'utils/mutation_analysis.py'
-
-    else:
-        rule mutation_analysis:
-            input:
-                bam = f'alignments/{tag}.bam',
-                bai = f'alignments/{tag}.bam.bai'
-            output:
-                expand('mutation_data/{tag}_all_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_mutation_analysis'][tag] else ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
-            script:
-                'utils/mutation_analysis.py'
+rule mutation_analysis:
+    input:
+        bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
+        bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
+    output:
+        expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+    script:
+        'utils/mutation_analysis.py'
 
 def mut_stats_input(wildcards):
     datatypes = ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_mutation_analysis'][tag] else ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
@@ -642,21 +641,19 @@ rule plot_mutation_diversity_all:
     output:
         touch('plots/.{tag}_allDiversityPlots.done')
 
-for tag in config['runs']:
-
-    rule plot_pipeline_throughput:
-        input:
-            initial = f'sequences/{tag}.fastq.gz',
-            UMI_preconsensus_alignment = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.bam', tag=config['consensusCopyDict'][tag])[0] if config['do_UMI_analysis'][tag]==True else f'sequences/{tag}.fastq.gz',
-            UMI_preconsensus_log = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.log', tag=config['consensusCopyDict'][tag])[0] if config['do_UMI_analysis'][tag]==True else f'sequences/{tag}.fastq.gz',
-            UMI_extract = lambda wildcards: expand('sequences/UMI/{tag}_UMI-extract.csv', tag=config['consensusCopyDict'][tag])[0] if config['do_UMI_analysis'][tag]==True else f'sequences/{tag}.fastq.gz',
-            UMI_group = lambda wildcards: expand('sequences/UMI/{tag}_UMIgroup-distribution.csv', tag=config['consensusCopyDict'][tag])[0] if config['do_UMI_analysis'][tag]==True else f'sequences/{tag}.fastq.gz',
-            UMI_consensus = lambda wildcards: expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][tag])[0] if config['do_UMI_analysis'][tag]==True else f'sequences/{tag}.fastq.gz',
-            alignment = f'alignments/{tag}.bam',
-            alignment_log = f'alignments/{tag}.log',
-            demux = f'demux/{tag}_demux-stats.csv' if config['do_demux'][tag] else f'sequences/{tag}.fastq.gz'
-        output:
-            plot = f'plots/{tag}_pipeline-throughput.html',
-            csv = f'maple/{tag}_pipeline-throughput.csv'
-        script:
-            'utils/plot_pipeline_throughput.py'
+rule plot_pipeline_throughput:
+    input:
+        initial = lambda wildcards: f'sequences/{wildcards.tag}.fastq.gz',
+        UMI_preconsensus_alignment = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.bam', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['do_UMI_analysis'][wildcards.tag]==True else f'sequences/{wildcards.tag}.fastq.gz',
+        UMI_preconsensus_log = lambda wildcards: expand('sequences/UMI/{tag}_noConsensus.log', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['do_UMI_analysis'][wildcards.tag]==True else f'sequences/{wildcards.tag}.fastq.gz',
+        UMI_extract = lambda wildcards: expand('sequences/UMI/{tag}_UMI-extract.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['do_UMI_analysis'][wildcards.tag]==True else f'sequences/{wildcards.tag}.fastq.gz',
+        UMI_group = lambda wildcards: expand('sequences/UMI/{tag}_UMIgroup-distribution.csv', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['do_UMI_analysis'][wildcards.tag]==True else f'sequences/{wildcards.tag}.fastq.gz',
+        UMI_consensus = lambda wildcards: expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])[0] if config['do_UMI_analysis'][wildcards.tag]==True else f'sequences/{wildcards.tag}.fastq.gz',
+        alignment = lambda wildcards: f'alignments/{wildcards.tag}.bam',
+        alignment_log = lambda wildcards: f'alignments/{wildcards.tag}.log',
+        demux = lambda wildcards: f'demux/{wildcards.tag}_demux-stats.csv' if config['do_demux'][wildcards.tag] else f'sequences/{wildcards.tag}.fastq.gz'
+    output:
+        plot = 'plots/{tag, [^\/_]*}_pipeline-throughput.html',
+        csv = 'maple/{tag, [^\/_]*}_pipeline-throughput.csv'
+    script:
+        'utils/plot_pipeline_throughput.py'
