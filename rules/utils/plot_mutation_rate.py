@@ -9,7 +9,6 @@ these outputs have different wildcards, which snakemake doesn't tolerate
 import os
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import bokeh
 import re
 import scipy

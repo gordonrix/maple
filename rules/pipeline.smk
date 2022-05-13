@@ -617,7 +617,7 @@ rule plot_mutations_distribution_barcodeGroup:
 
 rule plot_mutation_diversity:
     input:
-        'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_genotypes.csv'
+        'mutation_data/{tag}_{barcodes}_genotypes.csv'
     output:
         HamDistPlot = 'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.html',
         HamDistCSV = 'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.csv',
