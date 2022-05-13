@@ -378,11 +378,6 @@ class BarcodeParser:
                     else:
                         barcodeName = 'fail'
                         failureReason['barcode_not_in_fasta'] = 1
-                        print(BAMentry.query_alignment_sequence)
-                        print(refAln)
-                        print(barcode)
-                        print(len(list(self.barcodeDicts[barcodeType].keys())[0]))
-                        print(len(list(self.barcodeDicts[barcodeType].keys())))
             
             sequenceBarcodesDict[barcodeType] = barcodeName
             outList += [barcodeName, notExactMatch] + list(failureReason.values())

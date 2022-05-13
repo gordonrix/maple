@@ -22,6 +22,7 @@ from Bio import SeqIO
 config = snakemake.config
 tag = snakemake.wildcards.tag
 bc = snakemake.wildcards.barcodes
+maxHD = config.get('diversity_plot_hamming_distance_edge_limit', False)
 ###
 
 genotypesDF = pd.read_csv(snakemake.input[0], na_filter=False)
@@ -117,9 +118,11 @@ hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(geno
 hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
 hammingDistanceEdgesDF = hammingDistanceMatrixDF.stack().reset_index()
 hammingDistanceEdgesDF.columns = ['source', 'target', 'hammingDistance']
-if len(hammingDistanceEdgesDF)>1000:
+hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]
+if maxHD:
+    hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]                                       # apply filter for max hammind distance based on user-supplied value
+else: 
     hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(hammingDistanceBinCounts))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
-
 def mutCountHDweighting(source,target, hammingDistance):
     sourceMutCount = int(genotypesDF.loc[source,'NT_substitutions_count'])
     targetMutCount = int(genotypesDF.loc[target,'NT_substitutions_count'])
