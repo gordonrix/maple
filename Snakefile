@@ -186,7 +186,7 @@ if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.")
 
 # check for required options
-required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'porechop', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_porechop', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['storage_data_raw', 'fast5_dir', 'storage_runname', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'medaka_model', 'medaka_conensus_flags', 'medaka_stitch_flags', 'references_directory', 'threads_basecalling', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
 missing = []
 for option in required:
     if option not in config:
@@ -195,6 +195,7 @@ if len(missing) > 0:
     text = [f"`{o}`" for o in missing]
     print_(f"[WARNING] Required option(s) missing from the config file: {', '.join(text)}. Please add these options to the config file. See example_working_directory/config.yaml for example.")
 
+runs_to_import = []
 # check raw data archive
 if config['do_basecalling']:
     if not os.path.exists(config['storage_data_raw']):
@@ -232,12 +233,14 @@ else:
             else:
                 for runname in config['runs'][tag]['runname']:
                     batch = os.path.join('sequences', 'batches', runname)
-                    if config['porechop']:
-                        porechopBatch = batch + '_porechop'
-                        if not os.path.exists(batch) and not os.path.exists(porechopBatch):
-                            print_(f"[WARNING] `do_basecalling` set to False, sequences file `{sequences}` not found, basecalled sequence batch folder `{batch}` not found, and porechop sequence batch folder `{porechopBatch}` not found.", file=sys.stderr)
-                    elif not os.path.exists(batch):
-                        print_(f"[WARNING] `do_basecalling` set to False, `porechop` set to False, sequences file `{sequences}` not found, and basecalled sequence batch folder `{batch}` not found", file=sys.stderr)
+                    if not os.path.exists(batch):
+                        runs_to_import.append(runname)
+# Check minknow directory
+if runs_to_import != []:
+    for runname in runs_to_import:
+        if all([runname not in dirs for _, dirs, _ in os.walk(config['minknowDir'].rstrip('/'))]):
+            print_(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['minknowDir']}`.", file=sys.stderr)
+
 
 # check reference sequences
 errors = []
@@ -267,7 +270,7 @@ for tag in config['runs']:
         config['do_NT_mutation_analysis'][tag] = True
     if len(referenceSeqs) == 3:
         config['do_AA_mutation_analysis'][tag] = True
-    if ('AA_muts_of_interest' in config['runs'][tag]) and config['AA_analysis_tags'][tag]:
+    if ('AA_muts_of_interest' in config['runs'][tag]) and not config['do_AA_mutation_analysis'][tag]:
         print_(f'[WARNING] AA_muts_of_interest provided for run tag `{tag}`, but no protein seq provided for this tag. AA muts of interest will not be evaluated for this tag.', file=sys.stderr)
 
 for refFasta, alnFasta in refSeqFastaFiles:
@@ -490,7 +493,6 @@ if len(errors) > 0:
     for err in errors:
         print_(err, file=sys.stderr)
     raise RuntimeError("Critical errors found. See above.")
-        
 
 # # include modules
 include : "rules/storage.smk"
@@ -607,14 +609,21 @@ def targets_input(wildcards):
         out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
 
     if config['diversity_plot_all']:
-        if config['demux']:
-            out.extend( expand('plots/.{tag}_allDiversityPlots.done', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]]))
-        else:
-            out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]], dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-            out.extend( expand('plots/{tag}_all_{plotType}', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]], plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+        for tag in config['runs']:
+            if config['do_NT_mutation_analysis'][tag]:
+                if config['do_demux']:
+                    out.append( f'plots/.{tag}_allDiversityPlots.done' )
+                else:
+                    out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=tag, dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+                    out.extend( expand('plots/{tag}_all_{plotType}', tag=tag, plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+
     elif config.get('diversity_plot_subset', False) not in ['',False]:
-        out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=config['diversity_plot_subset'].split(', '), dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-        out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=config['diversity_plot_subset'].split(', '), plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
+        divPlotFilePrefixes = []
+        for tag_bc in config['diversity_plot_subset'].split(','):
+            tag, bc = tag_bc.split('_')
+            divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
+        out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=divPlotFilePrefixes, dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+        out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
 
     return out
 

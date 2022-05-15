@@ -23,29 +23,71 @@ def get_batch_ids_raw(config, tag, runname):
     batches_fast5, = glob_wildcards("{datadir}/{runname}/{reads}/{{id}}.fast5".format(datadir=config["storage_data_raw"], runname=runname, reads=config['fast5_dir']))
     return batches_tar + batches_fast5
 
-def get_batch_ids_sequences(config, tag, runname):
-    batches_fastqgz, = glob_wildcards("sequences/batches/{runname}/{{id}}.fastq.gz".format(tag=tag, runname=runname))
+def get_batch_ids_sequences(runname):
+    batches_fastqgz, = glob_wildcards("sequences/batches/{runname}/{{id}}.fastq.gz".format(runname=runname))
+    return batches_fastqgz
+
+def get_batch_ids_sequences_minkow(runpath, fastq_dir):
+    batches_fastqgz, = glob_wildcards("{runpath}/{fastq_dir}/{{id}}.fastq.gz".format(runpath=runpath, fastq_dir=fastq_dir))
     return batches_fastqgz
 
 # get batches
 def get_batches_basecaller(wildcards):
     output = []
     for runname in config['runs'][wildcards.tag]['runname']:
+        outputs = False
         if config['do_basecalling']:
             outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
                                 runname=runname,
                                 batch=get_batch_ids_raw(config, tag, runname))
         else: # basecalling was already performed so basecalled sequences are fetched instead
-            if config['porechop']:
-                outputs = expand("sequences/batches/{runname}_porechop/{batch}.fastq.gz",
+            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
+                                runname = runname,
+                                batch = get_batch_ids_sequences(runname))
+        if not outputs and os.path.isdir(config['minknowDir']): # no sequence batches were found, so will try to find them in the minknow directory instead
+            experimentDirs = os.listdir(config['minknowDir'])
+            expt_sample = False
+            for expt in experimentDirs:
+                if expt_sample: break
+                sampleDirs = os.listdir(os.path.join(config['minknowDir'], expt))
+                for sample in sampleDirs:
+                    if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
+                        expt_sample = (expt, sample)
+                        break
+
+            if expt_sample:
+                output.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
+                                    minknowDir = config['minknowDir'].rstrip('/'),
+                                    expt = expt_sample[0],
+                                    sample = expt_sample[1],
                                     runname = runname,
-                                    batch = get_batch_ids_sequences(config, tag, runname))
-            else:
-                outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
-                                    runname = runname,
-                                    batch = get_batch_ids_sequences(config, tag, runname))
+                                    fastq_dir = config['fastq_dir'],
+                                    batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir'].rstrip('/'), expt, sample, runname), config['fastq_dir'])))
+
         output.extend(outputs)
     return output
+
+# def get_batches_minknow(wildcards):
+#     for runname in config['runs'][wildcards.tag]['runname']:
+#         experimentDirs = os.listdir(config['minknowDir'])
+#         expt_sample_runname = []
+#         for expt in experimentDirs:
+#             sampleDirs = os.listdir(os.path.join(config['minknowDir'], expt))
+#             for sample in sampleDirs:
+#                 if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
+#                     expt_sample_runname.append((expt, sample, runname))
+
+#     output = []
+#     if len(expt_sample_runname) != 0
+#         for expt, sample, runname in expt_sample_runname:
+#             output.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
+#                                 minknowDir = config['minknowDir'].rstrip('/'),
+#                                 expt = expt,
+#                                 sample = sample,
+#                                 runname = runname,
+#                                 fastq_dir = config['fastq_dir'],
+#                                 batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir']rstrip('/'), expt, sample, runname), config['fastq_dir'])))
+#     return output
 
 if config['do_basecalling']:
 
@@ -112,16 +154,6 @@ rule basecaller_stats:
         line_iter = (line for f in input for line in gzip.open(f, 'rb').read().decode('utf-8').split('\n') if line)
         df = pd.DataFrame(fastq_iter(line_iter), columns=['length', 'quality'])
         df.to_hdf(output[0], 'stats')
-
-rule porechop:
-    input:
-        'sequences/batches/{runname}/{batch}.fastq.gz'
-    output:
-        'sequences/batches/{runname}_porechop/{batch}.fastq.gz'
-    threads: config['threads_porechop']
-    shell:
-        'porechop -i {input} -o {output} -v 0'
-
 
 if config['merge_paired_end']:
     rule merge_paired_end:
@@ -476,7 +508,7 @@ rule mutation_analysis_NTonly:
         bam = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
@@ -485,7 +517,7 @@ rule mutation_analysis:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/]*}}_{{barcodes}}_{datatype}', tag=tag, datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
@@ -495,9 +527,9 @@ def mut_stats_input(wildcards):
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        out = expand('mutation_data/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
+        out = expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
     else:
-        out = expand('mutation_data/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
+        out = expand('mutation_data/{tag}/all/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
     assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
     return out
 
@@ -505,13 +537,13 @@ rule mut_stats:
 	input:
 		mut_stats_input
 	output:
-		'mutation_data/{tag, [^\/]*}_mutation-stats.csv'
+		'mutation_data/{tag, [^\/]*}/{tag}_mutation-stats.csv'
 	script:
 		'utils/mutation_statistics.py'
 
 rule merge_mut_stats:
     input:
-        expand('mutation_data/{tag}_mutation-stats.csv', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]])
+        expand('mutation_data/{tag}/{tag}_mutation-stats.csv', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]])
     output:
         'mutation-stats.csv'
     run:
@@ -527,9 +559,9 @@ def dms_view_input(wildcards):
             checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
             checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
             checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-            tagFiles = expand('mutation_data/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
+            tagFiles = expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
         else:
-            tagFiles = expand('mutation_data/{tag}_all_AA-muts-frequencies.csv', tag=tag)
+            tagFiles = expand('mutation_data/{tag}/{tag}_all_AA-muts-frequencies.csv', tag=tag)
         out.extend(tagFiles)
     assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
     return out
@@ -545,7 +577,7 @@ rule dms_view:
 
 rule plot_mutation_spectrum:
     input:
-        'mutation_data/{tag}_mutation-stats.csv'
+        'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
         'plots/{tag, [^\/]*}_mutation-spectra.html'
     script:
@@ -557,9 +589,9 @@ rule plot_mutation_rate:
         timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
     output:
         rate = 'plots/{tag, [^\/]*}_mutation-rates.html',
-        rateCSV = 'mutation_data/{tag, [^\/]*}_mutation-rates.csv',
+        rateCSV = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates.csv',
         spectrum = 'plots/{tag, [^\/]*}_mutation-rate-spectrum.html',
-        spectrumCSV = 'mutation_data/{tag, [^\/]*}_mutation-rate-spectrum.csv'
+        spectrumCSV = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rate-spectrum.csv'
     script:
         'utils/plot_mutation_rate.py'
 
@@ -568,14 +600,14 @@ def plot_mutations_frequencies_input(wildcards):
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
+        return expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
-        return expand('mutation_data/{tag}_all_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
+        return expand('mutation_data/{tag}/all/{tag}_all_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
 
 rule plot_mutations_frequencies:
     input:
         frequencies = plot_mutations_frequencies_input,
-        mutStats = 'mutation_data/{tag}_mutation-stats.csv'
+        mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
         'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-frequencies.html'
     script:
@@ -595,9 +627,9 @@ def plot_mutations_distribution_input(wildcards):
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
         checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
+        return expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
     else:
-        return expand('mutation_data/{tag}_all_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
+        return expand('mutation_data/{tag}/all/{tag}_all_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
 
 rule plot_mutations_distribution:
     input:
@@ -609,7 +641,7 @@ rule plot_mutations_distribution:
 
 rule plot_mutations_distribution_barcodeGroup:
     input:
-        dist = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv'
+        dist = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv'
     output:
         'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
     script:
@@ -617,12 +649,12 @@ rule plot_mutations_distribution_barcodeGroup:
 
 rule plot_mutation_diversity:
     input:
-        'mutation_data/{tag}_{barcodes}_genotypes.csv'
+        'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        HamDistPlot = 'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.html',
-        HamDistCSV = 'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_hamming-distance-distribution.csv',
-        GraphPlot = 'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_diversity-graph.html',
-        GraphFile = 'mutation_data/{tag, [^\/_]*}_{barcodes, [^\/_]*}_diversity-graph.gexf'
+        HamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_hamming-distance-distribution.html',
+        HamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_hamming-distance-distribution.csv',
+        GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
+        GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
     script:
         'utils/plot_mutation_diversity.py'
 
@@ -631,8 +663,8 @@ def all_diversity_plots_input(wildcards):
     checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
     checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
     checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-    out.extend( expand('mutation_data/{tag}_{barcodes}_{dataType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-    out.extend( expand('plots/{tag}_{barcodes}_{plotType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'hamming-distance-distribution.html']) )
+    out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{dataType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
+    out.extend( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_{plotType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'hamming-distance-distribution.html']) )
     return out
 
 rule plot_mutation_diversity_all:

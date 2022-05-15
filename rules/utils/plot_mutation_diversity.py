@@ -26,7 +26,7 @@ maxHD = config.get('diversity_plot_hamming_distance_edge_limit', False)
 ###
 
 genotypesDF = pd.read_csv(snakemake.input[0], na_filter=False)
-# genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=True)
+genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=True)
 genotypesDF.drop(genotypesDF[genotypesDF['NT_deletions'] != ''].index, inplace=True)
 genotypesDF.drop(genotypesDF[genotypesDF['count'] == 0].index, inplace=True) # removes wildtype row if count is 0
 genotypesDF.drop(['NT_insertions','NT_deletions'], axis=1, inplace=True)

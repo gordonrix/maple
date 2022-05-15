@@ -1,5 +1,8 @@
 ### begin nanopore only section ###
-
+# sftp://redwood@128.195.190.68/var/lib/minknow/data/20220420_TrxSgkVar_batch2/20220421_TrxSgkVar_batch2_take2/20220421_1252_MN35267_FAR22610_9ba21cfa/fastq_pass
+# absolute path to minknow directory containing nanopore sequencing data
+minknowDir: /home/popos/Documents/data_tools/maple/minknow/data/
+fastq_dir: fastq_pass           # comma separated list of folders within the run folder to pull fastq files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail'
 # .fast5 formatted raw sequencing data parent directory containing one folder per flow cell
 storage_data_raw : data
 # directory within above directory that contains reads
@@ -24,9 +27,6 @@ basecalling_guppy_config: 'dna_r9.4.1_450bps_sup.cfg'
 basecalling_guppy_qscore_filter: 0
 # command line flags directly passed to guppy
 basecalling_guppy_flags: ''
-
-# porechop
-porechop: True                  # trims constant adapter sequences from ends and splits chimeric reads. Abandonware but still works well. https://github.com/rrwick/Porechop
 
 # medaka
 medaka_model: 'r941_min_sup_g507'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507
@@ -105,12 +105,12 @@ background: GR562-ctrl
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity
-diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
+diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
 diversity_plot_subset: TrixySgkProgMA_trxSgk123-1-P10              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
-diversity_plot_hamming_distance_edge_limit: 10              # maximum hamming distance between two sequences for an edge to be drawn between them. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
+diversity_plot_hamming_distance_edge_limit: 15              # maximum hamming distance between two sequences for an edge to be drawn between them. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
 hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
 force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
-force_directed_plot_node_color: 'AA_muts_of_interest'       # genotypes column to use for node color. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow.
+force_directed_plot_node_color: 'NT_substitutions_count'       # genotypes column to use for node color. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow.
 
 
 # runs to be analyzed, organized into separate run 'tags'. Tags may not contain underscores.

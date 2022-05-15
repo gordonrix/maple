@@ -12,7 +12,6 @@ biopython
 umi_tools
 h5py >=2.7.1
 ont-fast5-api
-porechop
 medaka==1.4.3
 nanoplot
 holoviews
