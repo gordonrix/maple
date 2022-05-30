@@ -321,6 +321,7 @@ rule UMI_consensus:
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
+        samtools sort -o {input.bam} {input.bam}
         samtools index {input.bam}
         medaka consensus {params.consensus_flags} --threads {threads} --chunk_len {params.refLength} --model {params.medaka_model} {input.bam} {output.hdf}
         medaka stitch {params.stitch_flags} --threads {threads} {output.hdf} {input.alnRef} {output.consensus}

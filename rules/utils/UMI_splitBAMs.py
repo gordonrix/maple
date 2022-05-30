@@ -9,6 +9,7 @@ import numpy as np
 import pysam
 import os
 import datetime
+import bisect
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
@@ -77,6 +78,7 @@ class splitBAM:
             batch_UMI_IDs = list(batch_DF['unique_id'])
             UMI_BAMbatchDict = {}
             UMI_strandTrackDict = {}     # dict to keep track of how many fwd/rvs strands have been encountered to aim for similar amounts to reduce systematic errors. fwd recorded as 1, rvs recorded as -1 such that the sum of the list indicates the bias
+            UMI_qualityTrackDict = {}    # dict to keep track of average quality scores of reads
 
             for BAMentry in BAMin:
                 ID = BAMentry.get_tag('UG')
@@ -84,32 +86,34 @@ class splitBAM:
                     if ID not in UMI_BAMbatchDict:
                         UMI_BAMbatchDict[ID] = []
                         UMI_strandTrackDict[ID] = []
-                    UMI_BAMbatchDict[ID].append(BAMentry)
+                        UMI_qualityTrackDict[ID] = []
+                    BAMmeanQscore = np.mean(BAMentry.query_qualities)
+                    insertIndex = bisect.bisect_left(UMI_qualityTrackDict[ID], BAMmeanQscore) # grow list of BAM entries, Qscores, and strand tracking in order of Qscores so that lowest Qscore sequences get removed first
+                    UMI_BAMbatchDict[ID].insert(insertIndex, BAMentry)
+                    UMI_qualityTrackDict[ID].insert(insertIndex, BAMmeanQscore)
                     if BAMentry.is_reverse:
-                        UMI_strandTrackDict[ID].append(-1)
+                        UMI_strandTrackDict[ID].insert(insertIndex, -1)
                     else:
-                        UMI_strandTrackDict[ID].append(1)
+                        UMI_strandTrackDict[ID].insert(insertIndex, 1)
 
                     # UMI IDs will be removed from list if the maximum # of reads have been reached and the difference
-                        # in counts of reads of one strand vs another is either 0 (for even maximum reads) or 1 (for odd maximum reads)
-                        # As more reads over the maximum are encountered, reads are removed to approach a strand bias of 0
+                        # in counts of reads of one strand vs another is either 0 (for even # of maximum reads) or 1 (for odd # of maximum reads)
+                        # As more reads over the maximum are encountered, reads from the left are removed to approach a strand bias of 0 and to increase the minimum average read quality score
                     UMI_group_strandBias = sum(UMI_strandTrackDict[ID])
                     if len(UMI_BAMbatchDict[ID]) > self.maximum:
                         if UMI_group_strandBias < 0:
-                            removeIndex = UMI_strandTrackDict[ID].index(-1)
+                            removeIndex = UMI_strandTrackDict[ID].index(-1) # index searches from the left so lowest quality score with desired strandedness will be removed first
                             UMI_BAMbatchDict[ID].pop(removeIndex)
                             UMI_strandTrackDict[ID].pop(removeIndex)
-                        elif UMI_group_strandBias > 0:
+                            UMI_qualityTrackDict[ID].pop(removeIndex)
+                        elif UMI_group_strandBias >= 0:
                             removeIndex = UMI_strandTrackDict[ID].index(1)
                             UMI_BAMbatchDict[ID].pop(removeIndex)
                             UMI_strandTrackDict[ID].pop(removeIndex)
-                    if len(UMI_BAMbatchDict[ID]) == self.maximum:
-                        if (self.maximum%2 == 0 and UMI_group_strandBias == 0) or (self.maximum%2 == 1 and np.absolute(UMI_group_strandBias) <= 1):   # stop searching for this UMI if maximum is reached and strandbias is as close to 0 as possible
-                            while ID in batch_UMI_IDs: batch_UMI_IDs.remove(ID)
-                if len(batch_UMI_IDs) == 0: # stop searching for more reads if user defined maximum reads have been found for all UMI groups 
-                    break
+                            UMI_qualityTrackDict[ID].pop(removeIndex)
             BAMin.reset()  # allows for looping through again for the next batch
-            
+            for v in list(UMI_qualityTrackDict.values()):
+                print(len(v))
             for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():
                 row = UMI_groups_above_threshold[UMI_groups_above_threshold['unique_id']==ID].iloc[0]
                 BAMout = pysam.AlignmentFile(os.path.join(self.outDir, f"UMI_{ID}_{row['final_umi']}_reads.bam"), 'wb', template=BAMin)
