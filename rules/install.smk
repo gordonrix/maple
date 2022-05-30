@@ -206,9 +206,9 @@ rule guppy:
         # wget https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy-cpu_4.0.11_linux64.tar.gz &&
         # wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_4.5.4_linux64.tar.gz &&
         mkdir -p src/guppy && cd src/guppy && rm -rf *
-        wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_5.0.11_linux64.tar.gz
-        tar -xzkf ont-guppy_5.0.11_linux64.tar.gz -C ./ --strip 1 && \
-        rm ont-guppy_5.0.11_linux64.tar.gz
+        wget -q https://mirror.oxfordnanoportal.com/software/analysis/ont-guppy_6.1.1_linux64.tar.gz
+        tar -xzkf ont-guppy_6.1.1_linux64.tar.gz -C ./ --strip 1 && \
+        rm ont-guppy_6.1.1_linux64.tar.gz
         # copy everything except toplevel softlinks e.g.
         # skip libhdf5.so
         # copy libhdf5.so.1.8.11

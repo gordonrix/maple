@@ -6,22 +6,19 @@ from rules.utils.storage import get_flowcell, get_kit, get_ID
 if not config['merge_paired_end']:
     localrules: basecaller_merge_tag
 
-# get batch of reads as IDs or fast5
-def get_signal_batch(wildcards, config):
-    raw_dir = config['storage_data_raw']
-    batch_file = os.path.join(raw_dir, wildcards.runname, config['fast5_dir'], wildcards.batch)
-    if os.path.isfile(batch_file + '.tar'):
-        return batch_file + '.tar'
-    elif os.path.isfile(batch_file + '.fast5'):
-        return batch_file + '.fast5'
+# get batch of reads fast5
+def get_signal_batch(wildcards):
+    batch_file = os.path.join(config['minknowDir'], wildcards.expt, wildcards.sample, wildcards.runname, config['fast5_dir'], wildcards.batch + '.fast5')
+    if os.path.isfile(batch_file):
+        return batch_file
     else:
+        print(f"[WARNING] Batch file `{batch_file}` was requested but not found.")
         return []
 
 # prefix of raw read batches
-def get_batch_ids_raw(config, tag, runname):
-    batches_tar, = glob_wildcards("{datadir}/{runname}/{reads}/{{id}}.tar".format(datadir=config["storage_data_raw"], runname=runname, reads=config['fast5_dir']))
-    batches_fast5, = glob_wildcards("{datadir}/{runname}/{reads}/{{id}}.fast5".format(datadir=config["storage_data_raw"], runname=runname, reads=config['fast5_dir']))
-    return batches_tar + batches_fast5
+def get_batch_ids_raw_minknow(runpath, fast5_dir):
+    batches_fast5, = glob_wildcards("{runpath}/{fast5_dir}/{{id}}.fast5".format(runpath=runpath, fast5_dir=fast5_dir))
+    return batches_fast5
 
 def get_batch_ids_sequences(runname):
     batches_fastqgz, = glob_wildcards("sequences/batches/{runname}/{{id}}.fastq.gz".format(runname=runname))
@@ -35,71 +32,54 @@ def get_batch_ids_sequences_minkow(runpath, fastq_dir):
 def get_batches_basecaller(wildcards):
     output = []
     for runname in config['runs'][wildcards.tag]['runname']:
-        outputs = False
-        if config['do_basecalling']:
-            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
-                                runname=runname,
-                                batch=get_batch_ids_raw(config, tag, runname))
-        else: # basecalling was already performed so basecalled sequences are fetched instead
+        outputs = []
+        if not config['do_basecalling']: # basecalling was already performed so basecalled sequences are fetched
             outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
                                 runname = runname,
                                 batch = get_batch_ids_sequences(runname))
-        if not outputs and os.path.isdir(config['minknowDir']): # no sequence batches were found, so will try to find them in the minknow directory instead
-            experimentDirs = os.listdir(config['minknowDir'])
+
+        if outputs==[] and os.path.isdir(config['minknowDir']): # no sequence batches were found within the working directory, so will try to find them in the minknow directory instead
+            experimentDirs = [d for d in os.listdir(config['minknowDir']) if os.path.isdir(os.path.join(config['minknowDir'],d))]
             expt_sample = False
             for expt in experimentDirs:
                 if expt_sample: break
-                sampleDirs = os.listdir(os.path.join(config['minknowDir'], expt))
+                sampleDirs = [d for d in os.listdir(os.path.join(config['minknowDir'], expt)) if os.path.isdir(os.path.join(config['minknowDir'], expt,d))]
                 for sample in sampleDirs:
                     if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
                         expt_sample = (expt, sample)
                         break
 
             if expt_sample:
-                output.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
-                                    minknowDir = config['minknowDir'].rstrip('/'),
-                                    expt = expt_sample[0],
-                                    sample = expt_sample[1],
-                                    runname = runname,
-                                    fastq_dir = config['fastq_dir'],
-                                    batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir'].rstrip('/'), expt, sample, runname), config['fastq_dir'])))
-
+                if config['do_basecalling'] == True: # choose whether to request fastq files for all fast5 files or just what fastq files are already present based on whether basecalling should be performed
+                    batch = get_batch_ids_raw_minknow(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), config['fast5_dir'])
+                    outputs.extend(expand("sequences/batches/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
+                                            minknowDir = config['minknowDir'].rstrip('/'),
+                                            expt = expt_sample[0],
+                                            sample = expt_sample[1],
+                                            runname = runname,
+                                            fastq_dir = config['fastq_dir'],
+                                            batch = batch))
+                else:
+                    batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), config['fastq_dir'])
+                    outputs.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
+                                            minknowDir = config['minknowDir'].rstrip('/'),
+                                            expt = expt_sample[0],
+                                            sample = expt_sample[1],
+                                            runname = runname,
+                                            fastq_dir = config['fastq_dir'],
+                                            batch = batch))
         output.extend(outputs)
     return output
 
-# def get_batches_minknow(wildcards):
-#     for runname in config['runs'][wildcards.tag]['runname']:
-#         experimentDirs = os.listdir(config['minknowDir'])
-#         expt_sample_runname = []
-#         for expt in experimentDirs:
-#             sampleDirs = os.listdir(os.path.join(config['minknowDir'], expt))
-#             for sample in sampleDirs:
-#                 if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
-#                     expt_sample_runname.append((expt, sample, runname))
-
-#     output = []
-#     if len(expt_sample_runname) != 0
-#         for expt, sample, runname in expt_sample_runname:
-#             output.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
-#                                 minknowDir = config['minknowDir'].rstrip('/'),
-#                                 expt = expt,
-#                                 sample = sample,
-#                                 runname = runname,
-#                                 fastq_dir = config['fastq_dir'],
-#                                 batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir']rstrip('/'), expt, sample, runname), config['fastq_dir'])))
-#     return output
 
 if config['do_basecalling']:
 
     # guppy basecalling
     rule guppy:
         input:
-            batch = lambda wildcards : get_signal_batch(wildcards, config),
-            run = lambda wildcards : [os.path.join(config['storage_data_raw'], wildcards.runname)] + ([os.path.join(config['storage_data_raw'], wildcards.runname, 'reads.fofn')] if get_signal_batch(wildcards, config).endswith('.txt') else [])
+            batch = lambda wildcards : get_signal_batch(wildcards)
         output:
-            ["sequences/batches/{runname}/{batch, [^.]*}.fastq.gz"] +
-            ["sequences/batches/{runname}/{batch, [^.]*}.sequencing_summary.txt"] +
-            (["sequences/batches/{runname}/{batch, [^.]*}.hdf5"] if config.get('basecalling_guppy_config') and 'modbases' in config['basecalling_guppy_config'] else [])
+            "sequences/batches/{expt}/{sample}/{runname}/{fastq_dir}/{batch, [^.]*}.fastq.gz"
         shadow: "shallow"
         threads: config['threads_basecalling']
         resources:
@@ -113,22 +93,20 @@ if config['do_basecalling']:
                                 flags = ' --fast5_out' if config.get('basecalling_guppy_config') and 'modbases' in config['basecalling_guppy_config'] else ''),
             guppy_server = lambda wildcards, input : '' if (config.get('basecalling_guppy_flags') and '--port' in config['basecalling_guppy_flags']) else '--port ' + config['basecalling_guppy_server'][hash(input.batch) % len(config['basecalling_guppy_server'])] if config.get('basecalling_guppy_server') else '',
             guppy_flags = lambda wildcards : config.get('basecalling_guppy_flags') or '',
-            filtering = lambda wildcards : '--qscore_filtering --min_qscore {score}'.format(score = config['basecalling_guppy_qscore_filter']) if config['basecalling_guppy_qscore_filter'] > 0 else '',
-            index = lambda wildcards : '--index ' + os.path.join(config['storage_data_raw'], wildcards.runname, 'reads.fofn') if get_signal_batch(wildcards, config).endswith('.txt') else '',
+            filtering = lambda wildcards : '--min_qscore {score}'.format(score = config['basecalling_guppy_qscore_filter']) if config['basecalling_guppy_qscore_filter'] > 0 else 0,
             mod_table = lambda wildcards, input, output : output[2] if len(output) == 3 else ''
         # singularity:
         #     config['singularity_images']['basecalling']
         shell:
             """
             mkdir -p raw
-            {config[bin_singularity][python]} {config[sbin_singularity][storage_fast5Index.py]} extract {input.batch} raw/ {params.index} --output_format bulk
-            {config[bin_singularity][guppy_basecaller]} -i raw/ --recursive --num_callers 1 --cpu_threads_per_caller {threads} -s workspace/ {params.guppy_config}  {params.filtering} {params.guppy_flags} {params.guppy_server}
+            {config[bin_singularity][python]} {config[sbin_singularity][storage_fast5Index.py]} extract {input.batch} raw/ --output_format bulk
+            {config[bin_singularity][guppy_basecaller]} -i raw/ --recursive --num_callers 1 -s workspace/ {params.guppy_config} {params.filtering} {params.guppy_flags} {params.guppy_server}
             FASTQ_DIR='workspace/pass'
             if [ \'{params.filtering}\' = '' ]; then
                 FASTQ_DIR='workspace'
             fi
             find ${{FASTQ_DIR}} -regextype posix-extended -regex '^.*f(ast)?q' -exec cat {{}} \; | gzip > {output[0]}
-            find ${{FASTQ_DIR}} -name 'sequencing_summary.txt' -exec mv {{}} {output[1]} \;
             """
     
 rule basecaller_stats:
@@ -235,7 +213,7 @@ rule UMI_extract:
         index = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam.bai'),
         log = 'sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'
     params:
-        barcode_contexts = lambda wildcards: [config['runs'][wildcards.tag]['barcodeInfo'][barcodeType]['context'].upper() for barcodeType in config['runs'][wildcards.tag]['barcodeInfo']] if config['demux'] else None,
+        barcode_contexts = lambda wildcards: [config['runs'][wildcards.tag]['barcodeInfo'][barcodeType]['context'].upper() for barcodeType in config['runs'][wildcards.tag]['barcodeInfo']] if config['do_demux'][wildcards.tag] else None,
         reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
         UMI_contexts = lambda wildcards: config['runs'][wildcards.tag]['UMI_contexts']
     script:

@@ -238,7 +238,9 @@ else:
 # Check minknow directory
 if runs_to_import != []:
     for runname in runs_to_import:
-        if all([runname not in dirs for _, dirs, _ in os.walk(config['minknowDir'].rstrip('/'))]):
+        if not os.isdir(config['minknowDir']):
+            print_(f"[WARNING] May need to import runname `{runname}`, but the provided minknow directory, `{config['minknowDir']}`, does not exist.", file=sys.stderr)
+        elif all([runname not in dirs for _, dirs, _ in os.walk(config['minknowDir'].rstrip('/'))]):
             print_(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['minknowDir']}`.", file=sys.stderr)
 
 
