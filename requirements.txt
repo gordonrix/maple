@@ -1,5 +1,5 @@
 snakemake
-python==3.8
+python==3.9
 PyYAML>=5.1
 setuptools
 wget
@@ -13,7 +13,6 @@ umi_tools
 h5py >=2.7.1
 ont-fast5-api
 medaka
-tensorflow-gpu
 nanoplot
 holoviews
 networkx

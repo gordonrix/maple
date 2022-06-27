@@ -70,8 +70,8 @@ def main():
     for wt in nts:
         for mut in nts:
             if wt != mut:
-                if config['uniques_only']:  col = f'{wt}->{mut}_unique'
-                else:                       col = f'{wt}->{mut}'
+                if config.get('uniques_only', False):   col = f'{wt}->{mut}_unique'
+                else:                                   col = f'{wt}->{mut}'
                 mutTypes.append(col)
 
     # dictionary of normalization factors for each nucleotide based on reference sequence

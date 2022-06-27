@@ -256,22 +256,24 @@ class BarcodeParser:
         ungroupedBarcodeTypes = []
         noSplitBarcodeTypes = []
         first = True
+        groupDict = {}
         for group in self.barcodeGroups:
             groupDict = self.barcodeGroups[group]
             if first:
-                for barcodeType in self.barcodeInfo: # add barcode types in the order they appear in barcodeInfo
-                    if barcodeType in groupDict:
-                        groupedBarcodeTypes.append(barcodeType)
-                    elif self.barcodeInfo[barcodeType].get('noSplit', False):
-                        noSplitBarcodeTypes.append(barcodeType)
-                    else:
-                        ungroupedBarcodeTypes.append(barcodeType)
                 first = False
                 firstGroup = group
                 firstGroupDict = groupDict
             else:
                 assert (all([bcType in groupDict for bcType in firstGroupDict])), f'All barcode groups do not use the same set of barcode types. Group {group} differs from group {firstGroup}'
                 assert (all([bcType in firstGroupDict for bcType in groupDict])), f'All barcode groups do not use the same set of barcode types. Group {group} differs from group {firstGroup}'
+
+        for barcodeType in self.barcodeInfo: # add barcode types in the order they appear in barcodeInfo
+            if barcodeType in groupDict:
+                groupedBarcodeTypes.append(barcodeType)
+            elif self.barcodeInfo[barcodeType].get('noSplit', False):
+                noSplitBarcodeTypes.append(barcodeType)
+            else:
+                ungroupedBarcodeTypes.append(barcodeType)
 
         self.groupedBarcodeTypes = groupedBarcodeTypes
         self.ungroupedBarcodeTypes = ungroupedBarcodeTypes
@@ -332,9 +334,12 @@ class BarcodeParser:
 
         groupName = self.barcodeGroupNameDict.get(groupBarcodes, False)
         if groupName:
-            return '-'.join([groupName]+ungroupSequenceBarcodes), True
+            out = ('-'.join([groupName]+ungroupSequenceBarcodes), True)
         else:
-            return '-'.join(sequenceBarcodesDict.values()), False
+            out = ('-'.join(sequenceBarcodesDict.values()), False)
+        if out[0] == '':
+            out = ('all', True)      
+        return out
 
 
 

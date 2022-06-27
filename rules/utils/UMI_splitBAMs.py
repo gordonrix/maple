@@ -112,8 +112,7 @@ class splitBAM:
                             UMI_strandTrackDict[ID].pop(removeIndex)
                             UMI_qualityTrackDict[ID].pop(removeIndex)
             BAMin.reset()  # allows for looping through again for the next batch
-            for v in list(UMI_qualityTrackDict.values()):
-                print(len(v))
+
             for ID, UMIgroupBAMentries in UMI_BAMbatchDict.items():
                 row = UMI_groups_above_threshold[UMI_groups_above_threshold['unique_id']==ID].iloc[0]
                 BAMout = pysam.AlignmentFile(os.path.join(self.outDir, f"UMI_{ID}_{row['final_umi']}_reads.bam"), 'wb', template=BAMin)

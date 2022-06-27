@@ -238,7 +238,7 @@ else:
 # Check minknow directory
 if runs_to_import != []:
     for runname in runs_to_import:
-        if not os.isdir(config['minknowDir']):
+        if not os.path.isdir(config['minknowDir']):
             print_(f"[WARNING] May need to import runname `{runname}`, but the provided minknow directory, `{config['minknowDir']}`, does not exist.", file=sys.stderr)
         elif all([runname not in dirs for _, dirs, _ in os.walk(config['minknowDir'].rstrip('/'))]):
             print_(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['minknowDir']}`.", file=sys.stderr)
@@ -368,7 +368,7 @@ for tag in config['runs']:
     else:
         config['do_demux'][tag] = True
     if len(config['runs'][tag]['barcodeInfo']) == 0:
-        print_(f"[WARNING] `barcodeInfo` for tag tag `{tag}` does not contain any barcode types. Demultiplexing will fail.")
+        print_(f"[WARNING] `barcodeInfo` for run tag `{tag}` does not contain any barcode types. Demultiplexing will fail.")
     if 'barcodeGroups' in config['runs'][tag]:
         # add barcodeGroups to tag as a dict if declared as a csv file
         if type(config['runs'][tag]['barcodeGroups']) == str:
@@ -376,6 +376,8 @@ for tag in config['runs']:
             if os.path.isfile(CSVpath):
                 barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
                 barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
+                if any([c[:9]=='Unnamed: ' for c in barcodeGroupsCSV.columns]):
+                    print_(f"[WARNING] Barcode type beginning with 'Unnamed: ' detected for tag {tag} in barcodeGroups csv {CSVpath}. This usually results from erroneous whitespace characters. Demultiplexing may fail.")
                 config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
             else:
                 print_(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
@@ -398,7 +400,10 @@ for tag in config['runs']:
                 print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
             if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                 print_(f"[WARNING] Tag `{tag}`, barcode type `{barcodeType}` reverseComplement keyword must be set as True or False")
+        elif config['runs'][tag].get('generate', False) != False:
+            print_(f"[WARNING] Barcode fasta file `{bcFasta}` does not exist, but is used for barcode type `{barcodeType}` in run tag `{tag}`")
         if 'barcodeGroups' in config['runs'][tag]:
+            first = True
             for group in config['runs'][tag]['barcodeGroups']:
                 for bcType in config['runs'][tag]['barcodeGroups'][group]:
                     if bcType not in config['runs'][tag]['barcodeInfo']:
@@ -415,9 +420,9 @@ for tag in config['runs']:
             if (numToGenerate != 'all') and type(numToGenerate) != int:
                 print_(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.")
             if os.path.isfile(bcFasta):
-                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` exists. Using this file for demultiplexing.")
+                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` exists. Using this file for demultiplexing.")
             else:
-                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.")
+                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.")
 
 # check that tags and barcodeGroup names don't contain underscores
 for tag in config['runs']:
@@ -590,8 +595,6 @@ def targets_input(wildcards):
     if any(config['do_AA_mutation_analysis'][tag] for tag in config['runs']):
         if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
             out.append('dms-view-table.csv')
-    if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
-        out.append('sequences/UMI/UMI-extract-summary.csv')
     if any(config['do_demux'][tag] for tag in config['runs']):
         out.append('demux-stats.csv')
     for tag in config['runs']:

@@ -267,8 +267,9 @@ class MutationAnalysis:
             for bcType in self.config['runs'][tag]['barcodeInfo']:
                 if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
                     self.barcodeColumn = True
-                    genotypesColumns.append('barcode(s)')
-                    wildTypeRow.append('')
+        if self.barcodeColumn:
+            genotypesColumns.append('barcode(s)')
+            wildTypeRow.append('')
 
         # if there are any mutations of interest for this tag, add genotype columns for these
         if self.config['runs'][tag].get('NT_muts_of_interest', False):

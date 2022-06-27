@@ -62,8 +62,7 @@ def main():
         refAln = bcp.align_reference(BAMentry)
         for barcodeType in barcodeDict:
             barcodeName = None
-            start, stop = bcp.find_N_start_end(refAln, config['runs'][tag]['barcodeInfo'][barcodeType]['context'])
-
+            start, stop = bcp.find_N_start_end(refAln, config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper())
             try:
                 barcode = BAMentry.query_alignment_sequence[ start:stop ]
                 if 'N' in barcode:
@@ -102,7 +101,6 @@ def main():
                     count += 1
                     f.write(f'>bc{str(count)}\n')
                     f.write(row.barcode + '\n')
-
                     if maxBCs and (count >= maxBCs):
                         break
 
@@ -113,7 +111,7 @@ def main():
                         hammingDistanceList = [str(row.barcode)]
 
                     HDbarcodesList.extend(hammingDistanceList)
-    
+
     with open(output, 'w') as out:
         pass
 
