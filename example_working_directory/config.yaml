@@ -8,17 +8,6 @@ storage_data_raw : data
 # directory within above directory that contains reads
 fast5_dir: fast5
 
-
-# How to parse the folders found in 'storage_data_raw'. A 'reads' subfolder is
-# expected containing the batches of fast5 raw reads.
-# A runname pattern could be 20180101_FAH12345_FLO-MIN106_SQK-LSK109_WA01
-# Field IDs are zero based.
-storage_runname:
-    delimiter: '_'
-    field_ID: 1
-    field_flowcell: 2
-    field_kit: 3
-
 # basecalling
 do_basecalling: False                # set to True if basecalling needs to be run and data is provided as .fast5 files, in directories that are named in all run tags. Set to False if data has already been basecalled and is in the sequences folder.
 # config file for guppy basecalling
@@ -77,9 +66,8 @@ demux_threshold: 0.01          # threshold for carrying through to subsequent ru
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
 sequence_length_threshold: 0.1              # Proportion of sequence length to be used as threshold for discarding sequences that are of abberant length. Ex. if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed
-# do_AA_analysis: True                        # If set to False, only nucleotide-level analysis will be generated. If set to true, AA-level analysis generated as well and, to prevent mismatch between nucleotide and amino acid -level analysis, sequences that do not pass AA-level quality checks will not be analyzed (e.g. sequences with frameshift mutations)
-# auto_detect_longest_ORF: False               # If set to true, automatically detects the longest ORF that can be identified in the reference sequence to use for protein level analysis. If analysis of a different protein sequence is desired, (e.g. shorter than full gene, so start or stop codon are not included) set to False and provide nucleotide sequence corresponding to protein as third sequence in reference fasta file
-highest_abundance_genotypes: 5                # number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
+highest_abundance_genotypes: 10                # int, number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
+genotype_ID_alignments: 20, 40                # similar to above, but a comma separated list of genotype IDs. Will be included in the same output file as the highest abundance genotypes. set to 0 if not desired
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed
 

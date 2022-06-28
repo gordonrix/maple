@@ -139,7 +139,7 @@ if config['merge_paired_end']:
             fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['fwdReads']),
             rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['rvsReads'])
         output:
-            merged = protected("sequences/{tag, [^\/_]*}.fastq.gz"),
+            merged = "sequences/{tag, [^\/_]*}.fastq.gz",
             log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
             failedfwd = "sequences/paired/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
             failedrvs = "sequences/paired/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
@@ -156,7 +156,7 @@ elif config['nanopore']:
         input:
             lambda wildcards: get_batches_basecaller(wildcards)
         output:
-            protected("sequences/{tag, [^\/_]*}.fastq.gz")
+            "sequences/{tag, [^\/_]*}.fastq.gz"
         run:
             with open(output[0], 'wb') as fp_out:
                 if len(input)==0:
@@ -479,7 +479,7 @@ rule index_demuxed:
         """
 
 # Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output, so creating a separate
-#   rule for which correct input files are only given when AA analysis is not being performed, and giving this rule priority. I truly believe a better solution does not exist currently
+#   rule for which correct input files are only given when AA analysis is not being performed, and giving this rule priority. It's not pretty but it works.
 ruleorder: mutation_analysis_NTonly > mutation_analysis
 
 rule mutation_analysis_NTonly:
@@ -487,7 +487,7 @@ rule mutation_analysis_NTonly:
         bam = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
@@ -496,12 +496,13 @@ rule mutation_analysis:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['highest-abundance-alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
 def mut_stats_input(wildcards):
-    datatypes = ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'] if config['do_AA_mutation_analysis'][tag] else ['genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
+    datatypes = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
+    if config['do_AA_mutation_analysis'][tag]: datatypes.extend(['AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
     if config['do_demux'][wildcards.tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]

@@ -37,7 +37,8 @@ class MutationAnalysis:
         self.refStr = str(self.ref.seq)
         self.refTrimmedStr = str(self.refTrimmed.seq)
         self.config = config
-        self.highestAbundanceGenotypes = config['highest_abundance_genotypes']
+        self.highestAbundanceGenotypes = config.get('highest_abundance_genotypes', 0)
+        self.desiredGenotypeIDs = config.get('genotype_ID_alignments', 0)
         self.BAMin = BAMin
         self.outputList = output
         self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
@@ -367,12 +368,13 @@ class MutationAnalysis:
         genotypesDFcondensed.reset_index(inplace=True)
         genotypesDFcondensed.rename(columns={'index':'genotype', 'seq_ID':'count'}, inplace=True)
 
-        # iterate through x genotypes with highest counts (x defined in config file under 'num_representative_seqs'), get the representative sequence, and write alignments to file
-        topHitsDF = genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,]
+        # iterate through x genotypes with highest counts and genotypes of specific ID # (both defined in config file) , get a representative sequence for each, and write alignments to file
+        desiredGenotypeIDs = [int(x) for x in str(self.desiredGenotypeIDs).split(', ')]
+        genotypeAlignmentsOutDF = pd.concat( [genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,], genotypesDFcondensed.iloc[desiredGenotypeIDs,]] )
         with open(self.outputList[0], 'w') as txtOut:
             nameIndexedBAM = pysam.IndexedReads(bamFile)
             nameIndexedBAM.build()
-            for row in topHitsDF.itertuples():
+            for row in genotypeAlignmentsOutDF.itertuples():
                 if row.genotype=='wildtype':
                     continue
                 rowIndexFromBool = (row.avg_quality_score == genotypesDF.loc[:, 'avg_quality_score']) & (row.NT_substitutions == genotypesDF.loc[:, 'NT_substitutions']) & (row.NT_insertions == genotypesDF.loc[:, 'NT_insertions']) & (row.NT_deletions == genotypesDF.loc[:, 'NT_deletions'])
@@ -387,6 +389,7 @@ class MutationAnalysis:
                 for string in [ref, alignString, seq]:
                     txtOut.write(string+'\n')
                 txtOut.write('\n')
+            txtOut.write('')
 
         ntIDs = list(self.refTrimmedStr)
         ntPositions = [f'{str(i)}' for i in range(0, len(self.refTrimmedStr))]

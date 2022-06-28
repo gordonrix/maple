@@ -1,5 +1,5 @@
 snakemake
-python==3.9
+python==3.8
 PyYAML>=5.1
 setuptools
 wget
