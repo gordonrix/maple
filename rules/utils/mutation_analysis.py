@@ -297,7 +297,7 @@ class MutationAnalysis:
                 self.fastq = True
             bamFile.reset()
             break
-
+        
         for bamEntry in bamFile:
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
@@ -313,10 +313,6 @@ class MutationAnalysis:
                 AAmutArray += seqAAmutArray
                 seqTotalAAmuts = sum(sum(seqAAmutArray))
                 AAmutDist[seqTotalAAmuts] += 1
-
-            if all(mutType=='' for mutType in seqGenotype) and not self.barcodeColumn:     # keep a counter for wild type sequences instead of adding them to genotypes dataframe. 'wildtype' doesn't make sense if using noSplit barcodes, so this will be skipped and there will not be a wildtype row
-                wildTypeCount += 1
-                continue
 
             if not self.fastq:
                 avgQscore = -1
@@ -359,12 +355,14 @@ class MutationAnalysis:
         
         genotypesDFcondensed = genotypesDF.groupby(by=genotypesColumns[2:], as_index=False).agg({'seq_ID':'count', 'avg_quality_score':'max'})[list(genotypesDF.columns)]
         genotypesDFcondensed.sort_values(['seq_ID'], ascending=False, ignore_index=True, inplace=True)
-        wildTypeRow[0] = wildTypeCount
-        wildTypeDF = pd.DataFrame([wildTypeRow], columns=genotypesColumns)
-        genotypesDFcondensed = pd.concat([wildTypeDF,genotypesDFcondensed], ignore_index=True)
-        genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
+
+        # move wildtype row(s) to the beginning. rename as wild type only if there aren't any barcodes in the genotype, as this would result in many different 'wildtype' rows
+        wildtypeDF = genotypesDFcondensed.loc[(genotypesDFcondensed['NT_substitutions']=='')&(genotypesDFcondensed['NT_insertions']=='')&(genotypesDFcondensed['NT_deletions']=='')]
+        genotypesDFcondensed = pd.concat([wildtypeDF, genotypesDFcondensed.iloc[list(genotypesDFcondensed.index.difference(wildtypeDF.index))]])
         if self.barcodeColumn:
-            genotypesDFcondensed.drop(index='wildtype', inplace=True)
+            genotypesDFcondensed.index += 1
+        else:
+            genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
         genotypesDFcondensed.reset_index(inplace=True)
         genotypesDFcondensed.rename(columns={'index':'genotype_ID', 'seq_ID':'count'}, inplace=True)
 
