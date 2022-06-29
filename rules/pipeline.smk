@@ -487,7 +487,7 @@ rule mutation_analysis_NTonly:
         bam = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
@@ -496,12 +496,12 @@ rule mutation_analysis:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
 def mut_stats_input(wildcards):
-    datatypes = ['alignments.txt', 'genotypes.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
+    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
     if config['do_AA_mutation_analysis'][tag]: datatypes.extend(['AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
     if config['do_demux'][wildcards.tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]

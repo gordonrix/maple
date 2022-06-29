@@ -67,7 +67,7 @@ demux_threshold: 0.01          # threshold for carrying through to subsequent ru
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
 sequence_length_threshold: 0.1              # Proportion of sequence length to be used as threshold for discarding sequences that are of abberant length. Ex. if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed
 highest_abundance_genotypes: 10                # int, number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
-genotype_ID_alignments: 20, 40                # similar to above, but a comma separated list of genotype IDs. Will be included in the same output file as the highest abundance genotypes. set to 0 if not desired
+genotype_ID_alignments: 20, 40, 100000                # similar to above, but a comma separated list of genotype IDs. Will be included in the same output file as the highest abundance genotypes. set to 0 if not desired
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed
 

@@ -366,16 +366,22 @@ class MutationAnalysis:
         if self.barcodeColumn:
             genotypesDFcondensed.drop(index='wildtype', inplace=True)
         genotypesDFcondensed.reset_index(inplace=True)
-        genotypesDFcondensed.rename(columns={'index':'genotype', 'seq_ID':'count'}, inplace=True)
+        genotypesDFcondensed.rename(columns={'index':'genotype_ID', 'seq_ID':'count'}, inplace=True)
+
+        # add column that correlates every sequence ID with a genotype ID from the condensed genotypes DF
+        def get_row_index(df, subs, ins, dels):
+            return df.loc[(df['NT_substitutions']==subs) & (df['NT_insertions']==ins) & (df['NT_deletions']==dels)].loc[:, 'genotype_ID'].iloc[0]
+        genotypesDF['genotype_ID'] = genotypesDF.apply(lambda row:
+            get_row_index(genotypesDFcondensed, row['NT_substitutions'], row['NT_insertions'], row['NT_deletions']), axis=1)
 
         # iterate through x genotypes with highest counts and genotypes of specific ID # (both defined in config file) , get a representative sequence for each, and write alignments to file
-        desiredGenotypeIDs = [int(x) for x in str(self.desiredGenotypeIDs).split(', ')]
+        desiredGenotypeIDs = [int(ID) for ID in str(self.desiredGenotypeIDs).split(', ') if int(ID) <= len(genotypesDFcondensed)]
         genotypeAlignmentsOutDF = pd.concat( [genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,], genotypesDFcondensed.iloc[desiredGenotypeIDs,]] )
         with open(self.outputList[0], 'w') as txtOut:
             nameIndexedBAM = pysam.IndexedReads(bamFile)
             nameIndexedBAM.build()
             for row in genotypeAlignmentsOutDF.itertuples():
-                if row.genotype=='wildtype':
+                if row.genotype_ID=='wildtype':
                     continue
                 rowIndexFromBool = (row.avg_quality_score == genotypesDF.loc[:, 'avg_quality_score']) & (row.NT_substitutions == genotypesDF.loc[:, 'NT_substitutions']) & (row.NT_insertions == genotypesDF.loc[:, 'NT_insertions']) & (row.NT_deletions == genotypesDF.loc[:, 'NT_deletions'])
                 seqID = genotypesDF[rowIndexFromBool]['seq_ID'].tolist()[0]
@@ -385,7 +391,7 @@ class MutationAnalysis:
                 x = self.clean_alignment(BAMentry)
                 if x == None: print(BAMentry.query_name)
                 ref, alignString, seq, _, _, _ = x
-                txtOut.write(f'Genotype {row.genotype} representative sequence. Sequence ID: {seqID}\n')
+                txtOut.write(f'Genotype {row.genotype_ID} representative sequence. Sequence ID: {seqID}\n')
                 for string in [ref, alignString, seq]:
                     txtOut.write(string+'\n')
                 txtOut.write('\n')
@@ -405,14 +411,16 @@ class MutationAnalysis:
         NTdistDF.index.name = 'n'
 
         genotypesDFcondensed.drop(columns=['avg_quality_score'], inplace=True)
-
         genotypesDFcondensed.to_csv(self.outputList[1], index=False)
-        failuresDF.to_csv(self.outputList[2], index=False)
+
+        genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
+
+        failuresDF.to_csv(self.outputList[3], index=False)
         NTmutDF.index.name = 'NT_mutation_count'
         if not self.config['mutations_frequencies_raw'] and totalSeqs>0:
             NTmutDF = NTmutDF.divide(totalSeqs)
-        NTmutDF.to_csv(self.outputList[3])
-        NTdistDF.to_csv(self.outputList[4])
+        NTmutDF.to_csv(self.outputList[4])
+        NTdistDF.to_csv(self.outputList[5])
         
         if self.doAAanalysis:
             resiIDs = list(str(Seq(self.refProtein).translate()))
@@ -426,11 +434,11 @@ class MutationAnalysis:
             AAmutDF.index.name = 'AA_mutation_count'
             if not self.config['mutations_frequencies_raw'] and totalSeqs > 0:
                 AAmutDF = AAmutDF.divide(totalSeqs)
-            AAmutDF.to_csv(self.outputList[5])
+            AAmutDF.to_csv(self.outputList[6])
 
             AAdistDF = pd.DataFrame(AAmutDist, columns=['seqs_with_n_AAsubstitutions'])
             AAdistDF.index.name = 'n'
-            AAdistDF.to_csv(self.outputList[6])
+            AAdistDF.to_csv(self.outputList[7])
 
 if __name__ == '__main__':
     main()

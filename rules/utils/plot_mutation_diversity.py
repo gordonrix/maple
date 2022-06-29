@@ -30,7 +30,7 @@ genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=
 genotypesDF.drop(genotypesDF[genotypesDF['NT_deletions'] != ''].index, inplace=True)
 genotypesDF.drop(genotypesDF[genotypesDF['count'] == 0].index, inplace=True) # removes wildtype row if count is 0
 genotypesDF.drop(['NT_insertions','NT_deletions'], axis=1, inplace=True)
-genotypesDF.set_index('genotype', inplace=True)
+genotypesDF.set_index('genotype_ID', inplace=True)
 refSeqfasta = config['runs'][tag]['reference']
 NTref = list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq
 NTrefLength = len(NTref)
