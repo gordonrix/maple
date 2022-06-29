@@ -111,7 +111,7 @@ def main():
         
         bcGroupSpectrumPivot = bcGroupSpectrumMelted.pivot(index='wtNT', columns='mutNT', values = 'value')
 
-        dataOutName = os.path.join(csvOutDir, f'{tag}_{row.barcode_group}_mutSpectrum.csv')
+        dataOutName = os.path.join(csvOutDir, tag, row.barcode_group, f'{tag}_{row.barcode_group}_mutSpectrum.csv')
         renameDict = {}
         for nt in list('ATGC'): renameDict[nt] = 'mut: '+nt
         bcGroupSpectrumPivot.rename(columns=renameDict).to_csv(dataOutName)
