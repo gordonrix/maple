@@ -1,7 +1,6 @@
 # imports
 import os, sys, glob
-from rules.utils.get_file import get_sequence_batch
-from rules.utils.storage import get_flowcell, get_kit, get_ID
+
 # local rules
 if not config['merge_paired_end']:
     localrules: basecaller_merge_tag
