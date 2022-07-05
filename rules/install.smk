@@ -42,13 +42,17 @@ rule all:
         "bin/guppy_basecaller",
         "bin/minimap2",
         "bin/samtools",
-        "bin/NGmerge"
+        "bin/NGmerge",
+        "lib/python3.8/C3POa.py",
+        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so"
 
 rule all_but_guppy:
     input:
         "bin/minimap2",
         "bin/samtools",
-        "bin/NGmerge"
+        "bin/NGmerge",
+        "lib/python3.8/C3POa.py",
+        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so"
 
 # helper functions
 def find_go():
@@ -248,6 +252,38 @@ rule NGmerge:
         fi
         make clean && make -j{threads}
         cp NGmerge ../../{output.bin}
+        """
+
+rule C3POa:
+    output:
+        C3POa = "lib/python3.8/C3POa.py",
+        conk = "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so"
+    threads: config['threads_build']
+    shell:
+        """
+        mkdir -p src && cd src
+        if [ -d C3POa ]; then
+            rm -r -f C3POa
+        fi
+        git clone https://github.com/christopher-vollmers/C3POa.git && cd C3POa
+        # hardcoded replacement of scoring parameters
+        sed -i 's/penalty, iters, window, order = 20, 3, 41, 2/penalty, iters, window, order = 40, 3, 9, 2/' C3POa.py && cd ..
+
+        if [ -d conk ]; then
+            rm -r -f conk
+        fi
+        git clone https://github.com/rvolden/conk && cd conk
+        python setup.py sdist bdist_wheel
+        python -m pip install dist/conk*whl --force-reinstall
+        cd ../..
+        
+        if [ -d lib/python3.8/bin ]; then
+            mv src/C3POa/bin/* lib/python3.8/bin/
+        else
+            mv src/C3POa/bin lib/python3.8
+        fi
+        mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python3.8
+        rm -r -f src/C3POa
         """
 
 rule UCSCtools:

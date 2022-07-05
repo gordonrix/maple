@@ -318,6 +318,24 @@ for refFasta, alnFasta in refSeqFastaFiles:
             first_record = next(SeqIO.parse(refFasta, 'fasta'))
             fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
 
+# clarify which tags require RCA consensus and generate splint fasta files
+config['do_RCA_consensus'] = {}
+for tag in config['runs']:
+    if 'splint' in config['runs'][tag]:
+        config['do_RCA_consensus'][tag] = True
+        splintSeq = config['runs'][tag]['splint']
+        splintFasta = os.path.join(config['references_directory'], f".{tag}_splint.fasta")
+        makeSplintFasta = True
+        if os.path.isfile(splintFasta):
+            first_record = next(SeqIO.parse(splintFasta, 'fasta'))
+            if (first_record.id == 'splint') and (str(first_record.seq).upper() == splintSeq.upper()):
+                makeSplintFasta = False
+            else:
+                print_(f"[NOTICE] Splint sequence provided in config file for run tag `{tag}` has changed. Updating splint fasta file `{splintFasta}`.", file=sys.stderr)
+        if makeSplintFasta:
+            with open(splintFasta, 'w') as out:
+                out.write(f'>splint\n{splintSeq}')
+
 # UMI checks
 config['do_UMI_analysis'] = {}
 consensusCopyDict = {}      # dictionary that is used to reuse consensus sequences from a different tag if they are generated using the same files. Keys are tags, and values are tags whose consensus sequences will be used for downstream files for the key tag
@@ -400,7 +418,7 @@ for tag in config['runs']:
                 print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
             if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                 print_(f"[WARNING] Tag `{tag}`, barcode type `{barcodeType}` reverseComplement keyword must be set as True or False")
-        elif config['runs'][tag].get('generate', False) != False:
+        elif config['runs'][tag].get('generate', False) == False:
             print_(f"[WARNING] Barcode fasta file `{bcFasta}` does not exist, but is used for barcode type `{barcodeType}` in run tag `{tag}`")
         if 'barcodeGroups' in config['runs'][tag]:
             for group in config['runs'][tag]['barcodeGroups']:
@@ -502,7 +520,6 @@ if len(errors) > 0:
 
 # # include modules
 include : "rules/clean.smk"
-include : "rules/report.smk"
 include : "rules/pipeline.smk"
 
 # error and success handler

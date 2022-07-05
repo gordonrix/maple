@@ -1,0 +1,36 @@
+name:   maple
+channels:
+  - conda
+  - bioconda
+  - conda-forge
+dependencies:
+  - snakemake
+  - python=3.8
+  - PyYAML>=5.1
+  - setuptools
+  - wget
+  - numpy
+  - pandas
+  - reportlab
+  - svglib
+  - bokeh
+  - biopython
+  - umi_tools
+  - h5py >=2.7.1
+  - ont-fast5-api
+  - medaka
+  - nanoplot
+  - holoviews
+  - networkx
+  - seaborn
+  - editdistance
+  - racon
+  - wheel
+  - cython
+  - scipy
+  - tqdm
+  - blat
+  - mappy
+  - pip
+  - pip:
+    - pyabpoa==1.0.5

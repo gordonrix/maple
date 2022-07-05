@@ -164,9 +164,29 @@ elif config['nanopore']:
                     with open(f, 'rb') as fp_in:
                         fp_out.write(fp_in.read())
 
-rule UMI_minimap2:
+rule RCA_consensus:
     input:
         sequence = 'sequences/{tag}.fastq.gz',
+        splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
+    output:
+        consensus = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fastq.gz',
+        log = 'sequences/{tag, [^\/_]*}_RCA-consensus.log'
+    threads: workflow.cores/len([tag for tag in config['do_RCA_consensus'] if config['do_RCA_consensus'][tag]==True])
+    resources:
+        threads = lambda wildcards, threads: threads,
+    shell:
+        """
+        rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA-consensus
+        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z
+        mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/splint/R2C2_Consensus.fasta.gz {output.consensus}
+        mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/c3poa.log {output.log}
+        rm -r sequences/tempOutDir-{wildcards.tag}_RCA-consensus
+        
+        """
+
+rule UMI_minimap2:
+    input:
+        sequence = lambda wildcards: 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fastq.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
         aln = pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
@@ -337,6 +357,8 @@ rule UMI_compress_consensus:
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
         return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
+    elif config['do_RCA_consensus'][wildcards.tag]:
+        return 'sequences/RCA-consensus/{tag}_RCA-consensus.fastq.gz'
     else:
         return 'sequences/{tag}.fastq.gz'
 
