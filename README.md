@@ -2,8 +2,8 @@
 
 Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline for analysis of
 mutation-rich next generation sequencing data from highly parallelized targeted evolution experiments, with a
-special focus on Oxford Nanopore Technology (ONT) data. It provides consensus sequence generation using
-unique molecular identifiers (UMIs), easy-to-use and versatile demultiplexing, and a suite of analyses and plots.
+special focus on Oxford Nanopore Technology (ONT) data. It provides consensus sequence generation using both concatemer-
+and unique molecular identifiers (UMI)-based consensus, easy-to-use and versatile demultiplexing, and a suite of analyses and plots.
 
 Analysis is primarily performed by a mix of custom python scripts and several external tools:
  - [Guppy](https://nanoporetech.com/nanopore-sequencing-data-analysis)
@@ -12,6 +12,7 @@ Analysis is primarily performed by a mix of custom python scripts and several ex
  - [Samtools](http://www.htslib.org/)
  - [NGmerge](https://github.com/harvardinformatics/NGmerge)
  - [NanoPlot](https://github.com/wdecoster/NanoPlot)
+ - [C3POa](https://github.com/christopher-vollmers/C3POa)
 
 Additionally, many concepts and code are borrowed from the (very sophisticated) snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
 
@@ -48,17 +49,17 @@ with snakemake:
     conda create mamba -n mambaEnv -c conda-forge
 
 
-With root privileges, mamba may instead be installed in the base environment to reduce package redundancy:
+Alternatively, with root privileges, mamba may instead be installed in the base environment to reduce package redundancy:
 
     conda install mamba -n base -c conda-forge
 
 
 Next, use mamba to create the environment that we need. If using mamba from the base environment, the default
 location is probably fine, but if using mamba within its own environment, the path to the environment should
-be specified. In this example, the default path prefix ~/.conda/envs is used, but please ensure this is the correct location:
+be specified. In this example, the default path prefix ~/miniconda3/envs is used, but please ensure this is the correct location:
 
     conda activate mambaEnv
-    mamba create --prefix ~/.conda/envs/maple -c bioconda -c conda-forge --file requirements.txt -y
+    mamba env create --prefix ~/miniconda3/envs/maple --file requirements.yaml
     conda deactivate
     conda activate maple
 
@@ -87,8 +88,7 @@ Following installation, the steps required for basic usage of the pipeline are a
 1. Create a directory for the dataset(s) that you wish to analyze by copying the example_working_directory to a location of your choice,
 rename it as desired, and navigate to this new directory. It is recommended that a new directory be made for distinct experiments
 2. Modify the config.yaml file within the new directory as appropriate. Most of these settings can remain unchanged, but the settings for individual
-tag(s) should be changed, such as the sequencing data and reference sequences file locations and barcode information (if demultiplexing is required),
-and boolean settings such as `do_basecalling`, and `merge_paired_end`, 
+tag(s) should be changed, such as the sequencing data type/location and the types of analysis that should be performed (e.g. concatemer/UMI consensus, demultiplexing).
 3. Modify the reference sequence and barcode .fasta files (located in the 'ref' directory) as appropriate. Use the exampleReferences.fasta file
 for assistance with determining the appropriate reference sequences.
 4. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
@@ -100,7 +100,7 @@ Here I will ask maple to produce the mutation stats summary file for the P0 tag,
     conda activate maple
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 P0_mutation-stats.csv
 
-Use of the '-n' flag is recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
+Use of the '-n' flag is strongly recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
 not executed. Because many checks are performed to identify any potential problems in how things were set up (e.g. checking that reference files
 exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The '-q' flag can also be useful if
 long snakemake print statements prohibit reading warnings that appear.
