@@ -70,7 +70,7 @@ Running the following command, with the --prefix flag modified to point to the l
 we created in the previous step, will carry out all the steps to provide the environment with program binaries
 needed for execution of the pipeline:
 
-    snakemake --snakefile rules/install.smk --directory ~/.conda/envs/maple -j 4 all
+    snakemake --snakefile rules/install.smk --directory ~/miniconda3/envs/maple -j 4 all
 
 If basecalling ONT data is not needed, `all` in the above command may be replaced with `all_but_guppy`
 
