@@ -118,7 +118,6 @@ hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(geno
 hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
 hammingDistanceEdgesDF = hammingDistanceMatrixDF.stack().reset_index()
 hammingDistanceEdgesDF.columns = ['source', 'target', 'hammingDistance']
-hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]
 if maxHD:
     hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]                                       # apply filter for max hamming distance based on user-supplied value
 else: 

@@ -20,7 +20,7 @@ from Bio import SeqIO
 # generate list to be populated with rows for pipeline step, # of sequences, and time
 # between pipeline steps in minutes, which will be converted to dataframe later
 outList = []
-tag = snakemake.input.initial.split('/')[1].strip('.fastq.gz')
+tag = snakemake.input.initial.split('/')[1].split('.fastq.gz')[0]
 
 # Get reference id
 refID = list(SeqIO.parse(snakemake.config['runs'][tag]['reference'], 'fasta'))[0].id
