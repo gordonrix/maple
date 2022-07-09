@@ -327,7 +327,7 @@ class MutationAnalysis:
                 mutStr = ''
                 mutOneHot = []
                 for mut in self.NT_muts_of_interest:
-                    if mut in seqGenotype[genotypesColumns.index('NT_substitutions')].split(', '):
+                    if mut in seqGenotype[genotypesColumns.index('NT_substitutions')].split(', ') + seqGenotype[genotypesColumns.index('NT_insertions')].split(', ') + seqGenotype[genotypesColumns.index('NT_deletions')].split(', '):
                         mutStr += mut
                         mutOneHot.append(1)
                     else:
