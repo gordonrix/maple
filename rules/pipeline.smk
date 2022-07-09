@@ -169,9 +169,9 @@ rule RCA_consensus:
         sequence = 'sequences/{tag}.fastq.gz',
         splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
     output:
-        consensus = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fastq.gz',
-        log = 'sequences/{tag, [^\/_]*}_RCA-consensus.log'
-    threads: workflow.cores/len([tag for tag in config['do_RCA_consensus'] if config['do_RCA_consensus'][tag]==True])
+        consensus = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus-no-filter.fasta.gz',
+        log = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.log'
+    threads: workflow.cores
     resources:
         threads = lambda wildcards, threads: threads,
     shell:
@@ -184,9 +184,41 @@ rule RCA_consensus:
         
         """
 
+rule filter_RCA_consensus:
+    input:
+        'sequences/RCA-consensus/{tag}_RCA-consensus-no-filter.fasta.gz'
+    output:
+        'sequences/RCA-consensus/{tag}_RCA-consensus.fasta.gz'
+    params:
+        minConcatemerLength = lambda wildcards: config['minimum_concatemers']
+    run:
+        import gzip
+        from Bio import SeqIO
+        import os
+        seqMemoryLimit = 100000 # number of sequences to hold in memory before writing
+        seqsOutList = []
+        count = 0
+        input = input[0]
+        output = output[0]
+        for f in [output, output[:-3]]:
+            if os.path.isfile(f):
+                os.remove(f)
+        with open(output[:-3], 'a') as outfile:
+            with gzip.open(input, 'rt') as infile:
+                for record in SeqIO.parse(infile, 'fasta'):
+                    if int(record.id.split('_')[-2]) >= params.minConcatemerLength:
+                        seqsOutList.append(record)
+                        count += 1
+                    if count > seqMemoryLimit:
+                        SeqIO.write(seqsOutList, outfile, 'fasta-2line')
+                        seqsOutList = []
+                        count = 0
+            SeqIO.write(seqsOutList, outfile, 'fasta-2line')
+        os.system(f'gzip {output[:-3]}')
+
 rule UMI_minimap2:
     input:
-        sequence = lambda wildcards: 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fastq.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
+        sequence = lambda wildcards: 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fasta.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
         aln = pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
@@ -358,7 +390,7 @@ def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
         return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     elif config['do_RCA_consensus'][wildcards.tag]:
-        return 'sequences/RCA-consensus/{tag}_RCA-consensus.fastq.gz'
+        return 'sequences/RCA-consensus/{tag}_RCA-consensus.fasta.gz'
     else:
         return 'sequences/{tag}.fastq.gz'
 

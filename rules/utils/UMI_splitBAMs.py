@@ -87,8 +87,11 @@ class splitBAM:
                         UMI_BAMbatchDict[ID] = []
                         UMI_strandTrackDict[ID] = []
                         UMI_qualityTrackDict[ID] = []
-                    BAMmeanQscore = np.mean(BAMentry.query_qualities)
-                    insertIndex = bisect.bisect_left(UMI_qualityTrackDict[ID], BAMmeanQscore) # grow list of BAM entries, Qscores, and strand tracking in order of Qscores so that lowest Qscore sequences get removed first
+                    if BAMentry.query_qualities is not None:
+                        BAMmeanQscore = np.mean(BAMentry.query_qualities)
+                        insertIndex = bisect.bisect_left(UMI_qualityTrackDict[ID], BAMmeanQscore) # grow list of BAM entries, Qscores, and strand tracking in order of Qscores so that lowest Qscore sequences get removed first
+                    else:
+                        insertIndex, BAMmeanQscore = 0, 0
                     UMI_BAMbatchDict[ID].insert(insertIndex, BAMentry)
                     UMI_qualityTrackDict[ID].insert(insertIndex, BAMmeanQscore)
                     if BAMentry.is_reverse:
