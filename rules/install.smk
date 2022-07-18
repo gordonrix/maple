@@ -44,7 +44,8 @@ rule all:
         "bin/samtools",
         "bin/NGmerge",
         "lib/python3.8/C3POa.py",
-        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so"
+        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so",
+        "lib/python3.8/site-packages/medaka/maple_smolecule.py"
 
 rule all_but_guppy:
     input:
@@ -52,7 +53,8 @@ rule all_but_guppy:
         "bin/samtools",
         "bin/NGmerge",
         "lib/python3.8/C3POa.py",
-        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so"
+        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so",
+        "lib/python3.8/site-packages/medaka/maple_smolecule.py"
 
 # helper functions
 def find_go():
@@ -285,6 +287,21 @@ rule C3POa:
         mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python3.8
         rm -r -f src/C3POa
         """
+
+rule maple_medaka:
+    output:
+        ms = "lib/python3.8/site-packages/medaka/maple_smolecule.py"
+    shell:
+        """
+        mkdir -p src && cd src
+        if [ -d maple ]; then
+            rm -r -f maple
+        fi
+        git clone https://github.com/gordonrix/maple.git && cd ..
+        mv src/maple/rules/utils/maple_smolecule.py src/maple/rules/utils/medaka.py lib/python3.8/site-packages/medaka
+        rm -r -f src/maple
+        """
+
 
 rule UCSCtools:
     output:

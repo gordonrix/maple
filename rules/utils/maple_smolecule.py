@@ -16,13 +16,12 @@ import medaka.medaka
 
 Subread = namedtuple('Subread', 'name seq')
 Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
-REFSEQ = 'ggccgcctagagcctgcactagacgaactaggcaagatgcgtccaatccgtctaaacatggtgacaacgctggacagatgacgtaacaccgagccacatcctgagAGGAGATGnnnnnnCGTGTAGAGACTGCGTAGGNNNYRNNNYRNNNYRNNNgatgacctatacataggaagatctatagaaacaaaaagattaataactttcaaatatcagaaaaatatagaaaCatGtgataagctcatagacatataaaaaaatATGGTTTCTAAAGGTGAAGCTGTTATTAAAGAATTTATGAGATTTAAAGTTCACATGGAAGGTTCTATGAATGGTCATGAATTTGAAATTGAAGGTGAAGGTGAAGGTAGACCTTATGAAGGTACTCAAACTGCTAAATTGAAAGTTACTAAAGGTGGTCCATTGCCATTTTCTTGGGATATTTTGTCTCCACAATTTATGTATGGTTCTAGAGCTTTTATTAAACATCCTGCTGATATTCCTGATTATTATAAACAATCTTTTCCTGAAGGTTTTAAATGGGAAAGAGTTATGAATTTTGAAGATGGTGGTGCTGTTACTGTTACTCAAGATACTTCTTTGGAAGATGGTACTTTGATTTATAAAGTTAAATTGAGAGGTACTAATTTTCCACCTGATGGTCCTGTTATGCAAAAAAAAACTATGGGTTGGGAAGCTTCTACTGAAAGATTGTATCCTGAAGATGGTGTTTTGAAAGGTGATATTAAAATGGCTTTGAGATTGAAAGATGGTGGTAGATATTTGGCTGATTTTAAAACTACTTATAAAGCTAAAAAACCTGTTCAAATGCCGGGTGCTTATAATGTAGATAGAAAACTTGACATTACTTCACATAACGAGGATTATACTGTTGTTGAACAATATGAAAGATCTGAAGGTAGACATTCTACTGGTGGTATGGATGAATTGTATAAATCTGGTTTGAGATCTAGGGCTCAAGCTTCTAATTCTGCTGTTGATGGTACTGCTGGTCCTGGTTCTACTGGTTCTAGAGGTTCTTAAatcctattaatGGCCGCaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaGGCCGGCATGGTCCCAGCCTCCTCGCTGGCGCCGGCTGGGCAACATTCCGAGGGGACCGTCCCCTCGGTAATGGCGAATGGGACCCACGctaggctgTAAtttttcgccggagtcaattaggtcatacNNNYRNNNYRNNNYRNNNCACTCGCACTGACTCGATnnnnnnGCTTTCgagctaccgttccagcgtcaatagtgccgatgaccacagacccggttaagacatagccgaatggagccgcgccgaccacagaatgataacgagtcacagc'
 
 
 class Read(object):
     """Functionality to extract information from a read with subreads."""
 
-    def __init__(self, name, subreads, initialize=False):
+    def __init__(self, name, reference, subreads, initialize=False):
         """Initialize repeat read analysis.
 
         :param name: read name.
@@ -35,8 +34,7 @@ class Read(object):
         if len(self.subreads) == 0:
             raise ValueError(
                 "Cannot create a read with fewer than 0 subreads.")
-        self.consensus = self.subreads[0].seq
-        # self.consensus = snakemake.config['runs'][snakemake.wildcards.tag][
+        self.consensus = reference
         # SW alignments of subreads to consensus
         self._alignments = None
         self._alignments_valid = False
@@ -72,7 +70,7 @@ class Read(object):
 
     @classmethod
     def multi_from_fastx(
-            cls, fastx,
+            cls, fastx, reference,
             take_all=False, read_id=None, depth_filter=1, length_filter=0):
         """Create multiple `Read` s from a fasta/q file.
 
@@ -80,6 +78,7 @@ class Read(object):
         <read_id>_<subread_id>.
 
         :param fastx: input file path.
+        :param reference: str, reference sequence that will be used for alignment
         :param take_all: skip check on subread_ids, take all subreads in one
             `Read`.
         :param read_id: name of `Read`. Only used for `take_all == True`. If
@@ -104,7 +103,7 @@ class Read(object):
                             med_length = np.median(
                                 [len(x.seq) for x in subreads])
                             if med_length > length_filter:
-                                yield cls(read_id, subreads)
+                                yield cls(read_id, reference, subreads)
                         read_id = cur_read_id
                         subreads = []
                 if len(entry.sequence) > 0:
@@ -113,7 +112,7 @@ class Read(object):
             if len(subreads) >= depth_filter:
                 med_length = np.median([len(x.seq) for x in subreads])
                 if med_length > length_filter:
-                    yield cls(read_id, subreads)
+                    yield cls(read_id, reference, subreads)
 
     @property
     def seqs(self):
@@ -294,9 +293,9 @@ def write_bam(fname, alignments, header, bam=True):
 
 def _read_worker(read, align=True, method='spoa'):
     read.initialize()
-    # if read.nseqs > 2:  # skip if there is only one subread
-    #     for it in range(2):
-    #         read.poa_consensus(method=method)
+#    if read.nseqs > 2:  # skip if there is only one subread
+#        for it in range(2):
+#            read.poa_consensus(method=method)
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -381,6 +380,9 @@ def main(args):
             except Exception:
                 pass
 
+    with open(args.reference, 'r') as ref:
+        reference = ref.readlines()[1].upper()
+
     if len(args.fasta) > 1:
         logger.info(
             "Given {} input files, assuming one read per file.".format(
@@ -391,7 +393,7 @@ def main(args):
             "Given one input file, subreads are assumed "
             "to be grouped by read.")
         reads = Read.multi_from_fastx(
-            args.fasta[0], depth_filter=args.depth, length_filter=args.length)
+            args.fasta[0], reference, depth_filter=args.depth, length_filter=args.length)
 
     logger.info(
         "Running {} pre-medaka consensus for all reads.".format(args.method))
@@ -412,7 +414,6 @@ def main(args):
 
     logger.info("Running medaka consensus.")
     t2 = now()
-    args.bam = args.fasta[0]
     args.bam = bam_file
     out_dir = args.output
     args.output = os.path.join(out_dir, 'consensus.hdf')

@@ -12,6 +12,7 @@ import medaka.models
 import medaka.options
 import medaka.prediction
 import medaka.rle
+import medaka.maple_smolecule
 import medaka.smolecule
 import medaka.stitch
 import medaka.training
@@ -445,6 +446,26 @@ def medaka_parser():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
+
+    # Consensus from single-molecules with subreads, BAM file as input
+    msparser = subparsers.add_parser('maple_smolecule',
+        help='Create consensus sequences from pre-aligned single-molecule reads.',
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    msparser.set_defaults(func=medaka.maple_smolecule.main)
+    msparser.add_argument('output', help='Output directory.')
+    msparser.add_argument('reference', help='fasta file for reference sequence that will be used for alignment.')
+    msparser.add_argument('fasta', nargs='+', help='pre-aligned single-molecule reads, sorted and grouped by UMI ID (UG tag in BAM file).')
+    msparser.add_argument('--method', choices=['spoa'], default='spoa', help='Pre-medaka consensus generation method.')
+    msparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
+    msparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
+    msparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    msparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
+    msparser.add_argument('--save_features', action='store_true', default=False,
+            help='Save features with consensus probabilities.')
+    msparser.add_argument('--qualities', action='store_true', default=False,
+            help='Output consensus with per-base quality scores (fastq).')
 
     # Consensus from single-molecules with subreads
     smparser = subparsers.add_parser('smolecule',

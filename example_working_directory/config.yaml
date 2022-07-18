@@ -18,9 +18,9 @@ basecalling_guppy_qscore_filter: 0
 basecalling_guppy_flags: ''
 
 # medaka
-medaka_model: 'r941_min_sup_g507'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507, r103_sup_g507
-medaka_conensus_flags: '--quiet'        # flags to add to medaka consensus shell command. threads, chunk-len, and model flags are already added.
-medaka_stitch_flags: '--quiet'          # flags to add to medaka stitch shell command. Threads flag already added
+medaka_model: 'r103_sup_variant_g507'      # Model for medaka to use. commonly used: r941_min_high_g360, r941_min_sup_g507, r103_sup_g507
+medaka_flags: '--quiet'        # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added.
+medaka_batches: 100                         # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
 
 ### end nanopore only section ###
 
@@ -33,7 +33,7 @@ references_directory: ref   # directory name for reference files, located in wor
 # Alignments need to be run with at least -j 2 for alignment and sam to bam conversion.
 threads_basecalling: 4
 threads_porechop: 4
-threads_medaka: 1
+threads_medaka: 2
 threads_alignment: 3
 threads_samtools : 1
 threads_demux: 4

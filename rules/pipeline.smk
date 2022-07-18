@@ -302,18 +302,15 @@ rule UMI_extract_summary:
 
 rule UMI_group:
     input:
-        bam = 'sequences/UMI/{tag}_UMIextract.bam',
-        index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
+        bam = 'sequences/UMI/{tag}_UMIextract.bam'
     output:
         bam = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam',
-        index = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam.bai',
         log = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv'
     params:
         UMI_mismatches = lambda wildcards: config['UMI_mismatches']
     shell:
         """
         umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
-        samtools index {output.bam}
         """
 
 rule plot_UMI_group:
@@ -325,70 +322,69 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-checkpoint UMI_splitBAMs:
+batchesList = [str(x) for x in range(0,config['medaka_batches'])]
+rule split_BAMs_to_fasta:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
-        index = 'sequences/UMI/{tag}_UMIgroup.bam.bai',
         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
     output:
-        outDir = directory('sequences/UMI/{tag, [^\/_]*}_UMIsplit')
+        fastas = expand('sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=batchesList)
+    params:
+        batches = lambda wildcards: config['medaka_batches'],
+        minimum = lambda wildcards: config['UMI_consensus_minimum'],
+        maximum = lambda wildcards: config['UMI_consensus_maximum']
     script:
         'utils/UMI_splitBAMs.py'
 
 rule UMI_consensus:
     input:
-        bam = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_reads.bam',
+        fasta = 'sequences/UMI/{tag}-temp/{batch}.fasta',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        hdf = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_calls.hdf',
-        consensus = 'sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta'
+        outDir = directory('sequences/UMI/{tag, [^\/_]*}-temp/{batch, [^\/_]*}'),
+        consensus = 'sequences/UMI/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta'
     params:
-        medaka_model = lambda wildcards: config['medaka_model'],
-        refLength = lambda wildcards, input: len(next(SeqIO.parse(input.alnRef, 'fasta')).seq),
-        consensus_flags = lambda wildcards: config['medaka_conensus_flags'],
-        stitch_flags = lambda wildcards: config['medaka_stitch_flags']
+        model = lambda wildcards: config['medaka_model'],
+        flags = lambda wildcards: config['medaka_flags'],
+        minimum = lambda wildcards: config['UMI_consensus_minimum']
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
-        samtools sort -o {input.bam} {input.bam}
-        samtools index {input.bam}
-        medaka consensus {params.consensus_flags} --threads {threads} --chunk_len {params.refLength} --model {params.medaka_model} {input.bam} {output.hdf}
-        medaka stitch {params.stitch_flags} --threads {threads} {output.hdf} {input.alnRef} {output.consensus}
+        medaka maple_smolecule --threads {threads} --model {params.model} --depth {params.minimum} {params.flags} {output.outDir} {input.alnRef} {input.fasta}
         """
-
-def UMI_merge_consensus_seqs_input(wildcards):
-    UMI_split_output = checkpoints.UMI_splitBAMs.get(tag=wildcards.tag).output[0]
-    UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.bam')
-    return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
 
 rule UMI_merge_consensus_seqs:
     input:
-        UMI_merge_consensus_seqs_input
+        lambda wildcards: expand('sequences/UMI/{{tag}}-temp/batch{x}/consensus.fasta', x = [str(x) for x in range(0,config['medaka_batches'])])
     output:
-        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta'
+        seqs = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.fasta.gz',
+        log = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.log'
     run:
-        with open(output[0], 'w') as fp_out:
-            if len(input)==0:
-                raise RuntimeError(f"Consensus sequences not found for tag `{wildcards.tag}`.")
+        with open(output.seqs[:-3], 'w') as fp_out, open(output.log, 'w') as log_out:
             for f in input:
                 with open(f, 'r') as fp_in:
-                    readID = f.split('/')[-1].strip('_medaka_consensus.fasta')
-                    fp_out.write(f'>{readID}\n')
-                    fp_out.write(fp_in.readlines()[1])
+                    fp_out.write(fp_in.read())
+        os.system(f'gzip {output.seqs[:-3]}')
 
-rule UMI_compress_consensus:
-    input:
-        'sequences/UMI/{tag}_UMIconsensus.fasta'
-    output:
-        'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta.gz'
-    shell:
-        """
-        gzip {input}
-        """
+
+
+# def UMI_merge_consensus_seqs_input(wildcards):
+#     UMI_split_output = checkpoints.UMI_splitBAMs.get(tag=wildcards.tag).output[0]
+#     UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.bam')
+#     return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
+# rule UMI_compress_consensus:
+#     input:
+#         'sequences/UMI/{tag}_UMIconsensus.fasta'
+#     output:
+#         'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta.gz'
+#     shell:
+#         """
+#         gzip {input}
+#         """
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
-        return expand('sequences/UMI/{tag}_UMIconsensus.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
+        return expand('sequences/UMI/{tag}_UMIconsensuses.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     elif config['do_RCA_consensus'][wildcards.tag]:
         return 'sequences/RCA-consensus/{tag}_RCA-consensus.fasta.gz'
     else:
