@@ -65,6 +65,8 @@ def main():
             start, stop = bcp.find_N_start_end(refAln, config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper())
             try:
                 barcode = BAMentry.query_alignment_sequence[ start:stop ]
+                if config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement']:
+                    barcode = Seq.reverse_complement(barcode)
                 if 'N' in barcode:
                     barcodeName = 'fail'
             except TypeError:

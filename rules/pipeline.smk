@@ -302,7 +302,8 @@ rule UMI_extract_summary:
 
 rule UMI_group:
     input:
-        bam = 'sequences/UMI/{tag}_UMIextract.bam'
+        bam = 'sequences/UMI/{tag}_UMIextract.bam',
+        index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
     output:
         bam = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam',
         log = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv'
@@ -365,22 +366,6 @@ rule UMI_merge_consensus_seqs:
                 with open(f, 'r') as fp_in:
                     fp_out.write(fp_in.read())
         os.system(f'gzip {output.seqs[:-3]}')
-
-
-
-# def UMI_merge_consensus_seqs_input(wildcards):
-#     UMI_split_output = checkpoints.UMI_splitBAMs.get(tag=wildcards.tag).output[0]
-#     UMI_split_output_template = os.path.join(UMI_split_output, 'UMI_{UMIID_finalUMI}_reads.bam')
-#     return expand('sequences/UMI/{tag}_UMIsplit/UMI_{UMIID_finalUMI}_medaka_consensus.fasta', tag=wildcards.tag, UMIID_finalUMI=glob_wildcards(UMI_split_output_template).UMIID_finalUMI)
-# rule UMI_compress_consensus:
-#     input:
-#         'sequences/UMI/{tag}_UMIconsensus.fasta'
-#     output:
-#         'sequences/UMI/{tag, [^\/_]*}_UMIconsensus.fasta.gz'
-#     shell:
-#         """
-#         gzip {input}
-#         """
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:

@@ -346,6 +346,7 @@ for tag in config['runs']:
     if 'UMI_contexts' in config['runs'][tag]:
         config['do_UMI_analysis'][tag] = True
         refFasta = config['runs'][tag]['reference']
+        config['runs'][tag]['UMI_contexts'] = [context.upper() for context in config['runs'][tag]['UMI_contexts']]
         for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
             occurences = str(alignmentSeq.seq).upper().count(context.upper())
             if occurences == 0:
@@ -412,6 +413,7 @@ for tag in config['runs']:
         for requiredKey in ['context', 'fasta', 'reverseComplement']:
             if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
                 print_(f"[WARNING] Tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.\n", file=sys.stderr)
+        config['runs'][tag]['barcodeInfo'][barcodeType]['context'] = config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()
         if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
             print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
         bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
