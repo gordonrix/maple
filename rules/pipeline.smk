@@ -346,12 +346,11 @@ rule UMI_consensus:
         consensus = 'sequences/UMI/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta'
     params:
         model = lambda wildcards: config['medaka_model'],
-        flags = lambda wildcards: config['medaka_flags'],
-        minimum = lambda wildcards: config['UMI_consensus_minimum']
+        flags = lambda wildcards: config['medaka_flags']
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
-        medaka maple_smolecule --threads {threads} --model {params.model} --depth {params.minimum} {params.flags} {output.outDir} {input.alnRef} {input.fasta}
+        medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} {output.outDir} {input.alnRef} {input.fasta}
         """
 
 rule UMI_merge_consensus_seqs:
