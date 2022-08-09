@@ -350,6 +350,7 @@ rule UMI_consensus:
     threads: lambda wildcards: config['threads_medaka']
     shell:
         """
+        rm -rf {output.outDir}
         medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} {output.outDir} {input.alnRef} {input.fasta}
         """
 
