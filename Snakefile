@@ -342,17 +342,17 @@ for tag in config['runs']:
     else:
         config['do_RCA_consensus'][tag] = False
 
+    refFasta = config['runs'][tag]['reference']
     alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
     if 'UMI_contexts' in config['runs'][tag]:
         config['do_UMI_analysis'][tag] = True
-        refFasta = config['runs'][tag]['reference']
         config['runs'][tag]['UMI_contexts'] = [context.upper() for context in config['runs'][tag]['UMI_contexts']]
         for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
             occurences = str(alignmentSeq.seq).upper().count(context.upper())
             if occurences == 0:
-                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n", file=sys.stderr)
+                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n")
             elif occurences > 1:
-                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, present more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n", file=sys.stderr)
+                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, present more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n")
     else:
         config['do_UMI_analysis'][tag] = False
 
@@ -504,7 +504,7 @@ for tag in config['runs']:
                         firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
                         firstTagRunname = config['runs'][firstTag]['runname']
                     else:
-                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n", file=sys.stderr)
+                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
                     for tp in timepointsCSV.columns[1:]:
                         tag = row[tp].split('_')[0]
                         if tag in config['runs']:
@@ -516,7 +516,7 @@ for tag in config['runs']:
                                 if tagRunname != firstTagRunname and 'background' not in config:
                                     print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
                         else:
-                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n", file=sys.stderr)
+                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
                     
         else:
             print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.\n", file=sys.stderr)
