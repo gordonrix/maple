@@ -113,6 +113,8 @@ output_file(snakemake.output.HamDistPlot)
 save(hamDistPlot)
 
 ### generate network graph of sequences as nodes and edges connecting all nodes, with inverse hamming distance as edge weight. Plot with holoviews
+if len(hammingDistanceRows)==0:
+    exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after preprocessing.')  
 hammingDistance2Darray = np.vstack(hammingDistanceRows)
 hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(genotypesDF.index), index=list(genotypesDF.index))
 hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
@@ -126,6 +128,8 @@ def mutCountHDweighting(source,target, hammingDistance):
     sourceMutCount = int(genotypesDF.loc[source,'NT_substitutions_count'])
     targetMutCount = int(genotypesDF.loc[target,'NT_substitutions_count'])
     return np.e**((sourceMutCount+targetMutCount)/2-hammingDistance)       # weight is e^(the average mutation count of the two mutants minus the hamming distance). This makes weight dependent on both hamming distance and # of mutations, resulting in better clustering of similar clades
+if len(hammingDistanceEdgesDF)==0:
+    exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after preprocessing.')
 hammingDistanceEdgesDF['weight'] = hammingDistanceEdgesDF.apply(lambda row:
     mutCountHDweighting(row['source'], row['target'], row['hammingDistance']), axis=1)
 # hammingDistanceEdgesDF['weight'] = 2**(3-hammingDistanceEdgesDF['hammingDistance'])       # weighting based on hamming distance alone. Result is less structured plot that just has concentric rings of nodes that track with increasing hamming distance from WT
