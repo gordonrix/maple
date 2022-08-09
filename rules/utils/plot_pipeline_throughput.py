@@ -24,6 +24,10 @@ tag = snakemake.input.initial.split('/')[1].split('.fastq.gz')[0]
 
 # Get reference id
 refID = list(SeqIO.parse(snakemake.config['runs'][tag]['reference'], 'fasta'))[0].id
+if snakemake.config['do_UMI_analysis'][tag]:
+    UMItag = snakemake.config['consensusCopyDict'][tag]
+    UMIrefID = list(SeqIO.parse(snakemake.config['runs'][UMItag]['reference'], 'fasta'))[0].id
+
 
 # retrieve data from each pipeline step that was performed
 
@@ -52,7 +56,7 @@ if snakemake.config['do_UMI_analysis'][tag]:
     # UMI_preconsensus_alignment
     BAMin = pysam.AlignmentFile(snakemake.input.UMI_preconsensus_alignment, 'rb')
     count = 0
-    for BAMentry in BAMin.fetch(refID):
+    for BAMentry in BAMin.fetch(UMIrefID):
         count += 1
     time = get_runtime(snakemake.input.UMI_preconsensus_log)
     outList.append(['preconsensus alignment', count, time/60])
