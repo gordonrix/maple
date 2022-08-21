@@ -62,7 +62,7 @@ def main():
     config = snakemake.config
     tag = snakemake.wildcards.tag
     mutStatsCSV = pd.read_csv(str(snakemake.input.mutStats))
-    timepointsCSV = pd.read_csv(str(snakemake.input.timepoints), header=1, index_col=0)
+    timepointsCSV = pd.read_csv(str(snakemake.input.timepoints), header=1, index_col=0).astype(str)
     topRow = [x for x in pd.read_csv(str(snakemake.input.timepoints)).columns if 'Unnamed: ' not in x]
     if len(topRow) > 0:
         timeUnit = topRow[0]
@@ -135,6 +135,8 @@ def main():
             sampleTimepointDFrowList = []
 
             for timepoint in timepointsCSV.columns:
+                if row[timepoint]=='nan':
+                    continue
                 timepointTag, timepointBCgroup = row[timepoint].split('_')
                 timepointRefSeqfasta = config['runs'][timepointTag]['reference']
                 timepointRefSeq = str(list(SeqIO.parse(timepointRefSeqfasta, 'fasta'))[1].seq).upper()
@@ -203,10 +205,9 @@ def main():
     
     # DF that will convert the different absolute mutation rates into relative rates
     relativeSpectrumDF = allRatesDF
-    
     # make new column that includes both sample name and replicate
     relativeSpectrumDF['sample_replicate'] = relativeSpectrumDF.apply(lambda row:
-        row['sample_label']+'_'+str(row['replicate']), axis=1)
+        str(row['sample_label'])+'_'+str(row['replicate']), axis=1)
     
     # rename column and column values to serve as better column titles after pivot, e.g. A->T
     relativeSpectrumDF['mutation_type'] = relativeSpectrumDF.apply(lambda row:

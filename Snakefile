@@ -186,7 +186,7 @@ if config['do_basecalling'] and config['merge_paired_end']:
     raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.\n", file=sys.stderr)
 
 # check for required options
-required = ['fast5_dir', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'medaka_model', 'medaka_flags', 'references_directory', 'threads_basecalling', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['fast5_dir', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'medaka_model', 'medaka_flags', 'UMI_medaka_batches', 'references_directory', 'threads_basecalling', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
 missing = []
 for option in required:
     if option not in config:
@@ -497,8 +497,12 @@ for tag in config['runs']:
                 rowIndex = 2    # start at 2 because first two rows are ignored with pd.read_csv call
                 for _, row in timepointsCSV.iterrows():
                     rowIndex += 1
+                    i = 0
                     firstTP = timepointsCSV.columns[0]
-                    firstTag = row[firstTP].split('_')[0]
+                    while pd.isnull(row[firstTP]):
+                        i+=1
+                        firstTP = timepointsCSV.columns[i]
+                    firstTag = str(row[firstTP]).split('_')[0]
                     if firstTag in config['runs']:
                         firstTagRefFasta = config['runs'][firstTag]['reference']
                         firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
@@ -506,6 +510,8 @@ for tag in config['runs']:
                     else:
                         errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
                     for tp in timepointsCSV.columns[1:]:
+                        if str(row[tp]) == 'nan':
+                            continue
                         tag = row[tp].split('_')[0]
                         if tag in config['runs']:
                             if firstTag in config['runs']:
@@ -517,7 +523,7 @@ for tag in config['runs']:
                                     print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
                         else:
                             errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
-                    
+                     
         else:
             print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.\n", file=sys.stderr)
 if len(errors) > 0:
