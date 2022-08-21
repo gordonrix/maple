@@ -172,7 +172,7 @@ if True:
             sequence = 'sequences/{tag}.fastq.gz',
             splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
         output:
-            consensus = 'sequences/RCA/{tag, [^\/_]*}_RCA-consensus.fasta.gz',
+            consensus = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.fasta.gz',
             tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
             log = 'sequences/RCA/{tag, [^\/_]*}_RCA-consensus.log'
         params:
@@ -219,7 +219,7 @@ else:
         input:
             subreads = 'sequences/RCA/{tag}_RCA-subreads.fastq.gz'
         output:
-            fastqs = expand('sequences/RCA/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=RCAbatchesList)
+            fastqs = temp(expand('sequences/RCA/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=RCAbatchesList))
         params:
             batches = config['RCA_medaka_batches']
         script:
@@ -230,8 +230,8 @@ else:
             fastq = 'sequences/RCA/{tag}-temp/{batch}.fasta',
             alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
         output:
-            outDir = directory('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}'),
-            consensus = 'sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta'
+            outDir = temp(directory('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}')),
+            consensus = temp('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta')
         threads: lambda wildcards: config['threads_medaka']
         resources:
             threads = lambda wildcards, threads: threads,
@@ -366,7 +366,7 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-UMIbatchesList = [str(x) for x in range(0,config['UMI_medaka_batches'])]
+UMIbatchesList = [str(x) for x in range(0,config.get('UMI_medaka_batches',1)])]
 rule split_BAMs_to_fasta:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',

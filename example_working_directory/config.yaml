@@ -20,7 +20,6 @@ basecalling_guppy_flags: ''
 # medaka
 medaka_model: 'r103_sup_variant_g507'      # Model for medaka to use. Use `medaka smolecule --help` to see all available model options. Maple uses a reference-guided approach, so the appropriate variant model should be used, eg r103_sup_variant_g507
 medaka_flags: '--quiet'        # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added.
-medaka_batches: 60                         # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
 
 ### end nanopore only section ###
 
@@ -47,7 +46,7 @@ nanoplot: False
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # RCA consensus
-peak_finder_settings: 40,3,9,2
+peak_finder_settings: 40,3,9,2  # settings used to identify splint alignment locations for read splitting
 RCA_consensus_minimum: 3        # inclusive minimum number of complete subreads that will be used to generate an RCA consensus read
 RCA_consensus_maximum: 20       # inclusive maximum number of complete subreads that will be used to generate an RCA consensus read. RCA reads with more than this number of subreads will not be used. Note that this behavior differs slightly from that of UMI_consensus_maximum
 
@@ -55,6 +54,7 @@ RCA_consensus_maximum: 20       # inclusive maximum number of complete subreads 
 UMI_mismatches: 4               # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
 UMI_consensus_minimum: 10       # inclusive minimum number of subreads that will be used to generate a UMI consensus read
 UMI_consensus_maximum: 10       # inclusive maximum number of subreads that will be used to generate a UMI consensus read. UMI groups with more subreads than this value 'n' will be downsampled to 'n' subreads
+UMI_medaka_batches: 60          # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
 
 # alignment
 # alignment flags for samtools

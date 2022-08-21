@@ -267,7 +267,7 @@ rule C3POa:
         if [ -d C3POa ]; then
             rm -r -f C3POa
         fi
-        git clone -b peakFinderCustomSettings https://github.com/gordonrix/C3POa.git && cd C3POa
+        git clone -b peakFinderCustomSettings https://github.com/gordonrix/C3POa.git
 
         if [ -d conk ]; then
             rm -r -f conk

@@ -7,7 +7,6 @@ dependencies:
   - snakemake
   - python=3.8
   - PyYAML>=5.1
-  - ipykernal
   - setuptools
   - wget
   - numpy

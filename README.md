@@ -54,9 +54,8 @@ Alternatively, with root privileges, mamba may instead be installed in the base 
     conda install mamba -n base -c conda-forge
 
 
-Next, use mamba to create the environment that we need. If using mamba from the base environment, the default
-location is probably fine, but if using mamba within its own environment, the path to the environment should
-be specified. In this example, the default path prefix ~/miniconda3/envs is used, but please ensure this is the correct location:
+Next, use mamba to create the environment that we need. If using mamba within its own environment, the path to the environment should
+be specified with the `--prefix In this example, the default path prefix ~/miniconda3/envs is used, but please ensure this is the correct location:
 
     conda activate mambaEnv
     mamba env create --prefix ~/miniconda3/envs/maple --file requirements.yaml
@@ -72,7 +71,7 @@ needed for execution of the pipeline:
 
     snakemake --snakefile rules/install.smk --directory ~/miniconda3/envs/maple -j 4 all
 
-If basecalling ONT data is not needed, `all` in the above command may be replaced with `all_but_guppy`
+If basecalling ONT data is not needed or accomplished using live basecalling with MinKNOW (which is the recommended approach), `all` in the above command may be replaced with `all_but_guppy`
 
 ## Usage
 
