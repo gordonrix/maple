@@ -3,7 +3,6 @@ from collections import namedtuple
 from concurrent.futures import ProcessPoolExecutor
 import functools
 import os
-import os
 from timeit import default_timer as now
 import warnings
 
