@@ -164,61 +164,104 @@ elif config['nanopore']:
                     with open(f, 'rb') as fp_in:
                         fp_out.write(fp_in.read())
 
-rule RCA_consensus:
-    input:
-        sequence = 'sequences/{tag}.fastq.gz',
-        splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
-    output:
-        consensus = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus-no-filter.fasta.gz',
-        log = 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.log'
-    threads: workflow.cores
-    resources:
-        threads = lambda wildcards, threads: threads,
-    shell:
-        """
-        rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA-consensus
-        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z
-        mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/splint/R2C2_Consensus.fasta.gz {output.consensus}
-        mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/c3poa.log {output.log}
-        rm -r sequences/tempOutDir-{wildcards.tag}_RCA-consensus
-        
-        """
+ # default behavior is to use R2C2 as is. This if statement be manually changed to False to test using R2C2 just for read splitting, followed by medaka for consensus generation
+ #  our tests showed that medaka produced slightly worse results in most cases. keeping this available for now for further testing
+if True:
+    rule RCA_consensus:
+        input:
+            sequence = 'sequences/{tag}.fastq.gz',
+            splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
+        output:
+            consensus = 'sequences/RCA/{tag, [^\/_]*}_RCA-consensus.fasta.gz',
+            tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
+            log = 'sequences/RCA/{tag, [^\/_]*}_RCA-consensus.log'
+        params:
+            peakFinderSettings = lambda wildcards: config['peak_finder_settings'],
+            minimum = lambda wildcards: config['RCA_consensus_minimum'],
+            maximum = lambda wildcards: config['RCA_consensus_maximum']
+        threads: workflow.cores
+        resources:
+            threads = lambda wildcards, threads: threads,
+        shell:
+            """
+            rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA-consensus
+            python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize 10000 --minimum {params.minimum} --maximum {params.maximum}
+            mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/splint/R2C2_Consensus.fasta.gz {output.consensus}
+            mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/c3poa.log {output.log}
+            """
 
-rule filter_RCA_consensus:
-    input:
-        'sequences/RCA-consensus/{tag}_RCA-consensus-no-filter.fasta.gz'
-    output:
-        'sequences/RCA-consensus/{tag}_RCA-consensus.fasta.gz'
-    params:
-        minConcatemerLength = lambda wildcards: config['minimum_concatemers']
-    run:
-        import gzip
-        from Bio import SeqIO
-        import os
-        seqMemoryLimit = 100000 # number of sequences to hold in memory before writing
-        seqsOutList = []
-        count = 0
-        input = input[0]
-        output = output[0]
-        for f in [output, output[:-3]]:
-            if os.path.isfile(f):
-                os.remove(f)
-        with open(output[:-3], 'a') as outfile:
-            with gzip.open(input, 'rt') as infile:
-                for record in SeqIO.parse(infile, 'fasta'):
-                    if int(record.id.split('_')[-2]) >= params.minConcatemerLength:
-                        seqsOutList.append(record)
-                        count += 1
-                    if count > seqMemoryLimit:
-                        SeqIO.write(seqsOutList, outfile, 'fasta-2line')
-                        seqsOutList = []
-                        count = 0
-            SeqIO.write(seqsOutList, outfile, 'fasta-2line')
-        os.system(f'gzip {output[:-3]}')
+else:
+    rule RCA_split_reads:
+        input:
+            sequence = 'sequences/{tag}.fastq.gz',
+            splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
+        output:
+            subreads = temp('sequences/RCA/{tag, [^\/_]*}_RCA-subreads.fastq.gz'),
+            log = 'sequences/RCA/{tag, [^\/_]*}_c3poa.log'
+        params:
+            peakFinderSettings = lambda wildcards: config['peak_finder_settings'],
+            minimum = lambda wildcards: config['RCA_consensus_minimum'],
+            maximum = lambda wildcards: config['RCA_consensus_maximum']
+        threads: workflow.cores
+        resources:
+            threads = lambda wildcards, threads: threads
+        shell:
+            """
+            rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA
+            python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize 1000 --minimum {params.minimum} --maximum {params.maximum}
+            mv sequences/tempOutDir-{wildcards.tag}_RCA/splint/R2C2_Subreads.fastq.gz {output.subreads}
+            mv sequences/tempOutDir-{wildcards.tag}_RCA/c3poa.log {output.log}
+            rm -r sequences/tempOutDir-{wildcards.tag}_RCA
+            """
+
+    RCAbatchesList = [str(x) for x in range(0,config['RCA_medaka_batches'])]
+    rule RCA_split_fasta:
+        input:
+            subreads = 'sequences/RCA/{tag}_RCA-subreads.fastq.gz'
+        output:
+            fastqs = expand('sequences/RCA/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=RCAbatchesList)
+        params:
+            batches = config['RCA_medaka_batches']
+        script:
+            'utils/RCA_split_fasta.py'
+
+    rule RCA_consensus:
+        input:
+            fastq = 'sequences/RCA/{tag}-temp/{batch}.fasta',
+            alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
+        output:
+            outDir = directory('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}'),
+            consensus = 'sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta'
+        threads: lambda wildcards: config['threads_medaka']
+        resources:
+            threads = lambda wildcards, threads: threads,
+            mem_mb = 1000
+        params:
+            model = lambda wildcards: config['medaka_model'],
+            flags = lambda wildcards: config['medaka_flags'],
+            maxmem = lambda wildcards, threads, resources: resources.mem_mb * 1024
+        shell:
+            """
+            rm -rf {output.outDir}
+            medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} {output.outDir} {input.alnRef} {input.fastq}
+            """
+
+    rule RCA_merge_consensus_seqs:
+        input:
+            expand('sequences/RCA/{{tag}}-temp/batch{x}/consensus.fasta', x = RCAbatchesList)
+        output:
+            seqs = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.fasta.gz',
+            log = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.log'
+        run:
+            with open(output.seqs[:-3], 'w') as fp_out, open(output.log, 'w') as log_out:
+                for f in input:
+                    with open(f, 'r') as fp_in:
+                        fp_out.write(fp_in.read())
+            os.system(f'gzip {output.seqs[:-3]}')
 
 rule UMI_minimap2:
     input:
-        sequence = lambda wildcards: 'sequences/RCA-consensus/{tag, [^\/_]*}_RCA-consensus.fasta.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
+        sequence = lambda wildcards: 'sequences/RCA-consensus/{tag, [^\/_]*}_RCAconsensuses.fasta.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
         aln = pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
@@ -323,15 +366,15 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-batchesList = [str(x) for x in range(0,config['medaka_batches'])]
+UMIbatchesList = [str(x) for x in range(0,config['UMI_medaka_batches'])]
 rule split_BAMs_to_fasta:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
         log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
     output:
-        fastas = expand('sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=batchesList)
+        fastas = expand('sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=UMIbatchesList)
     params:
-        batches = lambda wildcards: config['medaka_batches'],
+        batches = lambda wildcards: config['UMI_medaka_batches'],
         minimum = lambda wildcards: config['UMI_consensus_minimum'],
         maximum = lambda wildcards: config['UMI_consensus_maximum']
     script:
@@ -356,7 +399,7 @@ rule UMI_consensus:
 
 rule UMI_merge_consensus_seqs:
     input:
-        lambda wildcards: expand('sequences/UMI/{{tag}}-temp/batch{x}/consensus.fasta', x = [str(x) for x in range(0,config['medaka_batches'])])
+        expand('sequences/UMI/{{tag}}-temp/batch{x}/consensus.fasta', x = UMIbatchesList)
     output:
         seqs = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.fasta.gz',
         log = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.log'
@@ -371,7 +414,7 @@ def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
         return expand('sequences/UMI/{tag}_UMIconsensuses.fasta.gz', tag=config['consensusCopyDict'][wildcards.tag])
     elif config['do_RCA_consensus'][wildcards.tag]:
-        return 'sequences/RCA-consensus/{tag}_RCA-consensus.fasta.gz'
+        return 'sequences/RCA/{tag}_RCAconsensuses.fasta.gz'
     else:
         return 'sequences/{tag}.fastq.gz'
 

@@ -267,9 +267,7 @@ rule C3POa:
         if [ -d C3POa ]; then
             rm -r -f C3POa
         fi
-        git clone https://github.com/christopher-vollmers/C3POa.git && cd C3POa
-        # hardcoded replacement of scoring parameters
-        sed -i 's/penalty, iters, window, order = 20, 3, 41, 2/penalty, iters, window, order = 40, 3, 9, 2/' C3POa.py && cd ..
+        git clone -b peakFinderCustomSettings https://github.com/gordonrix/C3POa.git && cd C3POa
 
         if [ -d conk ]; then
             rm -r -f conk
