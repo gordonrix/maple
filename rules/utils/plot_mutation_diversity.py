@@ -17,6 +17,7 @@ import holoviews as hv
 from bokeh.io import output_file, save
 from yaml.nodes import SequenceNode
 from Bio import SeqIO
+from Bio.Seq import translate
 
 ### Asign variables from config file
 config = snakemake.config
@@ -35,87 +36,123 @@ refSeqfasta = config['runs'][tag]['reference']
 NTref = list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq
 NTrefLength = len(NTref)
 NTs = 'ATGC'
+AAs = 'ACDEFGHIKLMNPQRSTVWY*'
+if config['do_AA_mutation_analysis'][tag]:
+    AAref = translate(list(SeqIO.parse(refSeqfasta, 'fasta'))[2].seq)
+    AArefLength = len(AAref)
 
-# construct a 3 dimensional array of all sequences encoded as 2 dimensional arrays, which are the length of the sequence and all four possible nucleotides, and the third dimension
+# construct a 3 dimensional array of all sequences encoded as 2 dimensional arrays, which are the length of the sequence and all possible mutations, and the third dimension
 #   is the genotype ID of the sequence in the order given by the genotypes .csv file, with wildtype (an array of 0s) as the first sequence. From this 3d array,
 #   a 2d array will be contructed, consisting of the pairwise hamming distances between each pair of sequences
-seqLength = len(NTref)
-numNTs = len(NTs)
-numGenotypes = len(genotypesDF)
-genotypes3DArray = np.zeros((seqLength, numNTs, numGenotypes), dtype=int)
 
-def sequence_array_from_NT_substitutions(NTsubstitutions, zeroArray):
+def sequence_array_from_substitutions(substitutions, NTorAA, array):
     """
-    from a str-type list of nucleotide substitutions and a numpy zero array of shape = (length of nucleotide sequence, 4),
+    from a str-type list of comma separated substitutions and a numpy zero array,
     will flip any 0s corresponding to a mutation to 1 and return the resulting array
+
+    substitutions   str, comma separated substitutions of the form XNY, where X is wt, Y is the mutation, and N is the index
+        N must not exceed the 0-dimension length of `zeroArray`, X and Y may be any character within `NTorAA`
+    NTorAA          string of all acceptable characters that may be substitutions
+    array       numpy zero array. 1-dimension length must be the same as the length of NTorAA
     """
-    if NTsubstitutions == '':
-        return zeroArray
-    NTsubstitutionsList = NTsubstitutions.split(', ')
-    count = 0
-    for mutation in NTsubstitutionsList:
-        mutNT = mutation[-1]
+    if substitutions == '':
+        return array
+    substitutionsList = substitutions.split(', ')
+    for mutation in substitutionsList:
+        mut = mutation[-1]
         posi = int(mutation[1:-1])
-        zeroArray[posi,NTs.find(mutNT)] += 1
-        count += 1
-    return zeroArray
+        array[posi,NTorAA.find(mut)] += 1
+    return array
 
-for i, subsList in enumerate(genotypesDF['NT_substitutions']):
-    zeroArray = np.zeros((int(len(NTref)), len(NTs)), dtype=int)
-    genotypes3DArray[:,:,i] = sequence_array_from_NT_substitutions(subsList, zeroArray)
+def seq_3D_array_from_genotypes_list(genotypesList, refSeq, NTorAA):
+    """
+    from a list of genotypes represented as a list of comma separated substitutions, generate a 3D array representation of
+    this list of genotypes such that an array of zeros of dimensions (len(refSeq), len(NTorAA)) represents the WT sequence
+    """
+    seqLength = len(refSeq)
+    numChars = len(NTorAA)
+    numGenotypes = len(genotypesList)
+    genotypes3DArray = np.zeros((seqLength, numChars, numGenotypes), dtype=int)
 
-hammingDistanceDF = np.empty((len(genotypesDF), len(genotypesDF)), dtype=int) * np.nan
+    for i, subsList in enumerate(genotypesList):
+        zeroArray = np.zeros((seqLength, numChars), dtype=int)
+        genotypes3DArray[:,:,i] = sequence_array_from_substitutions(subsList, NTorAA, zeroArray)
+    
+    return genotypes3DArray
 
-matrixPad = 0 # number of NaNs to pad the beginning of each row so that the hamming distance positions match up with the columns. These are essentially placeholders for hamming distances that were already calculated, and can be found on the other half of the N by N square
-hammingDistanceRows = []
-hammingDistanceBinCounts = np.zeros(NTrefLength, dtype=int)    # Hamming distances for each row converted into bin counts and multiplied by # of times sequence is observed in the dataset
+def HDdist_from_genotypes_list(genotypesList, refSeq, NTorAA):
+    """
+    from a list of genotypes, the wild type sequence, and a list of letter representations of either nucleotides or amino acids,
+    will return a DataFrame of bincounts of pairwise hamming distances among all of the sequences
+    """
 
-# iterate through each row and generate counts of hamming distances (bincounts) based on hamming distance between the row genotype and
-#   all other genotypes, including itself, to be used for plotting distribution, and also generate a matrix of hamming distances between
-#   the row genotype and all other genotypes, excluding itself, to be used for plotting a network graph
-for row in range(0, numGenotypes):
-    matrixPad += 1
+    muts3Darray = seq_3D_array_from_genotypes_list(genotypesList, refSeq, NTorAA)
 
-    hammingDistance3Darray = np.absolute( genotypes3DArray[:,:,row:] - genotypes3DArray[:,:,row].reshape(seqLength, numNTs, 1) )    # subtract the 3D array representing remaining genotypes from 3D array representing many copies of the genotype for this row, then take absolute value of all elements in this 3D array
-    HDrow = np.sum(hammingDistance3Darray, axis=1)                                                                                  # sum across nucleotides to get 2D array of total mutations at each position and for each genotype
-    HDrow[HDrow>1] = 1                                                                                                              # set values above 1 to 1. otherwise, genotypes that both have different mutations at a single position will result in a hamming distance of 2 for that position, but hamming distance can only ever be 1 for a single position
-    HDrow = np.sum(HDrow, axis=0)                                                                                                   # sum across position axis to give 1D array of total hamming distance for each genotype
-    hammingDistanceRows.append( np.pad(HDrow[1:], ((matrixPad,0)), constant_values=-1) )                                            # make new row of all hamming distances for the row genotype, padding the beginning of the row with the null value -1 so that when combined the column positions will line up
+    matrixPad = 0 # number of NaNs to pad the beginning of each row so that the hamming distance positions match up with the columns. These are essentially placeholders for hamming distances that were already calculated, and can be found on the other half of the N by N square
+    hammingDistanceRows = []
+    hammingDistanceBinCounts = np.zeros(len(refSeq), dtype=int)    # Hamming distances for each row converted into bin counts and multiplied by # of times sequence is observed in the dataset
 
-    genotypeCount = int(genotypesDF.iloc[[row]]['count'])
-    HDcountsList = [0] * int((genotypeCount*(genotypeCount-1))/2)                                                          # 0 count for comparison of the row genotype to itself calculated as n(n-1)/2, see https://stackoverflow.com/questions/18859430/how-do-i-get-the-total-number-of-unique-pairs-of-a-set-in-the-database
+    # iterate through each row and generate counts of hamming distances (bincounts) based on hamming distance between the row genotype and
+    #   all other genotypes, including itself, to be used for plotting distribution, and also generate a matrix of hamming distances between
+    #   the row genotype and all other genotypes, excluding itself, to be used for plotting a network graph
+    for row in range(0, len(genotypesList)):
+        matrixPad += 1
 
-    # loop through hamming distances for row except first one which is always 0
-    for HDindex in range(1, len(HDrow)):
+        hammingDistance3Darray = np.absolute( muts3Darray[:,:,row:] - muts3Darray[:,:,row].reshape(len(refSeq), len(NTorAA), 1) )       # subtract the 3D array representing remaining genotypes from 3D array representing many copies of the genotype for this row, then take absolute value of all elements in this 3D array
+        HDrow = np.sum(hammingDistance3Darray, axis=1)                                                                                  # sum across nucleotides/AAs to get 2D array of total mutations at each position and for each genotype
+        HDrow[HDrow>1] = 1                                                                                                              # set values above 1 to 1. otherwise, genotypes that both have different mutations at a single position will result in a hamming distance of 2 for that position, but hamming distance can only ever be 1 for a single position
+        HDrow = np.sum(HDrow, axis=0)                                                                                                   # sum across position axis to give 1D array of total hamming distance for each genotype
+        hammingDistanceRows.append( np.pad(HDrow[1:], ((matrixPad,0)), constant_values=-1) )                                            # make new row of all hamming distances for the row genotype, padding the beginning of the row with the null value -1 so that when combined the column positions will line up
 
-        # increase counts of each hamming distance by the product of the counts for the two sequences being compared
-        HDcountsList.extend( [HDrow[HDindex]] * int(genotypesDF.iloc[[row]]['count']) * int(genotypesDF.iloc[[HDindex+row]]['count']) )
+        genotypeCount = int(genotypesDF.iloc[[row]]['count'])
+        HDcountsList = [0] * int((genotypeCount*(genotypeCount-1))/2)                                                          # 0 count for comparison of the row genotype to itself calculated as n(n-1)/2, see https://stackoverflow.com/questions/18859430/how-do-i-get-the-total-number-of-unique-pairs-of-a-set-in-the-database
 
-    HDrowBins = np.bincount(HDcountsList)                                                                               # get counts of each hamming distance observed, then multiply these bincounts by the count for the row genotype to give the total count of these observed hamming distances
-    HDrowBins.resize(NTrefLength)                                                                                       # reshape to be the same length as the sequence, which is the maximum possible hamming distance, allowing for concatenation with bincounts for other genotypes
-    hammingDistanceBinCounts += HDrowBins
+        # loop through hamming distances for row except first one which is always 0
+        for HDindex in range(1, len(HDrow)):
 
-# Make dataframe for distribution of pairwise hamming distances
-hammingDistanceBinCounts = np.trim_zeros(hammingDistanceBinCounts, trim='b')
-hamDistDF = pd.DataFrame(hammingDistanceBinCounts, columns=['sequence_pairs_with_n_hamming_distance'])
-hamDistDF = hamDistDF.reset_index().rename(columns={'index':'n'})
-hamDistDF.to_csv(snakemake.output.HamDistCSV, index=False)
+            # increase counts of each hamming distance by the product of the counts for the two sequences being compared
+            HDcountsList.extend( [HDrow[HDindex]] * int(genotypesDF.iloc[[row]]['count']) * int(genotypesDF.iloc[[HDindex+row]]['count']) )
 
-# plot hamming distance distribution
-plotTitle = f"{tag}_{bc}"
-xLabel, yLabel = hamDistDF.columns
-TOOLTIPS = [(xLabel, f'@{xLabel}'), (yLabel, f'@{yLabel}')]
-hamDistPlot = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,config['hamming_distance_distribution_plot_x_max']), tooltips=TOOLTIPS)
-hamDistPlot.vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=ColumnDataSource(hamDistDF))
-hamDistPlot.xaxis.axis_label = xLabel
-hamDistPlot.yaxis.axis_label = yLabel
-output_file(snakemake.output.HamDistPlot)
-save(hamDistPlot)
+        HDrowBins = np.bincount(HDcountsList)                                                                               # get counts of each hamming distance observed, then multiply these bincounts by the count for the row genotype to give the total count of these observed hamming distances
+        HDrowBins.resize(len(refSeq))                                                                                       # reshape to be the same length as the sequence, which is the maximum possible hamming distance, allowing for concatenation with bincounts for other genotypes
+        hammingDistanceBinCounts += HDrowBins
+
+    # Make dataframe for distribution of pairwise hamming distances
+    hammingDistanceBinCounts = np.trim_zeros(hammingDistanceBinCounts, trim='b')
+    HDdist = pd.DataFrame(hammingDistanceBinCounts, columns=['sequence_pairs_with_n_hamming_distance'])
+    HDdist = HDdist.reset_index().rename(columns={'index':'n'})
+
+    return HDdist, hammingDistanceRows
+
+def plot_distribution(tag, bc, title, binCountsDF, outputName):
+    """
+    generate and export a distribution plot from a dataframe of bincounts"
+    """
+    plotTitle = f"{title}, {tag}_{bc}"
+    xLabel, yLabel = binCountsDF.columns
+    TOOLTIPS = [(xLabel, f'@{xLabel}'), (yLabel, f'@{yLabel}')]
+    hamDistPlot = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,config['hamming_distance_distribution_plot_x_max']), tooltips=TOOLTIPS)
+    hamDistPlot.vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=ColumnDataSource(binCountsDF))
+    hamDistPlot.xaxis.axis_label = xLabel
+    hamDistPlot.yaxis.axis_label = yLabel
+    output_file(outputName)
+    save(hamDistPlot)
+
+
+ntHDdist, ntHammingDistanceRows = HDdist_from_genotypes_list(genotypesDF['NT_substitutions'].to_list(), NTref, NTs)
+ntHDdist.to_csv(snakemake.output.ntHamDistCSV, index=False)
+plot_distribution(tag, bc, "NT pairwise hamming distances", ntHDdist, snakemake.output.ntHamDistPlot)
+
+if config['do_AA_mutation_analysis'][tag]:
+    aaHDdist, aaHammingDistanceRows = HDdist_from_genotypes_list(genotypesDF['AA_substitutions_nonsynonymous'].to_list(), AAref, AAs)
+    aaHDdist.to_csv(snakemake.output.aaHamDistCSV, index=False)
+    plot_distribution(tag, bc, "AA pairwise hamming distances", aaHDdist, snakemake.output.aaHamDistPlot)
+
 
 ### generate network graph of sequences as nodes and edges connecting all nodes, with inverse hamming distance as edge weight. Plot with holoviews
-if len(hammingDistanceRows)==0:
+if len(ntHammingDistanceRows)==0:
     exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after preprocessing.')  
-hammingDistance2Darray = np.vstack(hammingDistanceRows)
+hammingDistance2Darray = np.vstack(ntHammingDistanceRows)
 hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(genotypesDF.index), index=list(genotypesDF.index))
 hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
 hammingDistanceEdgesDF = hammingDistanceMatrixDF.stack().reset_index()
@@ -123,7 +160,7 @@ hammingDistanceEdgesDF.columns = ['source', 'target', 'hammingDistance']
 if maxHD:
     hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]                                       # apply filter for max hamming distance based on user-supplied value
 else: 
-    hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(hammingDistanceBinCounts))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
+    hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(ntHDdist))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
 def mutCountHDweighting(source,target, hammingDistance):
     sourceMutCount = int(genotypesDF.loc[source,'NT_substitutions_count'])
     targetMutCount = int(genotypesDF.loc[target,'NT_substitutions_count'])

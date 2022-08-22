@@ -98,8 +98,8 @@ background: GR562-ctrl
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity
-diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
-diversity_plot_subset: TrixySgkProgMA_trxSgk123-1-P10              # if above option set to False, can add a list of tag_barcode pairs separated by ', ' to be added to the list of output files
+diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
+diversity_plot_subset: False                                # if above option set to False, can add a list of tag_barcode pairs separated by ',' to be piped through diversity analysis, eg. `tag1_barcode1,tag3_barcode2`
 diversity_plot_hamming_distance_edge_limit: 15              # maximum hamming distance between two sequences for an edge to be drawn between them. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
 hamming_distance_distribution_plot_x_max: 20                 # maximum x value to show for all HD distribution plots
 force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'

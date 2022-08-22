@@ -647,16 +647,26 @@ def targets_input(wildcards):
                 if config['do_demux']:
                     out.append( f'plots/.{tag}_allDiversityPlots.done' )
                 else:
+                    dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
+                    plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
+                    if config['do_AA_mutation_analysis'][tag]:
+                        dataType.append('AA-hamming-distance-distribution.csv')
+                        plotType.append('AA-hamming-distance-distribution.html')
                     out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=tag, dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
                     out.extend( expand('plots/{tag}_all_{plotType}', tag=tag, plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
 
     elif config.get('diversity_plot_subset', False) not in ['',False]:
-        divPlotFilePrefixes = []
         for tag_bc in config['diversity_plot_subset'].split(','):
+            divPlotFilePrefixes = []
+            dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
+            plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
+            if config['do_AA_mutation_analysis'][tag]:
+                dataType.append('AA-hamming-distance-distribution.csv')
+                plotType.append('AA-hamming-distance-distribution.html')
             tag, bc = tag_bc.split('_')
             divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
-        out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=divPlotFilePrefixes, dataType=['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-        out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=['hamming-distance-distribution.html', 'diversity-graph.html']) )
+            out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=divPlotFilePrefixes, dataType=dataType) )
+            out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=plotType) )
 
     return out
 

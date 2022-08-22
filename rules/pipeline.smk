@@ -366,7 +366,7 @@ rule plot_UMI_group:
     script:
         'utils/plot_UMI_groups_distribution.py'
 
-UMIbatchesList = [str(x) for x in range(0,config.get('UMI_medaka_batches',1)])]
+UMIbatchesList = [str(x) for x in range(0,config['UMI_medaka_batches'])]
 rule split_BAMs_to_fasta:
     input:
         grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
@@ -704,12 +704,27 @@ rule plot_mutations_distribution_barcodeGroup:
     script:
         'utils/plot_mutation_distribution.py'
 
+ruleorder: plot_mutation_diversity_NTonly > plot_mutation_diversity
+
+rule plot_mutation_diversity_NTonly:
+    input:
+        lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][tag] else 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
+    output:
+        ntHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.html',
+        ntHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
+        GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
+        GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
+    script:
+        'utils/plot_mutation_diversity.py'
+
 rule plot_mutation_diversity:
     input:
         'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        HamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_hamming-distance-distribution.html',
-        HamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_hamming-distance-distribution.csv',
+        ntHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.html',
+        ntHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
+        aaHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.html',
+        aaHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.csv',
         GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
         GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
     script:
