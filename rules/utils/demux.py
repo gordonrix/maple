@@ -23,6 +23,10 @@ import pysam
 from Bio import Align, pairwise2, Seq
 from Bio.pairwise2 import format_alignment
 from Bio import SeqIO
+from collections import Counter
+from timeit import default_timer as now
+import sys
+import tracemalloc
 
 def main():
 
@@ -34,7 +38,6 @@ def main():
     ### Output variables
     outputDir = str(snakemake.output.flag).split(f'/.{tag}_demultiplex.done')[0]
     outputStats = snakemake.output.stats
-
     bcp = BarcodeParser(config, tag)
     bcp.demux_BAM(BAMin, outputDir, outputStats)
 
@@ -139,6 +142,10 @@ class BarcodeParser:
         """calculates hamming distance, taken from https://stackoverflow.com/questions/54172831/hamming-distance-between-two-strings-in-python"""
         return sum(c1 != c2 for c1, c2 in zip(string1.upper(), string2.upper()))
 
+    @staticmethod
+    def contains_duplicates(X):
+        return len(set(X)) != len(X)
+
     def add_barcode_hamming_distance(self):
         """adds barcode hamming distance for each type of barcode (default value = 0), and ensures that
         (1) hamming distances of all possible pairs of barcodes within the fasta file of each barcode
@@ -157,8 +164,12 @@ class BarcodeParser:
             if len(barcodes)>1000:
                 checkHammingDistances = False
                 print(f'[NOTICE] More than 1000 barcodes present in barcode fasta file {self.barcodeInfo[barcodeType]["fasta"]}, not checking pairwise hamming distances')
+            checkDup = False
+            if self.contains_duplicates(barcodes):
+                checkDup = True
             for i,bc in enumerate(barcodes):
-                assert (barcodes.count(bc) == 1), f'Barcode {bc} present more than once in {self.barcodeInfo[barcodeType]["fasta"]} Duplicate barcodes are not allowed.'
+                if checkDup:
+                    assert (barcodes.count(bc) == 1), f'Barcode {bc} present more than once in {self.barcodeInfo[barcodeType]["fasta"]} Duplicate barcodes are not allowed.'
                 assert (len(bc) == barcodeLength), f'Barcode {bc} is longer than the expected length of {barcodeLength} based on {self.barcodeContexts[barcodeType]}'
                 if checkHammingDistances:
                     otherBCs = barcodes[:i]+barcodes[i+1:]
@@ -342,7 +353,6 @@ class BarcodeParser:
         return out
 
 
-
     def id_seq_barcodes(self, refAln, BAMentry):
         """Inputs:
             refAln:         aligned reference string from align_reference()
@@ -352,7 +362,8 @@ class BarcodeParser:
         and will be added as a row for a demux stats DataFrame"""
         
         sequenceBarcodesDict = {}
-        outList = []
+        barcodeNames = []
+        bcDataList = []
         
         for barcodeType in self.barcodeDicts:
 
@@ -362,22 +373,22 @@ class BarcodeParser:
             failureReason = {'context_not_present_in_reference_sequence':0, 'barcode_not_in_fasta':0, 'low_confidence_barcode_identification':0}
             start,stop = self.find_N_start_end(refAln, self.barcodeContexts[barcodeType])
 
-            try:
+            if type(start)==int:
                 barcode = BAMentry.query_alignment_sequence[ start:stop ]
-            except TypeError:
+            else:
                 barcodeName = 'fail'
                 failureReason[self.failureReason] = 1 # failure reason is set by self.find_N_start_end
             
             if barcodeName != 'fail':
-                try:
+                if barcode in self.barcodeDicts[barcodeType]:
                     barcodeName = self.barcodeDicts[barcodeType][barcode]
-                except KeyError:
+                else:
                     if barcodeType in self.hammingDistanceBarcodeDict:
-                        try:
+                        if barcode in self.hammingDistanceBarcodeDict[barcodeType]:
                             closestBarcode = self.hammingDistanceBarcodeDict[barcodeType][barcode]
                             barcodeName = self.barcodeDicts[barcodeType][closestBarcode]
                             notExactMatch = 1
-                        except KeyError:
+                        else:
                             barcodeName = 'fail'
                             failureReason['barcode_not_in_fasta'] = 1
                     else:
@@ -385,13 +396,13 @@ class BarcodeParser:
                         failureReason['barcode_not_in_fasta'] = 1
             
             sequenceBarcodesDict[barcodeType] = barcodeName
-            outList += [barcodeName, notExactMatch] + list(failureReason.values())
+            barcodeNames += [barcodeName]
+            bcDataList += [notExactMatch] + list(failureReason.values())
 
-        return sequenceBarcodesDict, outList
+        return sequenceBarcodesDict, barcodeNames, np.array(bcDataList)
 
 
     def demux_BAM(self, BAMin, outputDir, outputStats):
-
         bamfile = pysam.AlignmentFile(BAMin, 'rb')
         self.add_barcode_contexts()
         self.add_barcode_dicts()
@@ -405,25 +416,27 @@ class BarcodeParser:
         outFileDict = {}
         
         # columns names for dataframe to be generated from rows output by id_seq_barcodes
-        colNames = ['tag', 'output_file_barcodes', 'barcodes_count', 'named_by_group']
+        colNames = ['tag', 'output_file_barcodes', 'named_by_group']
 
         # column names and dictionary for grouping rows in final dataframe
-        groupByColNames = ['tag', 'output_file_barcodes', 'demuxed_count', 'named_by_group']
+        groupByColNames = ['tag', 'output_file_barcodes', 'named_by_group', 'demuxed_count']
         sumColsDict = {'barcodes_count':'sum'}
 
+        barcodeFailureColNames = []
         for barcodeType in self.barcodeDicts:
             groupByColNames.append(barcodeType)
             intCols = [f'{barcodeType}:not_exact_match', f'{barcodeType}_failed:context_not_present_in_reference_sequence', f'{barcodeType}_failed:barcode_not_in_fasta', f'{barcodeType}_failed:low_confidence_barcode_identification']
-            colNames.extend( [barcodeType] + intCols )
+            colNames.append(barcodeType)
+            barcodeFailureColNames.extend(intCols)
             for col in intCols:
                 sumColsDict[col] = 'sum'
+        colNames.extend( ['barcodes_count'] + barcodeFailureColNames)
 
-        rows = []
         os.makedirs(outputDir, exist_ok=True)
-
+        rowCountsDict = Counter()
         for BAMentry in bamfile.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
-            sequenceBarcodesDict, BAMentryBarcodeData = self.id_seq_barcodes(refAln, BAMentry)
+            sequenceBarcodesDict, barcodeNames, bcDataArray = self.id_seq_barcodes(refAln, BAMentry) #this takesd about 3 times as long as other steps in this loop, probably due to try except clauses
             if len(self.noSplitBarcodeTypes) > 0:
                 noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict.pop(noSplitBarcode) for noSplitBarcode in self.noSplitBarcodeTypes])
                 BAMentry.set_tag('BC', noSplitBarcodeBAMtag)
@@ -431,18 +444,25 @@ class BarcodeParser:
             if not outFileDict.get(outputBarcodes, False):
                 fName = os.path.join(outputDir, f'{self.tag}_{outputBarcodes}.bam')
                 outFileDict[outputBarcodes] = pysam.AlignmentFile(fName, 'wb', template=bamfile)
+            
             outFileDict[outputBarcodes].write(BAMentry)
-            count = 1
-            rows.append([self.tag, outputBarcodes, count, groupedBool] + BAMentryBarcodeData)
-
-        totalSeqs = len(rows)
+            bcDataArray = np.insert(bcDataArray, 0, 1)                                                                    # insert 1 in front to serve as counter for total number of sequences with these barcodes
+            rowCountsDict[tuple([self.tag, outputBarcodes, groupedBool] + barcodeNames)] += bcDataArray     # add counters for demux and data on failure modes
+            
+        # combine barcode info (strings) and counters (int) from dict into a list of row lists
+        rows = []
+        for row, counters in rowCountsDict.items():
+            row = list(row)
+            counters = counters.tolist()
+            rows.append(row + counters)
 
         for sortedBAM in outFileDict:
             outFileDict[sortedBAM].close()
-
+            
         # add counts for both number of sequences in file as well as number of sequences with same exact barcodes
         demuxStats = pd.DataFrame(rows, columns=colNames)
-        fileCounts = demuxStats['output_file_barcodes'].value_counts()
+        totalSeqs = demuxStats['barcodes_count'].sum()
+        fileCounts = demuxStats[['output_file_barcodes','barcodes_count']].groupby('output_file_barcodes').sum().squeeze()
         fileCountsCol = demuxStats.apply(lambda x:
             fileCounts[x['output_file_barcodes']], axis=1)
         demuxStats.insert(2, 'demuxed_count', fileCountsCol)

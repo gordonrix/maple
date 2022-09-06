@@ -1,8 +1,7 @@
 """ script for maple pipeline
 
-Uses output data files from rule mutation_analysis for all files being processed,
-calculates statistics on diversity and visualizes this information as a distribution
-of hamming distances and a network graph of sequences
+Visualization of hamming distances as a distribution
+bar plot and a network graph of unique genotypes
 """
 
 from bokeh.plotting import figure, output_file, save
@@ -26,185 +25,87 @@ bc = snakemake.wildcards.barcodes
 maxHD = config.get('diversity_plot_hamming_distance_edge_limit', False)
 ###
 
-genotypesDF = pd.read_csv(snakemake.input[0], na_filter=False)
-genotypesDF.drop(genotypesDF[genotypesDF['NT_insertions'] != ''].index, inplace=True)
-genotypesDF.drop(genotypesDF[genotypesDF['NT_deletions'] != ''].index, inplace=True)
-genotypesDF.drop(genotypesDF[genotypesDF['count'] == 0].index, inplace=True) # removes wildtype row if count is 0
-genotypesDF.drop(['NT_insertions','NT_deletions'], axis=1, inplace=True)
-genotypesDF.set_index('genotype_ID', inplace=True)
-refSeqfasta = config['runs'][tag]['reference']
-NTref = list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq
-NTrefLength = len(NTref)
-NTs = 'ATGC'
-AAs = 'ACDEFGHIKLMNPQRSTVWY*'
-if config['do_AA_mutation_analysis'][tag]:
-    AAref = translate(list(SeqIO.parse(refSeqfasta, 'fasta'))[2].seq)
-    AArefLength = len(AAref)
-
-# construct a 3 dimensional array of all sequences encoded as 2 dimensional arrays, which are the length of the sequence and all possible mutations, and the third dimension
-#   is the genotype ID of the sequence in the order given by the genotypes .csv file, with wildtype (an array of 0s) as the first sequence. From this 3d array,
-#   a 2d array will be contructed, consisting of the pairwise hamming distances between each pair of sequences
-
-def sequence_array_from_substitutions(substitutions, NTorAA, array):
-    """
-    from a str-type list of comma separated substitutions and a numpy zero array,
-    will flip any 0s corresponding to a mutation to 1 and return the resulting array
-
-    substitutions   str, comma separated substitutions of the form XNY, where X is wt, Y is the mutation, and N is the index
-        N must not exceed the 0-dimension length of `zeroArray`, X and Y may be any character within `NTorAA`
-    NTorAA          string of all acceptable characters that may be substitutions
-    array       numpy zero array. 1-dimension length must be the same as the length of NTorAA
-    """
-    if substitutions == '':
-        return array
-    substitutionsList = substitutions.split(', ')
-    for mutation in substitutionsList:
-        mut = mutation[-1]
-        posi = int(mutation[1:-1])
-        array[posi,NTorAA.find(mut)] += 1
-    return array
-
-def seq_3D_array_from_genotypes_list(genotypesList, refSeq, NTorAA):
-    """
-    from a list of genotypes represented as a list of comma separated substitutions, generate a 3D array representation of
-    this list of genotypes such that an array of zeros of dimensions (len(refSeq), len(NTorAA)) represents the WT sequence
-    """
-    seqLength = len(refSeq)
-    numChars = len(NTorAA)
-    numGenotypes = len(genotypesList)
-    genotypes3DArray = np.zeros((seqLength, numChars, numGenotypes), dtype=int)
-
-    for i, subsList in enumerate(genotypesList):
-        zeroArray = np.zeros((seqLength, numChars), dtype=int)
-        genotypes3DArray[:,:,i] = sequence_array_from_substitutions(subsList, NTorAA, zeroArray)
-    
-    return genotypes3DArray
-
-def HDdist_from_genotypes_list(genotypesList, refSeq, NTorAA):
-    """
-    from a list of genotypes, the wild type sequence, and a list of letter representations of either nucleotides or amino acids,
-    will return a DataFrame of bincounts of pairwise hamming distances among all of the sequences
-    """
-
-    muts3Darray = seq_3D_array_from_genotypes_list(genotypesList, refSeq, NTorAA)
-
-    matrixPad = 0 # number of NaNs to pad the beginning of each row so that the hamming distance positions match up with the columns. These are essentially placeholders for hamming distances that were already calculated, and can be found on the other half of the N by N square
-    hammingDistanceRows = []
-    hammingDistanceBinCounts = np.zeros(len(refSeq), dtype=int)    # Hamming distances for each row converted into bin counts and multiplied by # of times sequence is observed in the dataset
-
-    # iterate through each row and generate counts of hamming distances (bincounts) based on hamming distance between the row genotype and
-    #   all other genotypes, including itself, to be used for plotting distribution, and also generate a matrix of hamming distances between
-    #   the row genotype and all other genotypes, excluding itself, to be used for plotting a network graph
-    for row in range(0, len(genotypesList)):
-        matrixPad += 1
-
-        hammingDistance3Darray = np.absolute( muts3Darray[:,:,row:] - muts3Darray[:,:,row].reshape(len(refSeq), len(NTorAA), 1) )       # subtract the 3D array representing remaining genotypes from 3D array representing many copies of the genotype for this row, then take absolute value of all elements in this 3D array
-        HDrow = np.sum(hammingDistance3Darray, axis=1)                                                                                  # sum across nucleotides/AAs to get 2D array of total mutations at each position and for each genotype
-        HDrow[HDrow>1] = 1                                                                                                              # set values above 1 to 1. otherwise, genotypes that both have different mutations at a single position will result in a hamming distance of 2 for that position, but hamming distance can only ever be 1 for a single position
-        HDrow = np.sum(HDrow, axis=0)                                                                                                   # sum across position axis to give 1D array of total hamming distance for each genotype
-        hammingDistanceRows.append( np.pad(HDrow[1:], ((matrixPad,0)), constant_values=-1) )                                            # make new row of all hamming distances for the row genotype, padding the beginning of the row with the null value -1 so that when combined the column positions will line up
-
-        genotypeCount = int(genotypesDF.iloc[[row]]['count'])
-        HDcountsList = [0] * int((genotypeCount*(genotypeCount-1))/2)                                                          # 0 count for comparison of the row genotype to itself calculated as n(n-1)/2, see https://stackoverflow.com/questions/18859430/how-do-i-get-the-total-number-of-unique-pairs-of-a-set-in-the-database
-
-        # loop through hamming distances for row except first one which is always 0
-        for HDindex in range(1, len(HDrow)):
-
-            # increase counts of each hamming distance by the product of the counts for the two sequences being compared
-            HDcountsList.extend( [HDrow[HDindex]] * int(genotypesDF.iloc[[row]]['count']) * int(genotypesDF.iloc[[HDindex+row]]['count']) )
-
-        HDrowBins = np.bincount(HDcountsList)                                                                               # get counts of each hamming distance observed, then multiply these bincounts by the count for the row genotype to give the total count of these observed hamming distances
-        HDrowBins.resize(len(refSeq))                                                                                       # reshape to be the same length as the sequence, which is the maximum possible hamming distance, allowing for concatenation with bincounts for other genotypes
-        hammingDistanceBinCounts += HDrowBins
-
-    # Make dataframe for distribution of pairwise hamming distances
-    hammingDistanceBinCounts = np.trim_zeros(hammingDistanceBinCounts, trim='b')
-    HDdist = pd.DataFrame(hammingDistanceBinCounts, columns=['sequence_pairs_with_n_hamming_distance'])
-    HDdist = HDdist.reset_index().rename(columns={'index':'n'})
-
-    return HDdist, hammingDistanceRows
-
-def plot_distribution(tag, bc, title, binCountsDF, outputName):
+def plot_distribution(tag, bc, title, binCountsDF, outputName, xmax):
     """
     generate and export a distribution plot from a dataframe of bincounts"
     """
     plotTitle = f"{title}, {tag}_{bc}"
     xLabel, yLabel = binCountsDF.columns
     TOOLTIPS = [(xLabel, f'@{xLabel}'), (yLabel, f'@{yLabel}')]
-    hamDistPlot = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7,config['hamming_distance_distribution_plot_x_max']), tooltips=TOOLTIPS)
+    hamDistPlot = figure(title=plotTitle, plot_width=600, plot_height=400, x_range=(-0.7, xmax), tooltips=TOOLTIPS)
     hamDistPlot.vbar(x=xLabel, top=yLabel, width=0.5, bottom=0, color='black', source=ColumnDataSource(binCountsDF))
     hamDistPlot.xaxis.axis_label = xLabel
     hamDistPlot.yaxis.axis_label = yLabel
     output_file(outputName)
     save(hamDistPlot)
 
+if len(snakemake.input) == 1:
+    aaHDdist = pd.read_csv(snakemake.input.aaHamDistCSV)
+    plot_distribution(tag, bc, "AA pairwise hamming distances", aaHDdist, snakemake.output.aaHamDistPlot, config['hamming_distance_distribution_plot_x_max'])
 
-ntHDdist, ntHammingDistanceRows = HDdist_from_genotypes_list(genotypesDF['NT_substitutions'].to_list(), NTref, NTs)
-ntHDdist.to_csv(snakemake.output.ntHamDistCSV, index=False)
-plot_distribution(tag, bc, "NT pairwise hamming distances", ntHDdist, snakemake.output.ntHamDistPlot)
+else: # make nucleotide hamming distance and network graph
 
-if config['do_AA_mutation_analysis'][tag]:
-    aaHDdist, aaHammingDistanceRows = HDdist_from_genotypes_list(genotypesDF['AA_substitutions_nonsynonymous'].to_list(), AAref, AAs)
-    aaHDdist.to_csv(snakemake.output.aaHamDistCSV, index=False)
-    plot_distribution(tag, bc, "AA pairwise hamming distances", aaHDdist, snakemake.output.aaHamDistPlot)
+    genotypesDF = pd.read_csv(snakemake.input.genotypes, dtype={'genotype_ID':str}, na_filter=False)
+    genotypesDF.drop(['NT_insertions','NT_deletions'], axis=1, inplace=True)
+    hammingDistanceEdgesDF = pd.read_csv(snakemake.input.edges, dtype={'source':str,'target':str})
+    # only use genotypes present in the edges DF, which only includes genotypes that have been filtered by mutation_diversity.py
+    filteredGenotypes = hammingDistanceEdgesDF['source'].unique().tolist() + hammingDistanceEdgesDF['target'].unique().tolist()
+    genotypesDF = genotypesDF[genotypesDF['genotype_ID'].isin(filteredGenotypes)]
+    genotypesDF.set_index('genotype_ID', inplace=True)
 
+    ntHDdist = pd.read_csv(snakemake.input.ntHamDistCSV)
+    plot_distribution(tag, bc, "NT pairwise hamming distances", ntHDdist, snakemake.output.ntHamDistPlot, config['hamming_distance_distribution_plot_x_max'])
 
-### generate network graph of sequences as nodes and edges connecting all nodes, with inverse hamming distance as edge weight. Plot with holoviews
-if len(ntHammingDistanceRows)==0:
-    exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after preprocessing.')  
-hammingDistance2Darray = np.vstack(ntHammingDistanceRows)
-hammingDistanceMatrixDF = pd.DataFrame(hammingDistance2Darray, columns=list(genotypesDF.index), index=list(genotypesDF.index))
-hammingDistanceMatrixDF.replace(to_replace=-1, value=pd.NA, inplace=True)
-hammingDistanceEdgesDF = hammingDistanceMatrixDF.stack().reset_index()
-hammingDistanceEdgesDF.columns = ['source', 'target', 'hammingDistance']
-if maxHD:
-    hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]                                       # apply filter for max hamming distance based on user-supplied value
-else: 
-    hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(ntHDdist))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
-def mutCountHDweighting(source,target, hammingDistance):
-    sourceMutCount = int(genotypesDF.loc[source,'NT_substitutions_count'])
-    targetMutCount = int(genotypesDF.loc[target,'NT_substitutions_count'])
-    return np.e**((sourceMutCount+targetMutCount)/2-hammingDistance)       # weight is e^(the average mutation count of the two mutants minus the hamming distance). This makes weight dependent on both hamming distance and # of mutations, resulting in better clustering of similar clades
-if len(hammingDistanceEdgesDF)==0:
-    exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after preprocessing.')
-hammingDistanceEdgesDF['weight'] = hammingDistanceEdgesDF.apply(lambda row:
-    mutCountHDweighting(row['source'], row['target'], row['hammingDistance']), axis=1)
-# hammingDistanceEdgesDF['weight'] = 2**(3-hammingDistanceEdgesDF['hammingDistance'])       # weighting based on hamming distance alone. Result is less structured plot that just has concentric rings of nodes that track with increasing hamming distance from WT
-G = nx.from_pandas_edgelist(hammingDistanceEdgesDF, edge_attr='weight')
-nx.set_node_attributes(G, genotypesDF.to_dict(orient='index'))
-nx.write_gexf(G, snakemake.output.GraphFile)
-hv.extension('bokeh')
-defaults = dict(width=800, height=800, xaxis=None, yaxis=None, tools=['tap', 'hover', 'box_select'])
-hv.opts.defaults(
-    hv.opts.EdgePaths(**defaults), hv.opts.Graph(**defaults), hv.opts.Nodes(**defaults))
-nodeColorMap = 'blues' if config['force_directed_plot_node_color'] in ['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', ] else 'rainbow'
+    ### generate network graph of sequences as nodes and edges connecting all nodes, with inverse hamming distance as edge weight. Plot with holoviews
+    if snakemake.params.edgeLimit:
+        hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=snakemake.params.edgeLimit]                                       # apply filter for max hamming distance based on user-supplied value
+    else: 
+        hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(ntHDdist))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
+    if len(hammingDistanceEdgesDF)==0:
+        exit('[ERROR] plot_mutation_diversity failed because there were no sequence pairs to process after applying the hamming distance cutoff.')
+    def mutCountHDweighting(source,target, hammingDistance):
+        sourceMutCount = int(genotypesDF.at[source,'NT_substitutions_count'])
+        targetMutCount = int(genotypesDF.at[target,'NT_substitutions_count'])
+        return np.e**((sourceMutCount+targetMutCount)/2-hammingDistance)       # weight is e^(the average mutation count of the two mutants minus the hamming distance). This makes weight dependent on both hamming distance and # of mutations, resulting in better clustering of similar clades
 
-# linear equation to scale Node sizes to range from 5-25 (for node weight)
-maxCount = genotypesDF[config['force_directed_plot_node_size']].max()
-minCount = genotypesDF[config['force_directed_plot_node_size']].min()
-if maxCount==minCount: # set all to 10 if no difference between max and min
-    slopeN, interceptN = 0, 10
-else:
-    slopeN = (25-5) / (maxCount-minCount)
-    interceptN = 5 - (slopeN*minCount)
+    hammingDistanceEdgesDF['weight'] = hammingDistanceEdgesDF.apply(lambda row:
+        mutCountHDweighting(row['source'], row['target'], row['hammingDistance']), axis=1)
+    # hammingDistanceEdgesDF['weight'] = 2**(3-hammingDistanceEdgesDF['hammingDistance'])       # weighting based on hamming distance alone. Result is less structured plot that just has concentric rings of nodes that track with increasing hamming distance from WT
+    G = nx.from_pandas_edgelist(hammingDistanceEdgesDF, edge_attr='weight')
+    nx.set_node_attributes(G, genotypesDF.to_dict(orient='index'))
+    nx.write_gexf(G, snakemake.output.GraphFile)
+    hv.extension('bokeh')
+    defaults = dict(width=800, height=800, xaxis=None, yaxis=None, tools=['tap', 'hover', 'box_select'])
+    hv.opts.defaults(
+        hv.opts.EdgePaths(**defaults), hv.opts.Graph(**defaults), hv.opts.Nodes(**defaults))
+    nodeColorMap = 'blues' if config['force_directed_plot_node_color'] in ['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', ] else 'rainbow'
 
-# equation to scale log of edge widths 0.05-7 (for edge weight)
-maxWeight = np.log(hammingDistanceEdgesDF['weight'].max())
-minWeight = np.log(hammingDistanceEdgesDF['weight'].min())
-if maxWeight==minWeight: # set all to 1 if no difference between max and min
-    slopeW, interceptW = 0, 1
-else:
-    slopeW = (10-0.05) / (maxWeight-minWeight)
-    interceptW = 0.1 - (slopeW*minWeight)
+    # linear equation to scale Node sizes to range from 5-25 (for node weight)
+    maxCount = genotypesDF[config['force_directed_plot_node_size']].max()
+    minCount = genotypesDF[config['force_directed_plot_node_size']].min()
+    if maxCount==minCount: # set all to 10 if no difference between max and min
+        slopeN, interceptN = 0, 10
+    else:
+        slopeN = (25-5) / (maxCount-minCount)
+        interceptN = 5 - (slopeN*minCount)
 
-# equation to scale log of edge widths 0.05-0.4 (for edge Alpha, or opacity)
-if maxWeight==minWeight: # set all to 10 if no difference between max and min
-    slopeA, interceptA = 0, 0.4
-else:
-    slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
-    interceptA = 0.1 - (slopeA*minWeight)
+    # equation to scale log of edge widths 0.05-7 (for edge weight)
+    maxWeight = np.log(hammingDistanceEdgesDF['weight'].max())
+    minWeight = np.log(hammingDistanceEdgesDF['weight'].min())
+    if maxWeight==minWeight: # set all to 1 if no difference between max and min
+        slopeW, interceptW = 0, 1
+    else:
+        slopeW = (10-0.05) / (maxWeight-minWeight)
+        interceptW = 0.1 - (slopeW*minWeight)
 
-networkPlot = hv.Graph.from_networkx(G, nx.layout.fruchterman_reingold_layout).opts(
-    hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap=nodeColorMap,
-                    edge_line_width=(np.log(hv.dim('weight'))*slopeW)+interceptW, edge_color=np.log(hv.dim('weight')), edge_cmap='Inferno', edge_alpha=np.log(hv.dim('weight'))*slopeA+interceptA))
-hv.save(networkPlot, snakemake.output.GraphPlot, backend='bokeh')
+    # equation to scale log of edge widths 0.05-0.4 (for edge Alpha, or opacity)
+    if maxWeight==minWeight: # set all to 0.4 if no difference between max and min
+        slopeA, interceptA = 0, 0.4
+    else:
+        slopeA = (0.4-0.05) / np.absolute(maxWeight-minWeight)
+        interceptA = 0.1 - (slopeA*minWeight)
+
+    networkPlot = hv.Graph.from_networkx(G, nx.layout.fruchterman_reingold_layout).opts(
+        hv.opts.Graph(node_size=(hv.dim(config['force_directed_plot_node_size'])*slopeN)+interceptN, node_color=config['force_directed_plot_node_color'], cmap=nodeColorMap,
+                        edge_line_width=(np.log(hv.dim('weight'))*slopeW)+interceptW, edge_color=np.log(hv.dim('weight')), edge_cmap='Inferno', edge_alpha=np.log(hv.dim('weight'))*slopeA+interceptA))
+    hv.save(networkPlot, snakemake.output.GraphPlot, backend='bokeh')

@@ -33,6 +33,8 @@ def print_(*args, **kwargs):
     if workflow.mode == snakemake.common.Mode.default:
         print(*args, **kwargs)
 
+print('')
+
 
 # get pipeline version # update for maple
 def get_tag():
@@ -347,6 +349,8 @@ for tag in config['runs']:
     if 'UMI_contexts' in config['runs'][tag]:
         config['do_UMI_analysis'][tag] = True
         config['runs'][tag]['UMI_contexts'] = [context.upper() for context in config['runs'][tag]['UMI_contexts']]
+        if len(set(config['runs'][tag]['UMI_contexts'])) != len(config['runs'][tag]['UMI_contexts']):
+            errors.append(f"[ERROR] Duplicate UMI contexts provided for tag `{tag}`. UMI consensus generation will fail.\n")
         for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
             occurences = str(alignmentSeq.seq).upper().count(context.upper())
             if occurences == 0:
@@ -383,7 +387,7 @@ config['consensusCopyDict'] = consensusCopyDict
 config['do_demux'] = {}
 for tag in config['runs']:
     if 'barcodeInfo' not in config['runs'][tag]:
-        print_(f"[NOTICE] No keyword 'barcodeInfo' provided for {tag}, not demultiplexing.\n", file=sys.stderr)
+        print_(f"[NOTICE] No keyword 'barcodeInfo' provided for {tag}, will not perform demultiplexing for this tag.\n", file=sys.stderr)
         config['do_demux'][tag] = False
         continue
     else:
@@ -406,13 +410,16 @@ for tag in config['runs']:
         if len(config['runs'][tag]['barcodeGroups']) == 0:
             print_(f"[NOTICE] No barcode groups provided for run tag `{tag}`. Outputs will be named as concatemerized barcode names.\n", file=sys.stderr)
     else:
-        print_(f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
+        print_(f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.\n", file=sys.stderr)
     refFasta = config['runs'][tag]['reference']
     alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
+    contexts = []
     for barcodeType in config['runs'][tag]['barcodeInfo']:
         for requiredKey in ['context', 'fasta', 'reverseComplement']:
             if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
                 print_(f"[WARNING] Tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.\n", file=sys.stderr)
+        c = config['runs'][tag]['barcodeInfo'][barcodeType].get('context', False)
+        if c: contexts.append(c)
         config['runs'][tag]['barcodeInfo'][barcodeType]['context'] = config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()
         if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
             print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
@@ -447,6 +454,8 @@ for tag in config['runs']:
                 print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` exists. Using this file for demultiplexing.\n", file=sys.stderr)
             else:
                 print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.\n", file=sys.stderr)
+        if len(set(contexts)) != len(contexts):
+            print_(f"[WARNING] Duplicate barcode contexts provided for run tag `{tag}`.\n", file=sys.stderr)
 
 # check that tags and barcodeGroup names don't contain underscores
 for tag in config['runs']:
@@ -590,29 +599,7 @@ to make sure everything is configured correctly.
 
 """.format(log_name), file=sys.stderr)
 
-# ---------------------------------------------------------------------------------
-# Copyright (c) 2018-2020, Pay Giesselmann, Max Planck Institute for Molecular Genetics
-#
-# Permission is hereby granted, free of charge, to any person obtaining a copy
-# of this software and associated documentation files (the "Software"), to deal
-# in the Software without restriction, including without limitation the rights
-# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-# copies of the Software, and to permit persons to whom the Software is
-# furnished to do so, subject to the following conditions:
-#
-# The above copyright notice and this permission notice shall be included in all
-# copies or substantial portions of the Software.
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-# SOFTWARE.
-#
-# Written by Pay Giesselmann, modified by Gordon Rix
-# ---------------------------------------------------------------------------------
+
 
 def targets_input(wildcards):
     out = []
@@ -644,7 +631,7 @@ def targets_input(wildcards):
     if config['diversity_plot_all']:
         for tag in config['runs']:
             if config['do_NT_mutation_analysis'][tag]:
-                if config['do_demux']:
+                if config['do_demux'][tag]:
                     out.append( f'plots/.{tag}_allDiversityPlots.done' )
                 else:
                     dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
@@ -652,8 +639,8 @@ def targets_input(wildcards):
                     if config['do_AA_mutation_analysis'][tag]:
                         dataType.append('AA-hamming-distance-distribution.csv')
                         plotType.append('AA-hamming-distance-distribution.html')
-                    out.extend( expand('mutation_data/{tag}_all_{dataType}', tag=tag, dataType =['diversity-graph.gexf', 'hamming-distance-distribution.csv']) )
-                    out.extend( expand('plots/{tag}_all_{plotType}', tag=tag, plotType =['diversity-graph.html', 'hamming-distance-distribution.html']) )
+                    out.extend( expand('mutation_data/{tag}/all/{tag}_all_{dataType}', tag=tag, dataType=dataType) )
+                    out.extend( expand('plots/{tag}/all/{tag}_all_{plotType}', tag=tag, plotType=plotType) )
 
     elif config.get('diversity_plot_subset', False) not in ['',False]:
         for tag_bc in config['diversity_plot_subset'].split(','):

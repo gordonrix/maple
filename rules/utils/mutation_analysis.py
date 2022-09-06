@@ -111,7 +111,7 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
-                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and ( self.refProteinStart <= refIndex + cTuple[1] ) and ( refIndex < self.refProteinEnd ): # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift deletion', queryIndex)
                     return None
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
@@ -119,7 +119,8 @@ class MutationAnalysis:
                 alignStr += ' '*cTuple[1]
                 if self.fastq:
                     queryQualities += [0]*cTuple[1]
-                if self.refTrimmedStart <= refIndex < self.refTrimmedEnd:
+                # record deletions that are present within the nucleotide analysis window
+                if ( self.refTrimmedStart <= refIndex + cTuple[1] ) and ( refIndex < self.refTrimmedEnd ):
                     deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
                 refIndex += cTuple[1]
 
