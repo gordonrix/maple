@@ -42,6 +42,12 @@ class MutationAnalysis:
         self.BAMin = BAMin
         self.outputList = output
         self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
+        self.useReverseComplement = False
+        if self.refTrimmedStart == -1:
+            self.useReverseComplement = True
+            self.refTrimmed.seq = self.refTrimmed.seq.reverse_complement()
+            self.refTrimmedStr = str(self.refTrimmed.seq)
+            self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
         self.refTrimmedEnd = len(self.refTrimmedStr) + self.refTrimmedStart
 
         if 'mutation_analysis_quality_score_minimum' in config:
@@ -50,10 +56,14 @@ class MutationAnalysis:
 
         if self.doAAanalysis: # define protein sequence
             refProtein = list(SeqIO.parse(refSeqfasta, 'fasta'))[2]
+            if self.useReverseComplement: # sequence only needs to be reversed temporarily to find start/end positions
+                refProtein.seq = refProtein.seq.reverse_complement()
             refProteinStr = str(refProtein.seq).upper()
             self.refProtein = refProteinStr
             self.refProteinStart = self.refTrimmedStr.find(self.refProtein)
             self.refProteinEnd = len(self.refProtein) + self.refProteinStart
+            if self.useReverseComplement:
+                self.refProtein = str(Seq(refProteinStr).reverse_complement())
 
         self.AAs = "ACDEFGHIKLMNPQRSTVWY*"
         self.NTs = "ATGC"
@@ -106,7 +116,7 @@ class MutationAnalysis:
                 if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
-                if self.refTrimmedStart <= refIndex < self.refTrimmedEnd:
+                if self.refTrimmedStart <= refIndex < self.refTrimmedEnd: # record insertions as tuples of position and sequence
                     insertions.append((refIndex-self.refTrimmedStart, BAMentry.query_alignment_sequence[queryIndex:queryIndex+cTuple[1]]))
                 queryIndex += cTuple[1]
 
@@ -120,7 +130,7 @@ class MutationAnalysis:
                 if self.fastq:
                     queryQualities += [0]*cTuple[1]
                 # record deletions that are present within the nucleotide analysis window
-                if ( self.refTrimmedStart <= refIndex + cTuple[1] ) and ( refIndex < self.refTrimmedEnd ):
+                if ( self.refTrimmedStart <= refIndex + cTuple[1] ) and ( refIndex < self.refTrimmedEnd ): # record deletions as tuples of position and length
                     deletions.append((refIndex-self.refTrimmedStart, cTuple[1]))
                 refIndex += cTuple[1]
 
@@ -131,6 +141,32 @@ class MutationAnalysis:
                 insertions,
                 deletions]
 
+    def clean_alignment_reverse_complement(self, cleanAlignment):
+        """
+        given the output from `clean_alignment`, will remake each of the components using the reverse
+        (for alignment string and deletions), and reverse complement (for reference, query sequence,
+        and insertions) of the sequence
+        """
+        
+        ref, alignStr, seq, qScores, insertions, deletions = cleanAlignment
+
+        ref = str(Seq(ref).reverse_complement())
+        alignStr = alignStr[::-1]
+        seq = str(Seq(seq).reverse_complement())
+        qScores = qScores[::-1] if qScores else None
+
+        insertions.reverse()
+        deletions.reverse()
+
+        insertionsOut = []
+        for ins in insertions:
+            insertionsOut.append( (len(self.refTrimmedStr) - ins[0], str(Seq(ins[1]).reverse_complement())) )
+
+        deletionsOut = []
+        for dels in deletions:
+            deletionsOut.append( (len(self.refTrimmedStr) - dels[0] - dels[1], dels[1]) )
+
+        return [ref, alignStr, seq, qScores, insertionsOut, deletionsOut]
 
     def ID_muts(self, cleanAlignment):
         """ Identify mutations in an aligned sequence
@@ -195,7 +231,7 @@ class MutationAnalysis:
             mutNT = seq[i]
 
             NTmutArray[i,self.NTs.find(mutNT)] += 1
-            NTsubstitutions.append(wtNT+str(i)+mutNT)
+            NTsubstitutions.append(wtNT+str(i+1)+mutNT) # genotype output 1-index
 
             if self.doAAanalysis and self.refProteinStart <= i < self.refProteinEnd:
 
@@ -223,7 +259,7 @@ class MutationAnalysis:
 
                 if wtAA!=mutAA:
                     AAmutArray[codon, self.AAs.find(mutAA)] += 1
-                    AAnonsynonymous.append(wtAA+str(codon+1)+mutAA)
+                    AAnonsynonymous.append(wtAA+str(codon+1)+mutAA) # genotype output 1-index
                 else:
                     AAsynonymous.append(wtAA+str(codon+1))
 
@@ -236,8 +272,6 @@ class MutationAnalysis:
             for subType in [AAnonsynonymous, AAsynonymous]:
                 genotype.append(', '.join(subType))
             genotype.append(len(AAnonsynonymous))
-        else:
-            totalAAmuts = None
             
         return NTmutArray, AAmutArray, genotype
 
@@ -302,6 +336,8 @@ class MutationAnalysis:
         for bamEntry in bamFile:
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
+                if self.useReverseComplement:
+                    cleanAln = self.clean_alignment_reverse_complement(cleanAln)
                 seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
             else:
                 failuresList.append([bamEntry.query_name, self.alignmentFailureReason[0], self.alignmentFailureReason[1]])
@@ -354,41 +390,54 @@ class MutationAnalysis:
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
         failuresDF = pd.DataFrame(failuresList, columns=failuresColumns)
         
-        genotypesDFcondensed = genotypesDF.groupby(by=genotypesColumns[2:], as_index=False).agg({'seq_ID':'count', 'avg_quality_score':'max'})[list(genotypesDF.columns)]
-        genotypesDFcondensed.sort_values(['seq_ID'], ascending=False, ignore_index=True, inplace=True)
-
-        # move wildtype row(s) to the beginning. rename as wild type only if there aren't any barcodes in the genotype, as this would result in many different 'wildtype' rows
-        wildtypeDF = genotypesDFcondensed.loc[(genotypesDFcondensed['NT_substitutions']=='')&(genotypesDFcondensed['NT_insertions']=='')&(genotypesDFcondensed['NT_deletions']=='')]
-        genotypesDFcondensed = pd.concat([wildtypeDF, genotypesDFcondensed.iloc[list(genotypesDFcondensed.index.difference(wildtypeDF.index))]])
+        genotypesDF['genotype->seq'] = genotypesDF.groupby(by=genotypesColumns[2:]).ngroup()        # identify duplicate genotypes, assign a unique value. This value will not be the genotype_ID, which will be assigned after further manipulation, but will be used to correlate seq_IDs to genotype_IDs
+        genotypesDF['count'] = genotypesDF.groupby(by='genotype->seq')['seq_ID'].transform('count') # count duplicate genotypes, add to new column
+        genotypesDFcondensed = genotypesDF.sort_values('avg_quality_score', ascending=False).drop_duplicates('genotype->seq', keep='first')[ ['genotype->seq','count']+genotypesColumns ] # remove duplicate genotype rows, keep the seq_ID with the highest average quality score
+        sort = ['count','NT_substitutions_count']
+        ascendBool = [False,True]
         if self.barcodeColumn:
-            genotypesDFcondensed.index += 1
+            sort.append('barcode(s)')
+            ascendBool.append(True)
+        genotypesDFcondensed = genotypesDFcondensed.sort_values(sort, ascending=ascendBool)
+
+        # move wildtype row(s) to the beginning, if they exist. rename as wild type only if there aren't any barcodes in the genotype, as this would result in many different 'wildtype' rows
+        wildtypeDF = genotypesDFcondensed.loc[(genotypesDFcondensed['NT_substitutions']=='')&(genotypesDFcondensed['NT_insertions']=='')&(genotypesDFcondensed['NT_deletions']=='')]
+        if len(wildtypeDF) > 0:
+            wildtype_in_df = True
+        else: wildtype_in_df = False
+        if wildtype_in_df:
+            genotypesDFcondensed = genotypesDFcondensed.drop(index=wildtypeDF.index)
+            genotypesDFcondensed = pd.concat([wildtypeDF, genotypesDFcondensed]).reset_index(drop=True)
+            if not self.barcodeColumn:
+                genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
         else:
-            genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
-        genotypesDFcondensed.reset_index(inplace=True)
-        genotypesDFcondensed.rename(columns={'index':'genotype_ID', 'seq_ID':'count'}, inplace=True)
+            genotypesDFcondensed.reset_index(drop=True, inplace=True)
+        if genotypesDFcondensed.index[0] == 0: # make barcode IDs 1-indexed if necessary
+            genotypesDFcondensed.index += 1
 
-        # add column that correlates every sequence ID with a genotype ID from the condensed genotypes DF
-        def get_row_index(df, subs, ins, dels):
-            return df.loc[(df['NT_substitutions']==subs) & (df['NT_insertions']==ins) & (df['NT_deletions']==dels)].loc[:, 'genotype_ID'].iloc[0]
-        genotypesDF['genotype_ID'] = genotypesDF.apply(lambda row:
-            get_row_index(genotypesDFcondensed, row['NT_substitutions'], row['NT_insertions'], row['NT_deletions']), axis=1)
+        # now that genotype IDs are established, add column that correlates every sequence ID with a genotype ID from the condensed genotypes DF
+        genotypesDFcondensed = genotypesDFcondensed.reset_index().rename(columns={'index':'genotype_ID'})
+        seq_to_genotype_dict = dict(zip(genotypesDFcondensed['genotype->seq'], genotypesDFcondensed['genotype_ID']))
+        genotypesDF['genotype_ID'] = genotypesDF['genotype->seq'].map(seq_to_genotype_dict)
 
-        # iterate through x genotypes with highest counts and genotypes of specific ID # (both defined in config file) , get a representative sequence for each, and write alignments to file
-        desiredGenotypeIDs = [int(ID) for ID in str(self.desiredGenotypeIDs).split(', ') if int(ID) <= len(genotypesDFcondensed)]
-        genotypeAlignmentsOutDF = pd.concat( [genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,], genotypesDFcondensed.iloc[desiredGenotypeIDs,]] )
+        # iterate through x genotypes with highest counts and genotypes of specific ID # (both defined in config file) , get a representative sequence for each (that w highest avg_quality_score, or essentially random if there are no quality scores), and write alignments to file
+        genotypeAlignmentsOutDF = genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,]
+        if self.desiredGenotypeIDs:
+            desiredGenotypeIDs = [int(ID) for ID in str(self.desiredGenotypeIDs).split(', ') if int(ID) <= len(genotypesDFcondensed)]
+            genotypeAlignmentsOutDF = pd.concat( [genotypeAlignmentsOutDF, genotypesDFcondensed.iloc[desiredGenotypeIDs,]] )
         with open(self.outputList[0], 'w') as txtOut:
             nameIndexedBAM = pysam.IndexedReads(bamFile)
             nameIndexedBAM.build()
             for row in genotypeAlignmentsOutDF.itertuples():
                 if row.genotype_ID=='wildtype':
                     continue
-                rowIndexFromBool = (row.avg_quality_score == genotypesDF.loc[:, 'avg_quality_score']) & (row.NT_substitutions == genotypesDF.loc[:, 'NT_substitutions']) & (row.NT_insertions == genotypesDF.loc[:, 'NT_insertions']) & (row.NT_deletions == genotypesDF.loc[:, 'NT_deletions'])
-                seqID = genotypesDF[rowIndexFromBool]['seq_ID'].tolist()[0]
+                seqID = row.seq_ID
                 iterator = nameIndexedBAM.find(seqID)
                 for BAMentry in iterator:
                     break
                 x = self.clean_alignment(BAMentry)
-                if x == None: print(BAMentry.query_name)
+                if self.useReverseComplement:
+                    x = self.clean_alignment_reverse_complement(x)
                 ref, alignString, seq, _, _, _ = x
                 txtOut.write(f'Genotype {row.genotype_ID} representative sequence. Sequence ID: {seqID}\n')
                 for string in [ref, alignString, seq]:
@@ -396,6 +445,7 @@ class MutationAnalysis:
                 txtOut.write('\n')
             txtOut.write('')
 
+        # output to files
         ntIDs = list(self.refTrimmedStr)
         ntPositions = [f'{str(i)}' for i in range(0, len(self.refTrimmedStr))]
         WTnts = [ID+ntPosi for ID,ntPosi in zip(ntIDs,ntPositions)]
@@ -409,9 +459,7 @@ class MutationAnalysis:
         NTdistDF = pd.DataFrame(NTmutDist, columns=['seqs_with_n_NTsubstitutions'])
         NTdistDF.index.name = 'n'
 
-        genotypesDFcondensed.drop(columns=['avg_quality_score'], inplace=True)
-        genotypesDFcondensed.to_csv(self.outputList[1], index=False)
-
+        genotypesDFcondensed.drop(columns=['genotype->seq', 'seq_ID', 'avg_quality_score']).to_csv(self.outputList[1], index=False)
         genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
 
         failuresDF.to_csv(self.outputList[3], index=False)
