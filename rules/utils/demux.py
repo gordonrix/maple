@@ -462,9 +462,9 @@ class BarcodeParser:
         # add counts for both number of sequences in file as well as number of sequences with same exact barcodes
         demuxStats = pd.DataFrame(rows, columns=colNames)
         totalSeqs = demuxStats['barcodes_count'].sum()
-        fileCounts = demuxStats[['output_file_barcodes','barcodes_count']].groupby('output_file_barcodes').sum().squeeze()
+        fileCounts = demuxStats[['output_file_barcodes','barcodes_count']].groupby('output_file_barcodes').sum()
         fileCountsCol = demuxStats.apply(lambda x:
-            fileCounts[x['output_file_barcodes']], axis=1)
+            fileCounts.loc[x['output_file_barcodes']]['barcodes_count'], axis=1)
         demuxStats.insert(2, 'demuxed_count', fileCountsCol)
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
         demuxStats.sort_values(['demuxed_count','barcodes_count'], ascending=False, inplace=True)

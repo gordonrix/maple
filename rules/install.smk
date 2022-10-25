@@ -39,16 +39,6 @@ rule default:
 
 rule all:
     input:
-        "bin/guppy_basecaller",
-        "bin/minimap2",
-        "bin/samtools",
-        "bin/NGmerge",
-        "lib/python3.8/C3POa.py",
-        "lib/python3.8/site-packages/conk/conk.cpython-38-x86_64-linux-gnu.so",
-        "lib/python3.8/site-packages/medaka/maple_smolecule.py"
-
-rule all_but_guppy:
-    input:
         "bin/minimap2",
         "bin/samtools",
         "bin/NGmerge",

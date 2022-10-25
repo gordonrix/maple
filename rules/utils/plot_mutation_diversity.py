@@ -58,7 +58,11 @@ else: # make nucleotide hamming distance and network graph
 
     ### generate network graph of sequences as nodes and edges connecting all nodes, with inverse hamming distance as edge weight. Plot with holoviews
     if snakemake.params.edgeLimit:
-        hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=snakemake.params.edgeLimit]                                       # apply filter for max hamming distance based on user-supplied value
+        if str(snakemake.params.edgeLimit)[0] == 'x':
+            divisor = int(snakemake.params.edgeLimit.split('/')[1])
+            maxHD = np.argmax(ntHDdist)/divisor
+        else: maxHD = snakemake.params.edgeLimit
+        hammingDistanceEdgesDF = hammingDistanceEdgesDF.loc[hammingDistanceEdgesDF['hammingDistance']<=maxHD]                  # apply filter for max hamming distance based on user-supplied value
     else: 
         hammingDistanceEdgesDF = hammingDistanceEdgesDF[hammingDistanceEdgesDF['hammingDistance'] < max(3, np.argmax(ntHDdist))]    # filter out edges with hamming distance greater than or equal to (a) the maximum hamming distance bincount (will be median for normal distribution), or (b) 3, whichever is larger
     if len(hammingDistanceEdgesDF)==0:

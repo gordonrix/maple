@@ -29,7 +29,7 @@ rule sequences_clean:
     output:
         touch('.sequences_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp']
+        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         mkdir -p {params.timestampDir}
@@ -64,7 +64,7 @@ rule demux_clean:
     output:
         touch('.demux_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp']
+        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         if [ -d demux ]; then
@@ -76,7 +76,7 @@ rule mutation_data_clean:
     output:
         touch('.mutation_data_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp'],
+        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs',
         keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv', 'maple']]
     shell:
         """
@@ -90,7 +90,7 @@ rule logs_clean:
     output:
         touch('.logs_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp']
+        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         if [ -d log ]; then
@@ -114,7 +114,7 @@ rule clean:
         rules.mutation_data_clean.output,
         rules.logs_clean.output
     params:
-        timestampDir = lambda wildcards: config['timestamp']
+        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         rm {input}

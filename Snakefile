@@ -620,7 +620,7 @@ def targets_input(wildcards):
         if config['nanoplot'] == True:
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
-        out.append(f'plots/{tag}_pipeline-throughput.html')
+        # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
     if 'timepoints' in config:
         out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
 
