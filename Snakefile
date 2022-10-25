@@ -183,60 +183,42 @@ if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
 else:
 	config['bin_singularity']['python'] = sys.executable
 
+errors = []
 
-if config['do_basecalling'] and config['merge_paired_end']:
-    raise RuntimeError("[ERROR] `do_basecalling` and `merge_paired_end` cannot both be True. Set one of these to False.\n", file=sys.stderr)
+# list of required options. Will be added to if certain tools are used
+required = ['references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
 
-# check for required options
-required = ['fast5_dir', 'do_basecalling', 'basecalling_guppy_config', 'basecalling_guppy_qscore_filter', 'basecalling_guppy_flags', 'medaka_model', 'medaka_flags', 'UMI_medaka_batches', 'references_directory', 'threads_basecalling', 'threads_medaka', 'threads_alignment', 'threads_samtools', 'threads_demux', 'merge_paired_end', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
-missing = []
-for option in required:
-    if option not in config:
-        missing.append(option)
-if len(missing) > 0:
-    text = [f"`{o}`" for o in missing]
-    print_(f"[WARNING] Required option(s) missing from the config file: {', '.join(text)}. Please add these options to the config file. See example_working_directory/config.yaml for example.\n", file=sys.stderr)
+config['merge_paired_end'] = {}
+for tag in config['runs']:
+    config['merge_paired_end'][tag] = False
+    if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
+        config['merge_paired_end'][tag] = True
+        if 'runname' in config['runs'][tag]:
+            errors.append('[ERROR] Run tag `{tag}` contains both `runname` and (`fwdReads` or `rvsReads). Reads can only be merged from paired end or from batches in the runname folder, not both.')
 
 runs_to_import = []
-# check raw data archive
-if config['do_basecalling']:
-    if not os.path.exists(config['storage_data_raw']):
-        raise RuntimeError("[ERROR] Raw data archive not found.\n", file=sys.stderr)
-    config['storage_data_raw'] = config['storage_data_raw'].rstrip('/')
-    for tag in config['runs']:
-        for runname in config['runs'][tag]['runname']:
-            loc = os.path.join(config['storage_data_raw'], runname)
-            if not os.path.exists(loc):
-                print_("[WARNING] {runname} not found at {loc} and is not available in the workflow.".format(
-                    runname=runname, loc=loc), file=sys.stderr)
-            elif not os.path.exists(os.path.join(loc, config['fast5_dir'])) or not os.listdir(os.path.join(loc, config['fast5_dir'])):
-                print_("[WARNING] {runname} configured but with missing/empty reads directory.".format(
-                    runname=runname), file=sys.stderr)
-    if not config['nanopore']:
-        print_("[WARNING] 'do_basecalling' set to True but 'nanopore' set to False. This will not end well.\n", file=sys.stderr)
 # check for sequences
-else:
-    for tag in config['runs']:
-        sequences = os.path.join('sequences', tag+'.fastq.gz')
+for tag in config['runs']:
+    sequences = os.path.join('sequences', tag+'.fastq.gz')
 
-        if not os.path.exists(sequences):
+    if not os.path.exists(sequences):
 
-            if config['merge_paired_end'] == True:
-                if 'fwdReads' not in config['runs'][tag] or 'rvsReads' not in config['runs'][tag]:
-                    print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`.\n", file=sys.stderr)
-                fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
-                rvs = os.path.join('sequences', 'paired', config['runs'][tag]['rvsReads'])
-                if not all((os.path.exists(fwd), os.path.exists(rvs))):
-                    print_(f"[WARNING] merge_paired_end set to True but forward and/or reverse reads files provided for {tag}, {fwd}, {rvs} do not exist.\n", file=sys.stderr)
+        if config['merge_paired_end'][tag] == True:
+            if 'fwdReads' not in config['runs'][tag] or 'rvsReads' not in config['runs'][tag]:
+                print_(f"[WARNING] Both forward and reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`.\n", file=sys.stderr)
+            fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
+            rvs = os.path.join('sequences', 'paired', config['runs'][tag]['rvsReads'])
+            if not all((os.path.exists(fwd), os.path.exists(rvs))):
+                print_(f"[WARNING] One or both forward/reverse reads files provided for {tag}, ({fwd}, {rvs}) do not exist.\n", file=sys.stderr)
 
-            elif 'runname' not in config['runs'][tag]:
-                print_(f"[WARNING] `do_basecalling` set to False and runname director(y/ies) not set for tag `{tag}`, but sequences file `{sequences}` not found.\n", file=sys.stderr)
+        elif 'runname' not in config['runs'][tag]:
+            print_(f"[WARNING] Neither paired end reads nor runname director(y/ies) provided for tag `{tag}`, but sequences file `{sequences}` not found.\n", file=sys.stderr)
 
-            else:
-                for runname in config['runs'][tag]['runname']:
-                    batch = os.path.join('sequences', 'batches', runname)
-                    if not os.path.exists(batch):
-                        runs_to_import.append(runname)
+        else:
+            for runname in config['runs'][tag]['runname']:
+                batch = os.path.join('sequences', 'batches', runname)
+                if not os.path.exists(batch):
+                    runs_to_import.append(runname)
 # Check minknow directory
 if runs_to_import != []:
     for runname in runs_to_import:
@@ -247,7 +229,6 @@ if runs_to_import != []:
 
 
 # check reference sequences
-errors = []
 refSeqFastaFiles = []   # list files for all tags then check so files not being checked multiple times
 config['do_NT_mutation_analysis'] = {}     # dictionaries to determine if NT/AA analysis should be performed based on how many sequences are present in the ref fasta file
 config['do_AA_mutation_analysis'] = {}
@@ -382,6 +363,11 @@ for tag in config['runs']:
             consensusRecipeDict[consensusRecipe] = tag
         consensusCopyDict[tag] = consensusRecipeDict[consensusRecipe]
 
+if any([config['do_UMI_analysis'][tag] for tag in config['runs']]):
+    required.extend(['medaka_model', 'medaka_flags', 'UMI_medaka_batches', 'threads_medaka', 'UMI_mismatches', 'UMI_consensus_minimum', 'UMI_consensus_maximum'])
+if any([config['do_RCA_consensus'][tag] for tag in config['runs']]):
+    required.extend(['peak_finder_settings', 'RCA_batch_size', 'RCA_consensus_minimum', 'RCA_consensus_maximum'])
+
 config['consensusCopyDict'] = consensusCopyDict
 
 # Demultiplexing checks
@@ -433,7 +419,7 @@ for tag in config['runs']:
                 print_(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
             if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
                 print_(f"[WARNING] Tag `{tag}`, barcode type `{barcodeType}` reverseComplement keyword must be set as True or False\n\n", file=sys.stderr)
-        elif config['runs'][tag].get('generate', False) == False:
+        elif config['runs'][tag]['barcodeInfo'][barcodeType].get('generate', False) == False:
             print_(f"[WARNING] Barcode fasta file `{bcFasta}` does not exist, but is used for barcode type `{barcodeType}` in run tag `{tag}`\n", file=sys.stderr)
         if 'barcodeGroups' in config['runs'][tag]:
             for group in config['runs'][tag]['barcodeGroups']:
@@ -498,9 +484,9 @@ for tag in config['runs']:
             timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
             topRow = [x for x in pd.read_csv(CSVpath).columns if 'Unnamed: ' not in x]
             if len(topRow) > 1:
-                print_(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {str(snakemake.input.timepoints)}. Only the first cell in this row will be used for labeling outputs of mutation rate plots.\n", file=sys.stderr)
+                print_(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {CSVpath}. Only the first cell in this row will be used for labeling outputs of mutation rate plots.\n", file=sys.stderr)
             elif len(topRow) == 0: 
-                print_(f"[NOTICE] No time unit provided in top row of timepoint CSV file {str(snakemake.input.timepoints)}. Default 'generations' will be used.\n", file=sys.stderr)
+                print_(f"[NOTICE] No time unit provided in top row of timepoint CSV file {CSVpath}. Default 'generations' will be used.\n", file=sys.stderr)
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
             else:
@@ -540,6 +526,15 @@ if len(errors) > 0:
     for err in errors:
         print_(err, file=sys.stderr)
     raise RuntimeError("Critical errors found. See above.\n")
+
+# check for required options
+missing = []
+for option in required:
+    if option not in config:
+        missing.append(option)
+if len(missing) > 0:
+    text = [f"`{o}`" for o in missing]
+    print_(f"[WARNING] Required option(s) missing from the config file: {', '.join(text)}. Please add these options to the config file. See example_working_directory/config.yaml for example.\n", file=sys.stderr)
 
 # # include modules
 include : "rules/clean.smk"

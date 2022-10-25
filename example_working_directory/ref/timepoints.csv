@@ -1,8 +1,3 @@
-,generations,
-sample_label,50,130
-trixy,TrixySgkProgMA_trx-1-P0,TrixySgkProgMA_trx-1-P10
-trixy,TrixySgkProgMA_trx-2-P0,TrixySgkProgMA_trx-2-P10
-D3,TrixySgkProgMA_D3-1-P0,TrixySgkProgMA_D3-1-P10
-D3,TrixySgkProgMA_D3-2-P0,TrixySgkProgMA_D3-2-P10
-trxsgk123,TrixySgkProgMA_trxSgk123-1-P0,TrixySgkProgMA_trxSgk123-1-P10
-trxsgk123,TrixySgkProgMA_trxSgk123-2-P0,TrixySgkProgMA_trxSgk123-2-P10
+,generations,,,,,,,,,
+sample_label,50,70,90,110,130,150,170,190,210,230
+TrpB,TrpB_P1,TrpB_P3,TrpB_P5,TrpB_P7,TrpB_P9,TrpB_P11,TrpB_P13,TrpB_P15,TrpB_P17,TrpB_P19

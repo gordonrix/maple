@@ -3,6 +3,7 @@ channels:
   - conda
   - bioconda
   - conda-forge
+  - anaconda
 dependencies:
   - snakemake
   - python=3.8
@@ -31,6 +32,8 @@ dependencies:
   - tqdm
   - blat
   - mappy
+  - scikit-learn
+  - ipykernel
   - pip
   - pip:
     - pyabpoa==1.0.5

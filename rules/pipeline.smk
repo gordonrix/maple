@@ -1,143 +1,48 @@
 # imports
 import os, sys, glob
 
-# local rules
-if not config['merge_paired_end']:
-    localrules: basecaller_merge_tag
-
-# get batch of reads fast5
-def get_signal_batch(wildcards):
-    batch_file = os.path.join(config['minknowDir'], wildcards.expt, wildcards.sample, wildcards.runname, config['fast5_dir'], wildcards.batch + '.fast5')
-    if os.path.isfile(batch_file):
-        return batch_file
-    else:
-        print(f"[WARNING] Batch file `{batch_file}` was requested but not found.")
-        return []
-
-# prefix of raw read batches
-def get_batch_ids_raw_minknow(runpath, fast5_dir):
-    batches_fast5, = glob_wildcards("{runpath}/{fast5_dir}/{{id}}.fast5".format(runpath=runpath, fast5_dir=fast5_dir))
-    return batches_fast5
-
-def get_batch_ids_sequences(runname):
-    batches_fastqgz, = glob_wildcards("sequences/batches/{runname}/{{id}}.fastq.gz".format(runname=runname))
-    return batches_fastqgz
-
-def get_batch_ids_sequences_minkow(runpath, fastq_dir):
+def get_batch_sequences(runpath, fastq_dir):
     batches_fastqgz, = glob_wildcards("{runpath}/{fastq_dir}/{{id}}.fastq.gz".format(runpath=runpath, fastq_dir=fastq_dir))
     return batches_fastqgz
 
-# get batches
-def get_batches_basecaller(wildcards):
+# get batches of sequences for each provided runname to be merged together
+def get_batches(wildcards):
     output = []
     for runname in config['runs'][wildcards.tag]['runname']:
-        outputs = []
-        if not config['do_basecalling']: # basecalling was already performed so basecalled sequences are fetched
-            outputs = expand("sequences/batches/{runname}/{batch}.fastq.gz",
-                                runname = runname,
-                                batch = get_batch_ids_sequences(runname))
 
-        if outputs==[] and os.path.isdir(config['minknowDir']): # no sequence batches were found within the working directory, so will try to find them in the minknow directory instead
-            experimentDirs = [d for d in os.listdir(config['minknowDir']) if os.path.isdir(os.path.join(config['minknowDir'],d))]
-            expt_sample = False
-            for expt in experimentDirs:
-                if expt_sample: break
-                sampleDirs = [d for d in os.listdir(os.path.join(config['minknowDir'], expt)) if os.path.isdir(os.path.join(config['minknowDir'], expt,d))]
-                for sample in sampleDirs:
-                    if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
-                        expt_sample = (expt, sample)
-                        break
+        # search through all directories two directories deep within the minknowDir for the provided runname, and stop once a matching directory is found
+        experimentDirs = [d for d in os.listdir(config['minknowDir']) if os.path.isdir(os.path.join(config['minknowDir'],d))]
+        expt_sample = False
+        for expt in experimentDirs:
+            if expt_sample: break # stop once a matching directory is found
+            sampleDirs = [d for d in os.listdir(os.path.join(config['minknowDir'], expt)) if os.path.isdir(os.path.join(config['minknowDir'], expt,d))]
+            for sample in sampleDirs:
+                if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
+                    expt_sample = (expt, sample)
+                    break
 
-            if expt_sample:
-                if config['do_basecalling'] == True: # choose whether to request fastq files for all fast5 files or just what fastq files are already present based on whether basecalling should be performed
-                    batch = get_batch_ids_raw_minknow(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), config['fast5_dir'])
-                    outputs.extend(expand("sequences/batches/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
-                                            minknowDir = config['minknowDir'].rstrip('/'),
-                                            expt = expt_sample[0],
-                                            sample = expt_sample[1],
-                                            runname = runname,
-                                            fastq_dir = config['fastq_dir'],
-                                            batch = batch))
-                else:
-                    batch = get_batch_ids_sequences_minkow(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), config['fastq_dir'])
-                    outputs.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
-                                            minknowDir = config['minknowDir'].rstrip('/'),
-                                            expt = expt_sample[0],
-                                            sample = expt_sample[1],
-                                            runname = runname,
-                                            fastq_dir = config['fastq_dir'],
-                                            batch = batch))
+        if expt_sample: # add all batches of sequences to a list to be merged together
+            outputs = []
+            for fastq_dir in config['fastq_dir'].replace(' ','').split(','):
+                batch = get_batch_sequences(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), fastq_dir)
+                outputs.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
+                                        minknowDir = config['minknowDir'].rstrip('/'),
+                                        expt = expt_sample[0],
+                                        sample = expt_sample[1],
+                                        runname = runname,
+                                        fastq_dir = fastq_dir,
+                                        batch = batch))
+        else:
+            print('[WARNING] No folders matching the provided runname was found. This is fine if you have already combined the sequences you want to combine but if not then it is not fine and you should refer to the documentation.')
         output.extend(outputs)
     return output
-
-
-if config['do_basecalling']:
-
-    # guppy basecalling
-    rule guppy:
-        input:
-            batch = lambda wildcards : get_signal_batch(wildcards)
-        output:
-            "sequences/batches/{expt}/{sample}/{runname}/{fastq_dir}/{batch, [^.]*}.fastq.gz"
-        shadow: "shallow"
-        threads: config['threads_basecalling']
-        resources:
-            threads = lambda wildcards, threads: threads,
-            mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.1 * (attempt - 1))) * (config['memory']['guppy_basecaller'][0] + config['memory']['guppy_basecaller'][1] * threads)),
-            time_min = lambda wildcards, threads, attempt: int((1440 / threads) * attempt * config['runtime']['guppy_basecaller']), # 90 min / 16 threads
-            gpu = 1
-        params:
-            guppy_config = lambda wildcards : '-c {cfg}{flags}'.format(
-                                cfg = config.get('basecalling_guppy_config') or 'dna_r9.4.1_450bps_fast.cfg',
-                                flags = ' --fast5_out' if config.get('basecalling_guppy_config') and 'modbases' in config['basecalling_guppy_config'] else ''),
-            guppy_server = lambda wildcards, input : '' if (config.get('basecalling_guppy_flags') and '--port' in config['basecalling_guppy_flags']) else '--port ' + config['basecalling_guppy_server'][hash(input.batch) % len(config['basecalling_guppy_server'])] if config.get('basecalling_guppy_server') else '',
-            guppy_flags = lambda wildcards : config.get('basecalling_guppy_flags') or '',
-            filtering = lambda wildcards : '--min_qscore {score}'.format(score = config['basecalling_guppy_qscore_filter']) if config['basecalling_guppy_qscore_filter'] > 0 else 0,
-            mod_table = lambda wildcards, input, output : output[2] if len(output) == 3 else ''
-        # singularity:
-        #     config['singularity_images']['basecalling']
-        shell:
-            """
-            mkdir -p raw
-            {config[bin_singularity][python]} {config[sbin_singularity][storage_fast5Index.py]} extract {input.batch} raw/ --output_format bulk
-            {config[bin_singularity][guppy_basecaller]} -i raw/ --recursive --num_callers 1 -s workspace/ {params.guppy_config} {params.filtering} {params.guppy_flags} {params.guppy_server}
-            FASTQ_DIR='workspace/pass'
-            if [ \'{params.filtering}\' = '' ]; then
-                FASTQ_DIR='workspace'
-            fi
-            find ${{FASTQ_DIR}} -regextype posix-extended -regex '^.*f(ast)?q' -exec cat {{}} \; | gzip > {output[0]}
-            """
-    
-rule basecaller_stats:
-    input:
-        lambda wildcards: get_batches_basecaller(wildcards)
-    output:
-        "sequences/batches/{runname}.hdf5"
-    run:
-        import gzip
-        import pandas as pd
-        def fastq_iter(iterable):
-            while True:
-                try:
-                    title = next(iterable)
-                    assert title[0] == '@'
-                    seq = next(iterable)
-                    _ = next(iterable)
-                    qual = next(iterable)
-                except StopIteration:
-                    return
-                mean_q = sum([ord(x) - 33 for x in qual]) / len(qual) if qual else 0.0
-                yield len(seq), mean_q
-        line_iter = (line for f in input for line in gzip.open(f, 'rb').read().decode('utf-8').split('\n') if line)
-        df = pd.DataFrame(fastq_iter(line_iter), columns=['length', 'quality'])
-        df.to_hdf(output[0], 'stats')
 
 rule merge_paired_end:
     input:
         fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['fwdReads']),
         rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['rvsReads'])
     output:
-        merged = "sequences/{tag, [^\/_]*}.fastq.gz",
+        merged = temp("sequences/paired/{tag, [^\/_]*}.fastq.gz"),
         log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
         failedfwd = "sequences/paired/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
         failedrvs = "sequences/paired/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
@@ -149,11 +54,11 @@ rule merge_paired_end:
         NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
         """
 
-rule basecaller_merge_tag: # combine batches of basecalled reads into a single file
+rule basecaller_combine_tag: # combine batches of basecalled reads into a single file
     input:
-        lambda wildcards: get_batches_basecaller(wildcards)
+        lambda wildcards: get_batches(wildcards)
     output:
-        "sequences/{tag, [^\/_]*}.fastq.gz"
+        temp("sequences/{tag, [^\/_]*}_combined.fastq.gz")
     run:
         with open(output[0], 'wb') as fp_out:
             if len(input)==0:
@@ -162,8 +67,18 @@ rule basecaller_merge_tag: # combine batches of basecalled reads into a single f
                 with open(f, 'rb') as fp_in:
                     fp_out.write(fp_in.read())
 
-# default behavior is to use R2C2 as is. The commented out code can uses R2C2 just for read splitting, followed by medaka for consensus generation
-#  our tests showed that medaka produced slightly worse results in most cases. keeping this available for further testing until I am emotionally detached
+rule move_seqs: # allows for merging batches of sequences or merging paired end reads depending on the tag definition using the above rules
+    input:
+        lambda wildcards: f'sequences/{wildcards.tag}_combined.fastq.gz' if config['merge_paired_end'][tag]==False else f'sequences/paired/{wildcards.tag}.fastq.gz'
+    output:
+        'sequences/{tag, [^\/_]*}.fastq.gz'
+    shell:
+        """
+        mv {input} {output}
+        """
+
+# default behavior is to use R2C2 as is. The commented out code can use R2C2 just for read splitting, followed by medaka for consensus generation
+#  tests showed that medaka produced slightly worse results in most cases. keeping this available for further testing until I am emotionally detached
 #  from the time that I spent on this that was likely in vain
 
 rule RCA_consensus:
@@ -175,14 +90,15 @@ rule RCA_consensus:
         tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
         log = 'log/RCA/{tag, [^\/_]*}_RCA.log'
     params:
-        peakFinderSettings = lambda wildcards: config['peak_finder_settings']
+        peakFinderSettings = lambda wildcards: config['peak_finder_settings'],
+        batchSize = lambda wildcards: config['RCA_batch_size']
     threads: workflow.cores
     resources:
         threads = lambda wildcards, threads: threads,
     shell:
         """
         rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA-consensus
-        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize 10000
+        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize {params.batchSize}
         mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/splint/R2C2_Consensus.fasta.gz {output.consensus}
         mkdir log/RCA -p
         mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/c3poa.log {output.log}
@@ -320,13 +236,15 @@ rule UMI_minimap2:
         log = "sequences/UMI/{tag, [^\/_]*}_noConsensus.log"
     threads: config['threads_alignment']
     group: "minimap2"
+    params:
+        flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]
     resources:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),
         time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {config[alignment_minimap2_flags]} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
+        {config[bin_singularity][minimap2]} -t {threads} {params.flags} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
         if [ $(grep 'ERROR' {output.log} | wc -l) -gt 0 ]; then exit 1; fi
         """
 
@@ -499,7 +417,7 @@ rule minimap2:
         aln = pipe("alignments/{tag, [^\/_]*}.sam"),
         log = "alignments/{tag, [^\/_]*}.log"
     params:
-        flags = lambda wildcards: config['alignment_minimap2_flags']
+        flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]
     threads: config['threads_alignment']
     group: "minimap2"
     resources:
@@ -639,10 +557,10 @@ rule index_demuxed:
 ruleorder: mutation_analysis_NTonly > mutation_analysis
 
 def ma_NTonly_input(wildcards):
-    if config['do_AA_mutation_analysis'][tag]:
+    if config['do_AA_mutation_analysis'][wildcards.tag]:
         return {'bam':'dummyfilethatshouldneverexist','bai':'dummyfilethatshouldneverexist'}
     else:
-        if config['do_demux'][tag]:
+        if config['do_demux'][wildcards.tag]:
             return {'bam':expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag), 'bai':expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag)}
         else:
             return {'bam':f'alignments/{wildcards.tag}.bam', 'bai':f'alignments/{wildcards.tag}.bam.bai'}
