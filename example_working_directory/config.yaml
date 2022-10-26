@@ -46,7 +46,7 @@ UMI_medaka_batches: 1          # number of files to split BAM file into prior to
 # alignment flags for samtools
 alignment_samtools_flags: ''
 # command line flags for minimap2 DNA alignment
-alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --secondary=no'   # string, options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
+alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --secondary=no'   # string, options good for targeted sequencing, minimizes gaps. Use --for-only flag to align to only the forward read of the reference sequence if all reads are already in the correct alignment.
                                                                 #   can also supply a dict for cases where you want to use different alignment settings for different tags, like so:
                                                                 #       alignment_minimap2_flags:
                                                                 #           tag1: '-a -A2 -B4 -O4 -E2 --secondary=no'

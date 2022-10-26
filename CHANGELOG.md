@@ -1,3 +1,7 @@
+## Unreleased
+# Major
+- Plotting of RCA consensus stats
+
 ## v0.8.6
 # Major
 - Added an example fastq.gz file

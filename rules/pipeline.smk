@@ -109,7 +109,7 @@ rule filter_RCA_consensus:
         'sequences/RCA/{tag}_RCAconsensuses-nofilter.fasta.gz'
     output:
         filtered = temp('sequences/RCA/{tag}_RCAconsensuses.fasta.gz'),
-        csv = 'log/RCA/{tag}_RCA-log.csv'
+        log = 'log/RCA/{tag}_RCA-log.csv'
     params:
         minimum = lambda wildcards: config['RCA_consensus_minimum'],
         maximum = lambda wildcards: config['RCA_consensus_maximum'],
@@ -120,13 +120,13 @@ rule filter_RCA_consensus:
         import os
         import pandas as pd
 
-        # calculate min/max original read length and min/max repeats to use for filtering. repeats reported by C3POa do not include reads at the end,
-        #   which can be frequent depending on the method of library preparation
+        # calculate min/max original read length and min/max repeats to use for filtering. repeats reported by C3POa do not include
+        #   subreads at the ends of the read that are almost complete, which can be common and valuable depending on the method of library preparation
         with open(params.alnRef, 'r') as aln:
             alnSeq = aln.readlines()[1]
         onemerLength = len(alnSeq)
-        minLen = len(alnSeq) * params.minimum * 0.9
-        maxLen = len(alnSeq) * params.maximum * 1.1
+        minLen = len(alnSeq) * 0.8
+        maxLen = len(alnSeq) * 1.2
         minRepeats = params.minimum - 2
         maxRepeats = params.maximum - 2
 
@@ -137,19 +137,19 @@ rule filter_RCA_consensus:
         for f in [output.filtered, output.filtered[:-3]]:
             if os.path.isfile(f):
                 os.remove(f)
-        os.makedirs(os.path.split(output.csv)[0], exist_ok=True)
+        os.makedirs(os.path.split(output.log)[0], exist_ok=True)
         rows = []
         
         with open(output.filtered[:-3], 'a') as outfile:
             with gzip.open(input, 'rt') as infile:
                 for record in SeqIO.parse(infile, 'fasta'):
                     readName, avgQual, originalLen, numRepeats, subreadLen = record.id.split('_')
-                    passedConsensus = 0
-                    if ( minRepeats <= int(numRepeats) <= maxRepeats ) and ( minLen <= float(originalLen) <= maxLen):
-                        passedConsensus = 1
+                    passedConsensus = 'fail'
+                    if ( minRepeats <= int(numRepeats) <= maxRepeats ) and ( minLen <= float(subreadLen) <= maxLen):
+                        passedConsensus = 'pass'
                         seqsOutList.append(record)
                         count += 1
-                    rows.append([readName, avgQual, originalLen, numRepeats, subreadLen, passedConsensus])
+                    rows.append([readName, avgQual, originalLen, numRepeats, subreadLen, int(originalLen)/int(subreadLen), passedConsensus])
                     if count > seqMemoryLimit:
                         SeqIO.write(seqsOutList, outfile, 'fasta-2line')
                         seqsOutList = []
@@ -157,75 +157,26 @@ rule filter_RCA_consensus:
             SeqIO.write(seqsOutList, outfile, 'fasta-2line')
         os.system(f'gzip {output.filtered[:-3]}')
 
-        pd.DataFrame(rows, columns=['read_ID', 'average_quality_score', 'original_read_length', 'number_of_complete_repeats', 'subread length', 'pass(1)/fail(0)']).to_csv(output.csv, index=False)
+        pd.DataFrame(rows, columns=['read_ID', 'average_quality_score', 'original_read_length', 'number_of_complete_repeats', 'subread_length', 'read_length ÷ subread_length', 'pass/fail']).to_csv(output.log, index=False)
 
-# rule RCA_split_reads:
-#     input:
-#         sequence = 'sequences/{tag}.fastq.gz',
-#         splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
-#     output:
-#         subreads = temp('sequences/RCA/{tag, [^\/_]*}_RCA-subreads.fastq.gz'),
-#         log = 'sequences/RCA/{tag, [^\/_]*}_c3poa.log'
-#     params:
-#         peakFinderSettings = lambda wildcards: config['peak_finder_settings'],
-#         minimum = lambda wildcards: config['RCA_consensus_minimum'],
-#         maximum = lambda wildcards: config['RCA_consensus_maximum']
-#     threads: workflow.cores
-#     resources:
-#         threads = lambda wildcards, threads: threads
-#     shell:
-#         """
-#         rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA
-#         python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize 1000 --minimum {params.minimum} --maximum {params.maximum}
-#         mv sequences/tempOutDir-{wildcards.tag}_RCA/splint/R2C2_Subreads.fastq.gz {output.subreads}
-#         mv sequences/tempOutDir-{wildcards.tag}_RCA/c3poa.log {output.log}
-#         rm -r sequences/tempOutDir-{wildcards.tag}_RCA
-#         """
+rule plot_RCA_consensus:
+    input:
+        log = 'log/RCA/{tag}_RCA-log.csv'
+    output:
+        plot = 'plots/{tag, [^\/_]*}_RCA-distribution.html'
+    run:
+        import pandas as pd
+        import holoviews as hv
+        hv.extension('bokeh')
 
-# RCAbatchesList = [str(x) for x in range(0,config['RCA_medaka_batches'])]
-# rule RCA_split_fasta:
-#     input:
-#         subreads = 'sequences/RCA/{tag}_RCA-subreads.fastq.gz'
-#     output:
-#         fastqs = temp(expand('sequences/RCA/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=RCAbatchesList))
-#     params:
-#         batches = config['RCA_medaka_batches']
-#     script:
-#         'utils/RCA_split_fasta.py'
+        data = pd.read_csv(input.log)[['subread_length','read_length ÷ subread_length','pass/fail']]
 
-# rule RCA_consensus:
-#     input:
-#         fastq = 'sequences/RCA/{tag}-temp/{batch}.fasta',
-#         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
-#     output:
-#         outDir = temp(directory('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}')),
-#         consensus = temp('sequences/RCA/{tag, [^\/_]*}-temp/{batch, [^\/_]*}/consensus.fasta')
-#     threads: lambda wildcards: config['threads_medaka']
-#     resources:
-#         threads = lambda wildcards, threads: threads,
-#         mem_mb = 1000
-#     params:
-#         model = lambda wildcards: config['medaka_model'],
-#         flags = lambda wildcards: config['medaka_flags'],
-#         maxmem = lambda wildcards, threads, resources: resources.mem_mb * 1024
-#     shell:
-#         """
-#         rm -rf {output.outDir}
-#         medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} {output.outDir} {input.alnRef} {input.fastq}
-#         """
+        plot = hv.Points(data, vdims=['pass/fail']).hist(dimension=['subread_length','read_length ÷ subread_length'], num_bins=50).opts(
+            hv.opts.Points(width=750,height=750,fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=5, alpha=0.3, color='pass/fail',cmap=['#FA3232','#3296FA'])).opts(
+            hv.opts.Histogram(tools=['hover'],fontsize={'title':16,'labels':14,'xticks':10,'yticks':10},color='grey'))
 
-# rule RCA_merge_consensus_seqs:
-#     input:
-#         expand('sequences/RCA/{{tag}}-temp/batch{x}/consensus.fasta', x = RCAbatchesList)
-#     output:
-#         seqs = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.fasta.gz',
-#         log = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.log'
-#     run:
-#         with open(output.seqs[:-3], 'w') as fp_out, open(output.log, 'w') as log_out:
-#             for f in input:
-#                 with open(f, 'r') as fp_in:
-#                     fp_out.write(fp_in.read())
-#         os.system(f'gzip {output.seqs[:-3]}')
+        hv.save(plot, output.plot, backend='bokeh')
+
 
 rule UMI_minimap2:
     input:
