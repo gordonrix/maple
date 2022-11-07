@@ -37,3 +37,4 @@ dependencies:
   - pip
   - pip:
     - pyabpoa==1.0.5
+    - pacmap

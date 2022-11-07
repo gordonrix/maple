@@ -613,6 +613,8 @@ def targets_input(wildcards):
             out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
+        if config['do_RCA_consensus'][tag]:
+            out.append(f'plots/{tag}_RCA-distribution.html')
         if config['do_UMI_analysis'][tag]:
             out.append(f"plots/{config['consensusCopyDict'][tag]}_UMIgroup-distribution.html")
             if config['nanoplot'] == True:

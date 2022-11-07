@@ -78,8 +78,7 @@ rule move_seqs: # allows for merging batches of sequences or merging paired end 
         """
 
 # default behavior is to use R2C2 as is. The commented out code can use R2C2 just for read splitting, followed by medaka for consensus generation
-#  tests showed that medaka produced slightly worse results in most cases. keeping this available for further testing until I am emotionally detached
-#  from the time that I spent on this that was likely in vain
+#  tests showed that medaka produced slightly worse results in most cases
 
 rule RCA_consensus:
     input:
@@ -684,6 +683,16 @@ rule mutation_diversity:
         downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
     script:
         'utils/mutation_diversity.py'
+
+rule cluster_sequences:
+    input:
+        genotypes = '{dir}/{tag}_{barcodes}_genotypes.csv'
+    output:
+        genotypesClustered = '{dir}/{tag}_{barcodes}_genotypes-clustered.csv'
+    params:
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
+    script:
+        'utils/cluster_sequences.py'
 
 rule plot_mutation_diversity:
     input:
