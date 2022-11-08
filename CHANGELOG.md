@@ -1,6 +1,8 @@
-## Unreleased
+## v0.8.7
 # Major
 - Plotting of RCA consensus stats
+- Sequence clustering / dimensionality reduction using PaCMAP
+- Scatter plotting of dimension-reduced genotypes
 
 ## v0.8.6
 # Major
