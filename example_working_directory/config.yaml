@@ -31,7 +31,7 @@ nanoplot: False
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # RCA consensus
-peak_finder_settings: 40,3,9,2  # settings used to identify splint alignment locations for read splitting
+peak_finder_settings: 40,3,9,2  # settings used to identify splint alignment locations for splitting read into subreads
 RCA_batch_size: 10000           # number of sequences to batch together in each subprocess. If RCA processing crashes, lowering this number can help
 RCA_consensus_minimum: 3        # inclusive minimum number of complete subreads that will be used to generate an RCA consensus read. C3POa only counts complete repeats (i.e. flanked on both sides by the splint sequence), so filtering is based on both the number of repeats found by C3POa and the length of the original RCA read
 RCA_consensus_maximum: 20       # inclusive maximum number of complete subreads that will be used to generate an RCA consensus read. RCA reads with more than this number of subreads will not be used. Note that this behavior differs slightly from that of UMI_consensus_maximum
@@ -86,14 +86,14 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 background: control
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
-# plot mutation diversity
-diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations (option provided because this is a time consuming step)
-diversity_plot_subset: False                              # if above option set to False, can add a list of tag_barcode pairs separated by ',' to be piped through diversity analysis, eg. `tag1_barcode1,tag3_barcode2`. The demuxed file must already exist before this can be used
+# plot mutation diversity (hamming distance and genotypes plots)
+diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations
 diversity_plot_downsample: False                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False or 0 to use all genotypes
 diversity_plot_hamming_distance_edge_limit: 10              # maximum hamming distance between two sequences for an edge to be drawn between them. If int, will use the provided number. if string in the format 'x/N' (e.g. x/4), will divide the median (x) by N to determine the edge limit. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
 hamming_distance_distribution_plot_x_max: 40                 # maximum x value to show for all HD distribution plots
-force_directed_plot_node_size: count                         # genotypes column to use for node size. options are 'count', 'NT_substitutions_count', and 'AA_substitutions_nonsynonymous_count'
-force_directed_plot_node_color: 'NT_substitutions_count'       # genotypes column to use for node color. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow.
+genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical. default, count
+genotypes2D_plot_point_size_range: 30, 60                 # comma separated pair of integers, minimum and maximum point size to be used on the genotypes2D plot. If all values in 'genotypes_plot_point_size_col' are the same, the minimum size will be used 
+genotypes2D_plot_point_color_col: barcode(s)       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default, NT_substitutions_count
 
 
 # runs to be analyzed, organized into separate run 'tags'. Tags may not contain underscores.
@@ -163,4 +163,4 @@ runs:
         #   rvs: bc2
 
         NT_muts_of_interest: 'T1221A'                       # comma separated list of specific nucleotide mutations to be added to genotypes output. If not needed, set as 'False'. For comma separated list of length L, L+1 columns will be added to genotype output. One column to encode all mutations of interest as a list, and one column for each mutation of interest for one-hot encoding
-        AA_muts_of_interest: 'T117A'                        # same as above except for AA mutations
+        AA_muts_of_interest: 'R60H'                        # same as above except for AA mutations

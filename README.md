@@ -12,6 +12,9 @@ Analysis is primarily performed by a mix of custom python scripts and several ex
  - [NGmerge](https://github.com/harvardinformatics/NGmerge)
  - [NanoPlot](https://github.com/wdecoster/NanoPlot)
  - [C3POa](https://github.com/christopher-vollmers/C3POa)
+ - [PaCMAP](https://github.com/YingfanWang/PaCMAP)
+
+Built in visualizations are performed using the [HoloViz](https://holoviz.org/) ecosystem.
 
 Additionally, many concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
 
@@ -54,7 +57,7 @@ Alternatively, with root privileges, mamba may instead be installed in the base 
 
 
 Next, use mamba to create the environment that we need. If using mamba within its own environment, the path to the environment should
-be specified with the `--prefix In this example, the default path prefix ~/miniconda3/envs is used, but please ensure this is the correct location:
+be specified with the `--prefix` flag. In this example, the default path prefix ~/miniconda3/envs is used, but please ensure this is the correct location:
 
     conda activate mambaEnv
     mamba env create --prefix ~/miniconda3/envs/maple --file requirements.yaml
@@ -63,8 +66,8 @@ be specified with the `--prefix In this example, the default path prefix ~/minic
 
 
 The various tools that maple uses that are not simple python scripts must now be installed. This is accomplished
-easily through snakemake, using the 'install' snakefile, derived from a similar setup in [Nanopype](https://nanopype.readthedocs.io/en/latest/).
-Running the following command, with the --prefix flag modified to point to the location of the environment
+easily through snakemake, using the `install.smk` snakemake module, derived from a similar setup in [Nanopype](https://nanopype.readthedocs.io/en/latest/).
+Running the following command, with the `--prefix` flag modified to point to the location of the environment
 we created in the previous step, will carry out all the steps to provide the environment with program binaries
 needed for execution of the pipeline:
 

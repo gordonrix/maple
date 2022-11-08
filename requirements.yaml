@@ -6,7 +6,7 @@ channels:
   - anaconda
 dependencies:
   - snakemake
-  - python=3.8
+  - python
   - PyYAML>=5.1
   - setuptools
   - wget
@@ -22,6 +22,8 @@ dependencies:
   - medaka
   - nanoplot
   - holoviews
+  - hvplot
+  - panel==0.14.1 # temporary pin until support for bokeh 3.0
   - networkx
   - seaborn
   - editdistance
