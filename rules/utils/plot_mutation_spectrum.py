@@ -1,4 +1,4 @@
-""" script for nanoMACE pipeline
+""" script for maple pipeline
 
 Uses nucleotide mutation data from mutation-stats.csv file to determine normalized (and background subtracted if specified)
 mutation spectrum. Outputs mutation spectrum as bokeh .html plot, and the normalized data as a .csv (silently because
@@ -52,7 +52,7 @@ def main():
     config = snakemake.config
     tag = snakemake.wildcards.tag
     mutStats = pd.read_csv(str(snakemake.input))
-    background = config['background'] if 'background' in config else None
+    background = config.get('background',False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()
     ###

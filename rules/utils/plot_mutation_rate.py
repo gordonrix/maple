@@ -68,7 +68,7 @@ def main():
         timeUnit = topRow[0]
     else:
         timeUnit = 'generations'    # default label for time unit if none is provided in the first row of timepoints CSV
-    backgroundBCgroup, backgroundBool = (config['background'], True) if 'background' in config else (None, False)
+    backgroundBCgroup, backgroundBool = config.get('background',False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()
     ###
@@ -100,7 +100,7 @@ def main():
     # make a dictionary of tag:background rows from mutation stats csv file key:value pairs
     # Row is first trimmed for relevant stats and normalized by # of sequences and number of bases analyzed
     backgroundRows = {}
-    if backgroundBool:
+    if backgroundBCgroup:
         assert backgroundBCgroup in list(mutStatsCSV['barcode_group']), f'Provided barcode group for background subtraction, {backgroundBCgroup}, not present in {tag}_mutation-stats.csv. Demuxing for this barcode group may have failed.'
         for _, row in mutStatsCSV[mutStatsCSV['barcode_group']==backgroundBCgroup].iterrows():
             rowTag = row['tag']
@@ -154,7 +154,7 @@ def main():
 
                 # calculate the substitutions per base analyzed for all types of substitutions individually and combined, normalized to # of sequences, and subtract sequencing background if given
                 normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes)
-                if backgroundBool:
+                if backgroundBCgroup:
                     normTrimmedRow = list(np.array(normTrimmedRow) - np.array(backgroundRows[timepointTag]))
                 sampleTimepointDFrowList.append([sampleLabel, replicateIndex, timepoint] + normTrimmedRow)
             
