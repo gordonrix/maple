@@ -1,16 +1,14 @@
-# \HEADER\-------------------------------------------------------------------------
 #
-#  CONTENTS      : Snakemake nanopore data pipeline
-#
-#  DESCRIPTION   : none
+#  DESCRIPTION   : Main snakefile for the Maple pipeline. Performs quality control and imports modules that
+#                   perform analysis steps
 #
 #  RESTRICTIONS  : none
 #
-#  REQUIRES      : none
+#  AUTHOR(S)     : Gordon Rix
 #
 
 # imports
-import os, sys, collections
+import os, sys, collections, glob
 import itertools
 import yaml, subprocess
 import snakemake.common
@@ -18,8 +16,6 @@ from datetime import datetime
 from snakemake.utils import min_version
 from Bio import SeqIO
 import pandas as pd
-
-
 
 start_time = datetime.now()
 
@@ -537,8 +533,11 @@ if len(missing) > 0:
     print_(f"[WARNING] Required option(s) missing from the config file: {', '.join(text)}. Please add these options to the config file. See example_working_directory/config.yaml for example.\n", file=sys.stderr)
 
 # # include modules
+include : "rules/get_seqs.smk"
+include : "rules/consensus.smk"
+include : "rules/analysis.smk"
+include : "rules/target_files.smk"
 include : "rules/clean.smk"
-include : "rules/pipeline.smk"
 
 # error and success handler
 def print_log(status='SUCCESS'):
@@ -594,67 +593,3 @@ please visit the github at
 to make sure everything is configured correctly.
 
 """.format(log_name), file=sys.stderr)
-
-
-
-def targets_input(wildcards):
-    out = []
-    if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
-        out.append('sequences/UMI/UMI-extract-summary.csv')
-    if any(config['do_NT_mutation_analysis'][tag] for tag in config['runs']):
-        out.append('mutation-stats.csv')
-    if any(config['do_AA_mutation_analysis'][tag] for tag in config['runs']):
-        if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
-            out.append('dms-view-table.csv')
-    if any(config['do_demux'][tag] for tag in config['runs']):
-        out.append('demux-stats.csv')
-    for tag in config['runs']:
-        if config['do_NT_mutation_analysis'][tag]:
-            out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
-            out.extend(expand('plots/{tag}_{AAorNT}-mutations-frequencies.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
-            out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
-        if config['do_RCA_consensus'][tag]:
-            out.append(f'plots/{tag}_RCA-distribution.html')
-        if config['do_UMI_analysis'][tag]:
-            out.append(f"plots/{config['consensusCopyDict'][tag]}_UMIgroup-distribution.html")
-            if config['nanoplot'] == True:
-                out.append(f"plots/nanoplot/{config['consensusCopyDict'][tag]}_alignment_preConsensus_NanoStats.txt")
-        if config['nanoplot'] == True:
-            out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
-            out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
-        # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
-    if 'timepoints' in config:
-        out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
-
-    if config['diversity_plot_all']:
-        for tag in config['runs']:
-            if config['do_NT_mutation_analysis'][tag]:
-                if config['do_demux'][tag]:
-                    out.append( f'plots/.{tag}_allDiversityPlots.done' )
-                else:
-                    dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
-                    plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
-                    if config['do_AA_mutation_analysis'][tag]:
-                        dataType.append('AA-hamming-distance-distribution.csv')
-                        plotType.append('AA-hamming-distance-distribution.html')
-                    out.extend( expand('mutation_data/{tag}/all/{tag}_all_{dataType}', tag=tag, dataType=dataType) )
-                    out.extend( expand('plots/{tag}/all/{tag}_all_{plotType}', tag=tag, plotType=plotType) )
-
-    elif config.get('diversity_plot_subset', False) not in ['',False]:
-        for tag_bc in config['diversity_plot_subset'].split(','):
-            divPlotFilePrefixes = []
-            dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
-            plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
-            if config['do_AA_mutation_analysis'][tag]:
-                dataType.append('AA-hamming-distance-distribution.csv')
-                plotType.append('AA-hamming-distance-distribution.html')
-            tag, bc = tag_bc.split('_')
-            divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
-            out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=divPlotFilePrefixes, dataType=dataType) )
-            out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=plotType) )
-
-    return out
-
-rule targets:
-    input:
-        targets_input
