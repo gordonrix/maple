@@ -450,7 +450,7 @@ for tag in config['runs']:
                 print_(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
 
 # check that 'background' barcodeGroup, if declared, is defined in all tags:
-if 'background' in config:
+if config.get('background', False):
     for tag in config['runs']:
         if 'barcodeGroups' in config['runs'][tag]:
             if config['background'] not in config['runs'][tag]['barcodeGroups']:

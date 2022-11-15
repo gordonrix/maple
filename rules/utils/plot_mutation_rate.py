@@ -1,10 +1,9 @@
-""" script for nanoMACE pipeline
-
-Uses nucleotide mutation data from mutation-stats.csv file to determine normalized (and background subtracted if specified)
-mutation spectrum. Outputs mutation spectrum as bokeh .html plot, and the normalized data as a .csv (silently because
-these outputs have different wildcards, which snakemake doesn't tolerate
-"""
-
+#
+#  DESCRIPTION   : Script for maple pipeline. Uses nucleotide mutation data from mutation-stats.csv
+#                   for designated timepoints to determine mutation rate and mutation spectrum.
+#
+#  AUTHOR(S)     : Gordon Rix
+#
 
 import os
 import numpy as np
