@@ -1,3 +1,7 @@
+## Unreleased
+# Major
+ - Plotting of demux counts
+
 ## v0.8.7
 # Major
 - Plotting of RCA consensus stats

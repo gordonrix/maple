@@ -21,6 +21,7 @@ dependencies:
   - ont-fast5-api
   - medaka
   - nanoplot
+  - natsort
   - holoviews
   - hvplot
   - panel==0.14.1 # temporary pin until support for bokeh 3.0

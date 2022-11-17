@@ -36,7 +36,7 @@ runs:
             rvs: 
                 context: NNNNNNNC                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
                 fasta: 7merBarcodes.fasta        # fasta file containing barcode sequences, located in references_directory
-                reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as 5' to 3'. Default, False.
+                reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as the reverse complement of the top strand (e.g., the defined sequences are present as-is within a reverse primer that was used for PCR)
                 hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
             fwd:
                 context: TNNNNNNN  
