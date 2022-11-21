@@ -1,6 +1,7 @@
-## Unreleased
+## v0.8.8
 # Major
  - Plotting of demux counts
+ - Reorganization of Snakemake modules
 
 ## v0.8.7
 # Major
