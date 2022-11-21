@@ -50,7 +50,7 @@ def main():
     ### Asign variables from config file and inputs
     config = snakemake.config
     tag = snakemake.wildcards.tag
-    mutStats = pd.read_csv(str(snakemake.input))
+    mutStats = pd.read_csv(str(snakemake.input),dtype={'tag':str,'barcode_group':str})
     background = config.get('background',False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()

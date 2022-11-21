@@ -18,6 +18,7 @@ def targets_input(wildcards):
             out.append('dms-view-table.csv')
     if any(config['do_demux'][tag] for tag in config['runs']):
         out.append('demux-stats.csv')
+        out.extend([f'plots/{tag}_demux.html' for tag in config['runs'] if config['do_demux'][tag]])
     for tag in config['runs']:
         if config['do_NT_mutation_analysis'][tag]:
             out.extend(expand('plots/{tag}_{AAorNT}-mutation-distributions.html', tag=tag, AAorNT=['AA','NT'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
