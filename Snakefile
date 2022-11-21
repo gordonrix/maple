@@ -382,7 +382,8 @@ for tag in config['runs']:
         if type(config['runs'][tag]['barcodeGroups']) == str:
             CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
             if os.path.isfile(CSVpath):
-                barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+                barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=False, header=1, dtype=str)
+                barcodeGroupsCSV = barcodeGroupsCSV.set_index(barcodeGroupsCSV.columns[0]) #can't do this in one line because of a pd.read_csv bug that doesn't allow index to be string
                 if barcodeGroupsCSV.index.name == 'tag':
                     barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
                 if any([c[:9]=='Unnamed: ' for c in barcodeGroupsCSV.columns]):
