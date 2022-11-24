@@ -18,8 +18,7 @@ def main(input, output, barcodeInfoDict, barcodeGroupsDict):
     noSplitBCtypes = [bcType for bcType in barcodeInfoDict.keys() if barcodeInfoDict[bcType].get('noSplit', False)]
     groupBCtypes = [bcType for bcType in barcodeInfoDict.keys() if bcType not in noSplitBCtypes]
 
-    if barcodeGroupsDict:
-        bcGroups = list(barcodeGroupsDict.keys())
+    bcGroups = list(barcodeGroupsDict.keys()) if barcodeGroupsDict else []
     
     # group according to output file names
     aggs = {'output_file_barcodes':'first', 'demuxed_count':'first'}
