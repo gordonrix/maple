@@ -335,10 +335,13 @@ rule mutation_diversity_NTonly:
     input:
         lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][wildcards.tag] else 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        ntHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
+        ntHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-matrix.csv',
+        ntHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
         edges = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_edges.csv'
     params:
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
+        downsample = lambda wildcards: config.get('diversity_plot_downsample', False),
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False),
+        do_AA = False
     script:
         'utils/mutation_diversity.py'
 
@@ -346,13 +349,34 @@ rule mutation_diversity:
     input:
         'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        ntHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
-        aaHamDistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.csv',
-        edges = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_edges.csv'
+        ntHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-matrix.csv',
+        ntHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
+        aaHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-matrix.csv',
+        aaHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.csv'
     params:
+        downsample = lambda wildcards: config.get('diversity_plot_downsample', False),
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False),
+        do_AA = True
+    script:
+        'utils/hamming_distance.py'
+
+rule plot_mutation_diversity:
+    input:
+        genotypes = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
+        edges = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_edges.csv',
+        ntHamDistCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv'
+    output:
+        ntHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.html',
+        GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
+        GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
+    params:
+        edgeLimit = lambda wildcards: config.get('diversity_plot_hamming_distance_edge_limit', False),
+        xMax = lambda wildcards: config['hamming_distance_distribution_plot_x_max'],
+        nodeSize = lambda wildcards: config['force_directed_plot_node_size'],
+        nodeColor = lambda wildcards: config['force_directed_plot_node_color'],
         downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
     script:
-        'utils/mutation_diversity.py'
+        'utils/plot_mutation_diversity.py'
 
 rule reduce_genotypes_dimensions:
     input:
@@ -396,24 +420,6 @@ rule plot_genotypes2D:
         plot = data.hvplot.scatter(x='dim1', y='dim2', by=params.color_column, size='point_size', legend=False, hover_cols=list(data.columns)[:10], width=1000, height=1000).opts(
             xaxis=None, yaxis=None)
         hvplot.save(plot, output.genotypes2Dplot)
-
-rule plot_mutation_diversity:
-    input:
-        genotypes = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
-        edges = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_edges.csv',
-        ntHamDistCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv'
-    output:
-        ntHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.html',
-        GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
-        GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
-    params:
-        edgeLimit = lambda wildcards: config.get('diversity_plot_hamming_distance_edge_limit', False),
-        xMax = lambda wildcards: config['hamming_distance_distribution_plot_x_max'],
-        nodeSize = lambda wildcards: config['force_directed_plot_node_size'],
-        nodeColor = lambda wildcards: config['force_directed_plot_node_color'],
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
-    script:
-        'utils/plot_mutation_diversity.py'
 
 rule plot_AA_mutation_diversity:
     input:

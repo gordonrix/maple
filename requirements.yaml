@@ -36,6 +36,7 @@ dependencies:
   - blat
   - mappy
   - scikit-learn
+  - sparse_dot_topn
   - ipykernel
   - pip
   - pip:

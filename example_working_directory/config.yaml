@@ -169,8 +169,8 @@ background: False
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity (hamming distance and genotypes plots)
-diversity_plot_all: False                                   # set to True if diversity plotting should be done for all tag/barcode combinations
-diversity_plot_downsample: False                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False or 0 to use all genotypes
+diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations
+diversity_plot_downsample: False                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False to use all genotypes
 diversity_plot_hamming_distance_edge_limit: 10              # maximum hamming distance between two sequences for an edge to be drawn between them. If int, will use the provided number. if string in the format 'x/N' (e.g. x/4), will divide the median (x) by N to determine the edge limit. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
 hamming_distance_distribution_plot_x_max: 40                 # maximum x value to show for all HD distribution plots
 genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical. default, count
