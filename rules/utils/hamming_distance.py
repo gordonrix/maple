@@ -11,20 +11,33 @@
 
 import pandas as pd
 import numpy as np
+import sklearn
 from Bio import SeqIO
 from Bio.Seq import translate
-from dimension_reduction_genotypes import sequenceEncoder
+from dimension_reduction_genotypes import SequenceEncoder
 from dimension_reduction_genotypes import seq_array_from_genotypes
+
+def main():
+
+    genotypesDF = pd.read_csv(snakemake.input[0])
+
+    if snakemake.wildcards.NTorAA == 'NT':
+        refSeq = list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[1].seq
+    elif snakemake.wildcards.NTorAA =='AA':
+        refSeq = translate(list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[2].seq)
+    matrixDF, HDdistDF = HD_matrix_and_dist(refSeq, genotypesDF, snakemake.wildcards.NTorAA, snakemake.params.downsample)
+    matrixDF.to_csv(snakemake.output.HDmatrixCSV, index=False)
+    HDdistDF.to_csv(snakemake.output.HDdistCSV, index=False)
 
 def pairwise_hamming_distance_matrix(seqArray):
     """
     Given an array of shape (N,L) containing N integer-encoded sequences of length L,
     computes the pairwise hamming distance of all pairs of sequences and outputs these as
     a matrix of shape (N,N) containing all pairwise hamming distances
-
-    taken from https://stackoverflow.com/questions/42752610/python-how-to-generate-the-pairwise-hamming-distance-matrix
     """
-    return (seqArray[:, None, :] != seqArray).sum(2)
+    # sklearn pairwise distances returns distances as a fraction of the maximum distance,
+    #   so multiplying by the maximum distance, then rounding, and converting to int
+    return np.rint(sklearn.metrics.pairwise_distances(seqArray,metric='hamming')*seqArray.shape[1]).astype(int)
 
 
 def bincount_2D(matrix):
@@ -51,7 +64,7 @@ def HD_matrix_and_dist(refSeq, genotypesDF, NTorAA, downsample):
     refSeq:         string, reference sequence used to analyze mutations
     genotypesDF:    pandas.DataFrame, genotypes table from the genotypes.csv file
     NTorAA:         string, 'NT' or 'AA', determines whether to calculate
-                        NT hamming distance or AA haming distance
+                        NT hamming distance or AA hamming distance
     downsample:     False or int, if int, after removal of genotypes with insertions or deletions,
                         the number of sequences will be reduced down to this number
     """
@@ -74,28 +87,12 @@ def HD_matrix_and_dist(refSeq, genotypesDF, NTorAA, downsample):
     counts = genotypesUsed['count'].to_numpy().reshape(len(genotypesUsed),1)
     HDbincount = np.multiply(HDbincount, counts)                                            # multiply hamming distance bincounts for each sequence by the counts for each sequence
     maxHD = HDbincount.shape[1]
-    HDdist = HDbincount.sum(0).reshape(1,maxHD)
     HDs = np.arange(maxHD).reshape(1,maxHD)
-    HDdist = np.concatenate((HDs,HDdist), axis=0).T
-    HDdistDF = pd.DataFrame(HDdist, columns = ['n', 'number_of_sequence_pairs_with_n_hamming_distance'])
+    HDdist = HDbincount.sum(0).reshape(1,maxHD)
+    HDproportion = np.divide(HDdist, HDdist.sum())
+    HDdistDF = pd.DataFrame( np.concatenate((HDs, HDdist, HDproportion), axis=0).T, columns = ['n', 'number_of_sequence_pairs_with_n_hamming_distance', 'proportion_of_sequence_pairs_with_n_hamming_distance'])
     
     return matrixDF, HDdistDF
-
-
-def main():
-
-    genotypesDF = pd.read_csv(snakemake.input[0])
-
-    NTref = list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[1].seq
-    NT_matrixDF, NT_HDdistDF = HD_matrix_and_dist(NTref, genotypesDF, 'NT', snakemake.params.downsample)
-    NT_matrixDF.to_csv(snakemake.output.ntHDmatrixCSV, index=False)
-    NT_HDdistDF.to_csv(snakemake.output.ntHDdistCSV, index=False)
-
-    if snakemake.params.do_AA:
-        AAref = translate(list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[2].seq)
-        AA_matrixDF, AA_HDdistDF = HD_matrix_and_dist(AAref, genotypesDF, 'AA', snakemake.params.downsample)
-        AA_matrixDF.to_csv(snakemake.output.aaHDmatrixCSV, index=False)
-        AA_HDdistDF.to_csv(snakemake.output.aaHDdistCSV, index=False)
 
 if __name__ == '__main__':
     main()

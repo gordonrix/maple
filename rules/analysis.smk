@@ -9,6 +9,7 @@
 
 # imports
 import os, sys, glob
+from natsort import natsorted
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
@@ -44,8 +45,8 @@ rule aligner_sam2bam:
     input:
         sam = "alignments/{tag}.sam"
     output:
-        bam = temp("alignments/{tag, [^\/_]*}.bam"),
-        bai = temp("alignments/{tag, [^\/_]*}.bam.bai")
+        bam = "alignments/{tag, [^\/_]*}.bam",
+        bai = "alignments/{tag, [^\/_]*}.bam.bai"
     shadow: "minimal"
     threads: 1
     resources:
@@ -234,18 +235,42 @@ rule merge_mut_stats:
         combined = pd.concat(dfs)
         combined.to_csv(output[0], index=False)
 
+def sort_barcodes(bcList, bcGroupsDict):
+    """
+    bcList:         list of strings, barcode groups
+    bcGroupsList:   dict, barcode groups dictionary for a specific tag from the config file,
+                        or an empty dictionary
+
+    returns the same list of barcode sorted first according to user provided barcode groups,
+        then by natural sorting (see natsort package)
+    """
+    defined = [bc for bc in bcGroupsDict.keys() if bc in bcList]
+    undefined = natsorted([bc for bc in bcList if bc not in bcGroupsDict.keys()])
+    return defined+undefined
+
+def get_demuxed_barcodes(tag, bcGroupsDict):
+    """
+    tag:            string, run tag
+    bcGroupsDict:   dictionary, barcodeGroups dict from config file for a specific tag,
+                        if it exists, otherwise an empty dict
+
+    grabs all barcodes for a given tag that were properly demultiplexed
+            if that tag was demultiplexed, then sorts according to the
+            barcode groups in the config file"""
+    if config['do_demux'][tag]:
+        checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+        BCs = glob_wildcards(checkpoint_demux_files).BCs
+        out = sort_barcodes(BCs, bcGroupsDict)
+    else:
+        out = ['all']
+    return out
+
 def dms_view_input(wildcards):
     out = []
     for tag in config['runs']:
-        if config['do_demux'][tag]:
-            checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
-            checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
-            checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-            tagFiles = expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs)
-        else:
-            tagFiles = expand('mutation_data/{tag}/{tag}_all_AA-muts-frequencies.csv', tag=tag)
-        out.extend(tagFiles)
-    assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
+        out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}) )) )
     return out
 
 # combines all AA mutation frequency data into a table that is compatible with dms-view (https://dms-view.github.io/) which visualizes mutations onto a crystal structure
@@ -277,18 +302,12 @@ rule plot_mutation_rate:
     script:
         'utils/plot_mutation_rate.py'
 
-def plot_mutations_frequencies_input(wildcards):
-    if config['do_demux'][wildcards.tag]:
-        checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
-    else:
-        return expand('mutation_data/{tag}/all/{tag}_all_{AAorNT}-muts-frequencies.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
-
 rule plot_mutations_frequencies:
     input:
-        frequencies = plot_mutations_frequencies_input,
+        frequencies = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv',
+                                                    tag=wildcards.tag,
+                                                    barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+                                                    AAorNT = wildcards.AAorNT ),
         mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
         'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-frequencies.html'
@@ -304,18 +323,12 @@ rule plot_mutations_frequencies_barcodeGroup:
     script:
         'utils/plot_mutations_frequencies.py'
 
-def plot_mutations_distribution_input(wildcards):
-    if config['do_demux'][wildcards.tag]:
-        checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        return expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, AAorNT = wildcards.AAorNT)
-    else:
-        return expand('mutation_data/{tag}/all/{tag}_all_{AAorNT}-muts-distribution.csv', tag=wildcards.tag, AAorNT=wildcards.AAorNT)
-
 rule plot_mutations_distribution:
     input:
-        dist = plot_mutations_distribution_input
+        dist = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv',
+                                            tag=wildcards.tag,
+                                            barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+                                            AAorNT = wildcards.AAorNT)
     output:
         'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
     script:
@@ -329,54 +342,47 @@ rule plot_mutations_distribution_barcodeGroup:
     script:
         'utils/plot_mutation_distribution.py'
 
-ruleorder: mutation_diversity_NTonly > mutation_diversity
+# ruleorder: hamming_distance_NTonly > hamming_distance
 
-rule mutation_diversity_NTonly:
-    input:
-        lambda wildcards: 'dummyfilethatshouldneverexist' if config['do_AA_mutation_analysis'][wildcards.tag] else 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
-    output:
-        ntHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-matrix.csv',
-        ntHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
-        edges = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_edges.csv'
-    params:
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False),
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False),
-        do_AA = False
-    script:
-        'utils/mutation_diversity.py'
-
-rule mutation_diversity:
+rule hamming_distance:
     input:
         'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        ntHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-matrix.csv',
-        ntHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv',
-        aaHDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-matrix.csv',
-        aaHDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.csv'
+        HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv',
+        HDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
     params:
         downsample = lambda wildcards: config.get('diversity_plot_downsample', False),
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False),
-        do_AA = True
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
     script:
         'utils/hamming_distance.py'
 
-rule plot_mutation_diversity:
+def plot_mutations_distribution_input(wildcards):
+    if config['do_demux'][wildcards.tag]:
+        checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+        return expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, NTorAA = wildcards.NTorAA)
+    else:
+        return expand('mutation_data/{tag}/all/{tag}_all_{NTorAA}-hamming-distance-distribution.csv', tag=wildcards.tag, NTorAA=wildcards.NTorAA)
+
+rule plot_hamming_distance_distribution:
     input:
-        genotypes = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
-        edges = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_edges.csv',
-        ntHamDistCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_NT-hamming-distance-distribution.csv'
+        lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv',
+                                tag=wildcards.tag,
+                                barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+                                NTorAA = wildcards.NTorAA)
     output:
-        ntHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_NT-hamming-distance-distribution.html',
-        GraphPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.html',
-        GraphFile = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_diversity-graph.gexf'
-    params:
-        edgeLimit = lambda wildcards: config.get('diversity_plot_hamming_distance_edge_limit', False),
-        xMax = lambda wildcards: config['hamming_distance_distribution_plot_x_max'],
-        nodeSize = lambda wildcards: config['force_directed_plot_node_size'],
-        nodeColor = lambda wildcards: config['force_directed_plot_node_color'],
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
+        hamDistPlot = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-hamming-distance-distribution.html'
     script:
-        'utils/plot_mutation_diversity.py'
+        'utils/plot_hamming_distance.py'
+
+rule plot_hamming_distance_distribution_barcodeGroup:
+    input:
+        'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
+    output:
+        hamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-hamming-distance-distribution.html'
+    script:
+        'utils/plot_hamming_distance.py'
 
 rule reduce_genotypes_dimensions:
     input:
@@ -403,7 +409,7 @@ rule plot_genotypes2D:
 
         data = pd.read_csv(input.genotypesReduced)
 
-        assert all([x in list(data.columns) for x in [params.size_column, params.color_column]])
+        assert all([x in list(data.columns) for x in [params.size_column, params.color_column]]), "Only columns found in the genotypes.csv file may be used to map point size and color"
 
         # scale column used for point size to range from minSize to maxSize
         minSize, maxSize = [int(x) for x in params.size_range.replace(' ','').split(',')]
@@ -421,24 +427,10 @@ rule plot_genotypes2D:
             xaxis=None, yaxis=None)
         hvplot.save(plot, output.genotypes2Dplot)
 
-rule plot_AA_mutation_diversity:
-    input:
-        aaHamDistCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-hamming-distance-distribution.csv'
-    output:
-        aaHamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_AA-hamming-distance-distribution.html'
-    params:
-        xMax = lambda wildcards: config['hamming_distance_distribution_plot_x_max'],
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False)
-    script:
-        'utils/plot_mutation_diversity.py'
-
 def all_diversity_plots_input(wildcards):
-    out = []
-    checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-    checkpoint_demux_prefix = checkpoint_demux_output.split(f'demultiplex')[0]
-    checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-    out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{dataType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']) )
-    out.extend( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_{plotType}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']) )
+    out = ( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {}))) )
+    NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][wildcards.tag] else ['NT']
+    out.extend( expand('plots/{tag}_{NTorAA}-hamming-distance-distribution.html', tag=wildcards.tag, NTorAA=NTorAA) )
     return out
 
 rule plot_mutation_diversity_all:

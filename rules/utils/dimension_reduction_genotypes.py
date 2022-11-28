@@ -65,7 +65,7 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA):
         subs = 'AA_substitutions_nonsynonymous'
         genotypes = genotypes[genotypes['NT_deletions'].isna()]   # remove genotypes with deletions for AA analysis because they are hard
 
-    baseSeq = sequenceEncoder(refSeq,chars)                       # base sequence from reference sequence that will be copied and modified
+    baseSeq = SequenceEncoder(refSeq,chars)                       # base sequence from reference sequence that will be copied and modified
 
     # make an array of integer encoded genotypes of shape (N,L),
     #   where N = number of genotypes and L = nucleotide length
@@ -77,7 +77,7 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA):
 
     return np.array(intSeqs), genotypes
 
-class sequenceEncoder:
+class SequenceEncoder:
     def __init__(self, sequence, characters):
         
         #get sequence into an array

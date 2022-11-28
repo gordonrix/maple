@@ -34,8 +34,8 @@ def targets_input(wildcards):
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
         # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
-    if 'timepoints' in config:
-        out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
+    # if 'timepoints' in config:
+    #     out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))
 
     if config['diversity_plot_all']:
         for tag in config['runs']:
@@ -43,25 +43,19 @@ def targets_input(wildcards):
                 if config['do_demux'][tag]:
                     out.append( f'plots/.{tag}_allDiversityPlots.done' )
                 else:
-                    dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
-                    plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
+                    plotType = ['genotypes2D.html', 'NT-hamming-distance-distribution.html']
                     if config['do_AA_mutation_analysis'][tag]:
-                        dataType.append('AA-hamming-distance-distribution.csv')
                         plotType.append('AA-hamming-distance-distribution.html')
-                    out.extend( expand('mutation_data/{tag}/all/{tag}_all_{dataType}', tag=tag, dataType=dataType) )
                     out.extend( expand('plots/{tag}/all/{tag}_all_{plotType}', tag=tag, plotType=plotType) )
 
-    elif config.get('diversity_plot_subset', False) not in ['',False]:
+    elif not config.get('diversity_plot_subset', False):
         for tag_bc in config['diversity_plot_subset'].split(','):
             divPlotFilePrefixes = []
-            dataType = ['diversity-graph.gexf', 'NT-hamming-distance-distribution.csv']
-            plotType = ['diversity-graph.html', 'NT-hamming-distance-distribution.html']
+            plotType = ['genotypes2D.html', 'NT-hamming-distance-distribution.html']
             if config['do_AA_mutation_analysis'][tag]:
-                dataType.append('AA-hamming-distance-distribution.csv')
                 plotType.append('AA-hamming-distance-distribution.html')
             tag, bc = tag_bc.split('_')
             divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
-            out.extend( expand('mutation_data/{tag_barcodes}_{dataType}', tag_barcodes=divPlotFilePrefixes, dataType=dataType) )
             out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=plotType) )
 
     return out
