@@ -48,7 +48,7 @@ def targets_input(wildcards):
                         plotType.append('AA-hamming-distance-distribution.html')
                     out.extend( expand('plots/{tag}/all/{tag}_all_{plotType}', tag=tag, plotType=plotType) )
 
-    elif not config.get('diversity_plot_subset', False):
+    elif config.get('diversity_plot_subset', False):
         for tag_bc in config['diversity_plot_subset'].split(','):
             divPlotFilePrefixes = []
             plotType = ['genotypes2D.html', 'NT-hamming-distance-distribution.html']
