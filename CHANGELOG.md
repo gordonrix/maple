@@ -1,3 +1,7 @@
+## v0.8.9
+# Minor
+ - Fixed genotype plotting color/sizes
+
 ## v0.8.8
 # Major
  - Plotting of demux counts

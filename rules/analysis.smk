@@ -403,29 +403,8 @@ rule plot_genotypes2D:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count')
-    run:
-        import hvplot.pandas
-        import pandas as pd
-
-        data = pd.read_csv(input.genotypesReduced)
-
-        assert all([x in list(data.columns) for x in [params.size_column, params.color_column]]), "Only columns found in the genotypes.csv file may be used to map point size and color"
-
-        # scale column used for point size to range from minSize to maxSize
-        minSize, maxSize = [int(x) for x in params.size_range.replace(' ','').split(',')]
-        assert minSize<=maxSize, f"For genotypes2D plot, minimum size must be less than maximum size min/max of {minSize}/{maxSize} provided"
-        maxSizeCol = data[params.size_column].max()
-        minSizeCol = data[params.size_column].min()
-        if maxSizeCol == minSizeCol:
-            slope, intercept = 0,minSize # use mininum point size for all
-        else:
-            slope = (maxSize-minSize) / (maxSizeCol-minSizeCol)
-            intercept = slope*minSizeCol
-        data['point_size'] = data[params.size_column]*slope + intercept
-
-        plot = data.hvplot.scatter(x='dim1', y='dim2', by=params.color_column, size='point_size', legend=False, hover_cols=list(data.columns)[:10], width=1000, height=1000).opts(
-            xaxis=None, yaxis=None)
-        hvplot.save(plot, output.genotypes2Dplot)
+    script:
+        'utils/plot_genotypes_2d.py'
 
 def all_diversity_plots_input(wildcards):
     out = ( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {}))) )
