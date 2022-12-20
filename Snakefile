@@ -344,8 +344,10 @@ for tag in config['runs']:
             rawdata = config['runs'][tag]['runname']
             rawdata.sort()
             rawdata = tuple(rawdata)
-        else:
+        elif 'fwdReads' in config['runs'][tag]:
             rawdata = (config['runs'][tag]['fwdReads'], config['runs'][tag]['rvsReads'])
+        else:
+            rawdata = tag   # if using manually input data, dont use for multiple tags
 
         UMIcontexts = config['runs'][tag].get('UMI_contexts', [])
         UMIcontexts.sort()
