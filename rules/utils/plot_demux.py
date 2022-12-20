@@ -68,7 +68,9 @@ def main(input, output, barcodeInfoDict, barcodeGroupsDict):
             plot = plot + df.hvplot.bar(x="n", y='noSplit_barcodes_with_n_count', title=f"noSplit demultiplex count distribution, output_file_barcodes: {output_file_barcode}",
                                                 color='black', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=1000, height=600)
 
-    hvplot.save(plot.cols(1), output)
+        plot = plot.cols(1)
+
+    hvplot.save(plot, output)
 
 if __name__ == '__main__':
     main(snakemake.input.CSV, snakemake.output.plot, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups)
