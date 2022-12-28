@@ -174,7 +174,7 @@ def main():
     meanRatesDF = allRatesDF.groupby(['sample_label', 'rate_type'])['rate'].mean().reset_index()
     meanRatesDF['rate'] = meanRatesDF['rate'].clip(lower=10^-9) # convert negative values to 10^-9
 
-    defaults = dict(width=150*len(uniqueSamples), height=400, tools=['tap', 'hover', 'box_select'])
+    defaults = dict(width=100*len(uniqueSamples), xrotation=70, height=400, tools=['tap', 'hover', 'box_select'])
     hv.opts.defaults(hv.opts.Bars(**defaults), hv.opts.Points(**defaults))
     ratePlotList = []
 

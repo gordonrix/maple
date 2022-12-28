@@ -204,14 +204,36 @@ rule UMI_group:
         umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
         """
 
-rule plot_UMI_group:
+rule UMI_group_distribution:
     input:
-        'sequences/UMI/{tag}_UMIgroup-log.tsv'
+        tsv = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
     output:
-        csv = 'sequences/UMI/{tag, [^\/_]*}_UMIgroup-distribution.csv',
-        plot = 'plots/{tag, [^\/_]*}_UMIgroup-distribution.html'
+        csv = 'sequences/UMI/{tag, [^\/_]*}_all_UMIgroup-distribution.csv'
+    run:
+        import pandas as pd
+        import numpy as np
+        from utils.common import dist_to_DF
+
+        df = pd.read_csv(input.tsv, sep='\t')
+        UMIcounts = df[['final_umi_count', 'unique_id']].drop_duplicates()['final_umi_count'].to_numpy()
+        dist = np.bincount(UMIcounts)
+        outDF = dist_to_DF(dist, 'subreads', 'UMI groups')
+        outDF = outDF.loc[1:,:] # skip first row because there are never 0 subreads
+        outDF.to_csv(output.csv, index=False)
+
+rule plot_distribution_UMI_group:
+    input:
+        expand('sequences/UMI/{tag}_all_UMIgroup-distribution.csv', tag = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs'] if config['do_UMI_analysis'][t]] )))
+    output:
+        plot = 'plots/UMI-group-distribution.html'
+    params:
+        labels = list(set( [config['consensusCopyDict'][str(t)] for t in config['runs'] if config['do_UMI_analysis'][t]] )),
+        title = 'all tags',
+        legend_label = 'tag',
+        background = False,
+        raw = True
     script:
-        'utils/plot_UMI_groups_distribution.py'
+        'utils/plot_distribution.py'
 
 UMIbatchesList = [str(x) for x in range(0,config['UMI_medaka_batches'])]
 rule split_BAMs_to_fasta:

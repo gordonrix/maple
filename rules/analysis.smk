@@ -190,7 +190,7 @@ rule mutation_analysis_NTonly:
     input:
         unpack(ma_NTonly_input)
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
@@ -199,13 +199,13 @@ rule mutation_analysis:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv', 'AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv', 'AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
     script:
         'utils/mutation_analysis.py'
 
 def mut_stats_input(wildcards):
-    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-muts-frequencies.csv', 'NT-muts-distribution.csv']
-    if config['do_AA_mutation_analysis'][wildcards.tag]: datatypes.extend(['AA-muts-frequencies.csv', 'AA-muts-distribution.csv'])
+    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
+    if config['do_AA_mutation_analysis'][wildcards.tag]: datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
     if config['do_demux'][wildcards.tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
@@ -270,7 +270,7 @@ def get_demuxed_barcodes(tag, bcGroupsDict):
 def dms_view_input(wildcards):
     out = []
     for tag in config['runs']:
-        out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-muts-frequencies.csv', tag=tag, barcodes=get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}) )) )
+        out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-mutation-frequencies.csv', tag=tag, barcodes=get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}) )) )
     return out
 
 # combines all AA mutation frequency data into a table that is compatible with dms-view (https://dms-view.github.io/) which visualizes mutations onto a crystal structure
@@ -304,45 +304,24 @@ rule plot_mutation_rate:
 
 rule plot_mutations_frequencies:
     input:
-        frequencies = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv',
+        frequencies = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-mutation-frequencies.csv',
                                                     tag=wildcards.tag,
                                                     barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
                                                     AAorNT = wildcards.AAorNT ),
         mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutations-frequencies.html'
+        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-frequencies.html'
     script:
         'utils/plot_mutations_frequencies.py'
 
 rule plot_mutations_frequencies_barcodeGroup:
     input:
-        frequencies = 'mutation_data/{tag}_{barcodes}_{AAorNT}-muts-frequencies.csv',
+        frequencies = 'mutation_data/{tag}_{barcodes}_{AAorNT}-mutation-frequencies.csv',
         mutStats = '{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-muts-frequencies.html'
+        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-frequencies.html'
     script:
         'utils/plot_mutations_frequencies.py'
-
-rule plot_mutations_distribution:
-    input:
-        dist = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv',
-                                            tag=wildcards.tag,
-                                            barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
-                                            AAorNT = wildcards.AAorNT)
-    output:
-        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
-    script:
-        'utils/plot_mutation_distribution.py'
-
-rule plot_mutations_distribution_barcodeGroup:
-    input:
-        dist = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-muts-distribution.csv'
-    output:
-        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-distributions.html'
-    script:
-        'utils/plot_mutation_distribution.py'
-
-# ruleorder: hamming_distance_NTonly > hamming_distance
 
 rule hamming_distance:
     input:
@@ -365,32 +344,62 @@ def plot_mutations_distribution_input(wildcards):
     else:
         return expand('mutation_data/{tag}/all/{tag}_all_{NTorAA}-hamming-distance-distribution.csv', tag=wildcards.tag, NTorAA=wildcards.NTorAA)
 
-rule plot_hamming_distance_distribution:
+rule plot_distribution:
     input:
-        lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv',
-                                tag=wildcards.tag,
-                                barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
-                                NTorAA = wildcards.NTorAA)
+        'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-{distType}-distribution.csv'
     output:
-        hamDistPlot = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-hamming-distance-distribution.html'
+        plot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
+    params:
+        labels = lambda wildcards: [f"{wildcards.tag}, {wildcards.barcodes}"],
+        title = lambda wildcards: wildcards.tag,
+        legend_label = False,
+        background = False,
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
     script:
-        'utils/plot_hamming_distance.py'
+        'utils/plot_distribution.py'
 
-rule plot_hamming_distance_distribution_barcodeGroup:
+rule plot_distribution_barcodeGroup:
     input:
-        'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
+        lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-{distType}-distribution.csv',
+                                tag = wildcards.tag,
+                                barcodes = get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+                                NTorAA = wildcards.NTorAA,
+                                distType = wildcards.distType)
     output:
-        hamDistPlot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-hamming-distance-distribution.html'
+        plot = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
+    params:
+        labels = lambda wildcards: get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+        title = lambda wildcards: wildcards.tag,
+        legend_label = 'barcode group',
+        background = lambda wildcards: config.get('background', False),
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
     script:
-        'utils/plot_hamming_distance.py'
+        'utils/plot_distribution.py'
+
+rule plot_distribution_timepointGroup:
+    input:
+        lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-{distType}-distribution.csv',
+                                tag_bc_tag_bc = [ f'{tag}/{bc}/{tag}_{bc}' for tag, bc in config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() ],
+                                NTorAA = wildcards.NTorAA,
+                                distType = wildcards.distType)
+    output:
+        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
+    params:
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsGroup,
+        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        background = lambda wildcards: config.get('background', False),
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
+    script:
+        'utils/plot_distribution.py'
 
 rule reduce_genotypes_dimensions:
     input:
         genotypes = '{dir}/{tag}_{barcodes}_genotypes.csv'
     output:
-        reduced = '{dir}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv'
+        reduced = '{dir}/{tag, [^\/_]*}_{barcodes, [^\/_]*}_genotypes-reduced-dimensions.csv'
     params:
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False)
     script:
         'utils/dimension_reduction_genotypes.py'
 
@@ -403,6 +412,45 @@ rule plot_genotypes2D:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count')
+    script:
+        'utils/plot_genotypes_2d.py'
+
+rule merge_timepoint_genotypes:
+    input:
+        genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in config['timepointsInfo'][wildcards.timepointSample]['tag_barcode_tp'].keys()]),
+    output:
+        mergedGenotypes = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint-genotypes.csv'
+    params:
+        tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
+    run:
+        import pandas as pd
+        timepoints = list(params.tpInfo.values())
+        DFs = []
+        for i, csv in enumerate(input.genotypeCSVs):
+            df = pd.read_csv(csv)
+            df['timepoint'] = timepoints[i]
+            DFs.append(df)
+        pd.concat(DFs).to_csv(output.mergedGenotypes)
+
+rule reduce_genotypes_dimensions_timepoints:
+    input:
+        genotypes = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint-genotypes.csv'
+    output:
+        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint-genotypes-reduced-dimensions.csv'
+    params:
+        refSeqs = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['reference']
+    script:
+        'utils/dimension_reduction_genotypes.py'
+
+rule plot_genotypes2D_timepoints:
+    input:
+        genotypesReduced = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint-genotypes-reduced-dimensions.csv'
+    output:
+        genotypes2Dplot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html'
+    params:
+        size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
+        size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
+        color_column = 'timepoint'
     script:
         'utils/plot_genotypes_2d.py'
 

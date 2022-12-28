@@ -7,13 +7,20 @@
 
 import pandas as pd
 import numpy as np
+import colorcet as cc
+import holoviews as hv
 from natsort import index_natsorted
+from common import dist_to_DF
+from plot_distribution import plot_cumsum, plot_dist
 import hvplot.pandas
 
 def main(input, output, barcodeInfoDict, barcodeGroupsDict):
     demuxDF = pd.read_csv(input)
     assert len(demuxDF['tag'].unique())==1   # this script uses demux stats output for only a single tag
     demuxDF = demuxDF.drop(columns='tag')
+
+    color = 'grey'
+    colormap = cc.blues
 
     noSplitBCtypes = [bcType for bcType in barcodeInfoDict.keys() if barcodeInfoDict[bcType].get('noSplit', False)]
     groupBCtypes = [bcType for bcType in barcodeInfoDict.keys() if bcType not in noSplitBCtypes]
@@ -34,8 +41,8 @@ def main(input, output, barcodeInfoDict, barcodeGroupsDict):
     dfGrouped = pd.concat([dfGroupedNames, dfGroupedNoNames])
 
     plot = dfGrouped.hvplot.bar(x='output_file_barcodes', y='total_barcodes_count', hover_cols=['fwd','rvs'],
-                                color='black', title="total demultiplex counts for each group", rot=70,
-                                fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=1000, height=600)
+                                color=color, title="total demultiplex counts for each group", rot=70,
+                                fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=800, height=600)
 
     if noSplitBCtypes:
         
@@ -48,26 +55,33 @@ def main(input, output, barcodeInfoDict, barcodeGroupsDict):
 
         # plot number of sequences in each group with one or more failed noSplit barcode identification
         plot = plot + dfGrouped.hvplot.bar(x='output_file_barcodes', y='failed_noSplit_barcodes_count', hover_cols=['fwd','rvs'],
-                                            color='black', title="failed noSplit demultiplex counts for each group", rot=70,
-                                            fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=1000, height=600)
+                                            color=color, title="failed noSplit demultiplex counts for each group", rot=70,
+                                            fontsize={'title':16,'labels':14,'xticks':12,'yticks':12}, width=800, height=600)
         
         # plot number of sequences in each group with successful identification of all noSplit barcodes
         plot = plot + dfGrouped.hvplot.bar(x='output_file_barcodes', y='success_noSplit_barcodes_count', hover_cols=['fwd','rvs'],
-                                            color='black', title="successful noSplit demultiplex counts for each group", rot=70,
-                                            fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=1000, height=600)
+                                            color=color, title="successful noSplit demultiplex counts for each group", rot=70,
+                                            fontsize={'title':16,'labels':14,'xticks':12,'yticks':12}, width=800, height=600)
 
         # get distributions of noSplit barcode counts for each barcode group, then plot
-        cols = ['output_file_barcodes', 'n', 'noSplit_barcodes_with_n_count']
-        for output_file_barcode in dfGrouped['output_file_barcodes']:
+        distList = []
+        labels = []
+        colors = []
+        colorConstant = (len(colormap)-1) / len(dfGrouped['output_file_barcodes'].unique())
+
+        for i, output_file_barcode in enumerate(dfGrouped['output_file_barcodes']):
             subset = demuxDF[demuxDF['output_file_barcodes']==output_file_barcode]
             bincounts = np.bincount(subset['barcodes_count'])
-            df = pd.DataFrame({cols[1]:[i for i in list(range(1,len(bincounts)))], cols[2]:bincounts[1:]})
-            df = df.assign(output_file_barcodes=output_file_barcode)
-            df = df[cols]
+            distList.append( dist_to_DF(np.trim_zeros(bincounts,'b'), 'noSplit demux count', 'unique barcode groups') )
+            labels.append(output_file_barcode)
+            colors.append( colormap[int(i*colorConstant)] )
 
-            plot = plot + df.hvplot.bar(x="n", y='noSplit_barcodes_with_n_count', title=f"noSplit demultiplex count distribution, output_file_barcodes: {output_file_barcode}",
-                                                color='black', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=1000, height=600)
+        legendLabel = 'output file group'
+        distPlots = [ plot_cumsum( distList, labels, colors, 'noSplit demux', legendLabel ) ] + [
+                 plot_dist(df, title=f"{legendLabel}: {label}", raw=True) for df, label in zip(distList, labels) ]
+        distPlots = hv.Layout(distPlots)
 
+        plot = plot + distPlots
         plot = plot.cols(1)
 
     hvplot.save(plot, output)

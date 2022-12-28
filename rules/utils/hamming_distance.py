@@ -14,6 +14,7 @@ import numpy as np
 import sklearn
 from Bio import SeqIO
 from Bio.Seq import translate
+from common import dist_to_DF
 from dimension_reduction_genotypes import SequenceEncoder
 from dimension_reduction_genotypes import seq_array_from_genotypes
 
@@ -74,7 +75,6 @@ def HD_matrix_and_dist(refSeq, genotypesDF, NTorAA, downsample):
     if downsample:
         if downsample < len(seqArray):
             idx = np.sort(np.random.choice(np.arange(len(seqArray)), size=downsample, replace=False))
-            idx=np.arange(6)
             seqArray = seqArray[idx,:]
             genotypesUsed = genotypesUsed.iloc[idx]
 
@@ -85,12 +85,12 @@ def HD_matrix_and_dist(refSeq, genotypesDF, NTorAA, downsample):
     HDbincount = bincount_2D(triangle)
     HDbincount[:,0] = np.subtract(HDbincount[:,0], np.arange(HDbincount.shape[0],0,-1))     # remove 0 counts resulting from zeroing out the upper triangle
     counts = genotypesUsed['count'].to_numpy().reshape(len(genotypesUsed),1)
+    counts[2]=5
     HDbincount = np.multiply(HDbincount, counts)                                            # multiply hamming distance bincounts for each sequence by the counts for each sequence
-    maxHD = HDbincount.shape[1]
-    HDs = np.arange(maxHD).reshape(1,maxHD)
-    HDdist = HDbincount.sum(0).reshape(1,maxHD)
-    HDproportion = np.divide(HDdist, HDdist.sum())
-    HDdistDF = pd.DataFrame( np.concatenate((HDs, HDdist, HDproportion), axis=0).T, columns = ['n', 'number_of_sequence_pairs_with_n_hamming_distance', 'proportion_of_sequence_pairs_with_n_hamming_distance'])
+    samePairs = np.multiply(counts, (counts-1)) / 2
+    HDbincount[:,0] = np.add(HDbincount[:,0], samePairs[:,0])                                                            # add appropriate amount of 0 counts for sequences with count>1 according to the formula pairs=count*(count-1)/2
+    HDdist = HDbincount.sum(0)
+    HDdistDF = dist_to_DF(HDdist, f'{NTorAA} hamming distance', 'sequence pairs')
     
     return matrixDF, HDdistDF
 

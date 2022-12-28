@@ -23,9 +23,9 @@ def main():
         'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions']
 
     for tag in fDict:
-        datatypes = ['genotypes', 'failures', 'NT-muts-frequencies', 'NT-muts-distribution']
+        datatypes = ['genotypes', 'failures', 'NT-mutation-frequencies', 'NT-mutation-distribution']
         if config['do_AA_mutation_analysis'][tag]:
-            datatypes.extend(['AA-muts-distribution', 'AA-muts-frequencies'])
+            datatypes.extend(['AA-mutation-distribution', 'AA-mutation-frequencies'])
         refSeqfasta = config['runs'][tag]['reference']
         referenceLength = len(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq)
         for bcGroup in fDict[tag]:
@@ -33,13 +33,13 @@ def main():
             for dType in datatypes:
                 DFdict[dType] = pd.read_csv(fDict[tag][bcGroup][dType], index_col=0)
             
-            NTdist = DFdict['NT-muts-distribution']['seqs_with_n_NTsubstitutions']
+            NTdist = DFdict['NT-mutation-distribution']['total sequences']
             totalSeqs = NTdist.sum()
             
             failCount = len(DFdict['failures'])
 
             
-            NTmuts = DFdict['NT-muts-frequencies'].transpose()
+            NTmuts = DFdict['NT-mutation-frequencies'].transpose()
             if not config['mutations_frequencies_raw']:
                 NTmuts = NTmuts * totalSeqs
                 NTmuts = np.rint(NTmuts)
@@ -62,12 +62,12 @@ def main():
             valuesList = [tag, bcGroup, totalSeqs, failCount]
 
             if config['do_AA_mutation_analysis'][tag]:
-                AAdist = DFdict['AA-muts-distribution']['seqs_with_n_AAsubstitutions']
+                AAdist = DFdict['AA-mutation-distribution']['total sequences']
                 if config['mutations_frequencies_raw']:
-                    total_AA_mutations = DFdict['AA-muts-frequencies'].values.sum()
+                    total_AA_mutations = DFdict['AA-mutation-frequencies'].values.sum()
                 else:
-                    total_AA_mutations = round((DFdict['AA-muts-frequencies'] * totalSeqs).values.sum())
-                unique_AA_mutations = DFdict['AA-muts-frequencies'].where(DFdict['AA-muts-frequencies'] == 0, 1).values.sum()
+                    total_AA_mutations = round((DFdict['AA-mutation-frequencies'] * totalSeqs).values.sum())
+                unique_AA_mutations = DFdict['AA-mutation-frequencies'].where(DFdict['AA-mutation-frequencies'] == 0, 1).values.sum()
                 valuesList.extend([total_AA_mutations, unique_AA_mutations, compute_mean_from_dist(AAdist), compute_median_from_dist(AAdist)])
             else:
                 valuesList.extend((' N/A'*4).split(' ')[1:])

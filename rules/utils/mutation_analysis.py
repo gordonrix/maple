@@ -6,6 +6,8 @@ import pandas as pd
 import re
 import pysam
 
+from common import dist_to_DF
+
 ### Asign variables from config file
 config = snakemake.config
 BAMin = str(snakemake.input.bam)
@@ -456,8 +458,7 @@ class MutationAnalysis:
 
         totalSeqs = int(NTmutDist.sum())
 
-        NTdistDF = pd.DataFrame(NTmutDist, columns=['seqs_with_n_NTsubstitutions'])
-        NTdistDF.index.name = 'n'
+        NTdistDF = dist_to_DF(np.trim_zeros(NTmutDist,'b'), 'NT mutations', 'sequences')
 
         genotypesDFcondensed.drop(columns=['genotype->seq', 'seq_ID', 'avg_quality_score']).to_csv(self.outputList[1], index=False)
         genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
@@ -467,7 +468,7 @@ class MutationAnalysis:
         if not self.config['mutations_frequencies_raw'] and totalSeqs>0:
             NTmutDF = NTmutDF.divide(totalSeqs)
         NTmutDF.to_csv(self.outputList[4])
-        NTdistDF.to_csv(self.outputList[5])
+        NTdistDF.to_csv(self.outputList[5], index=False)
         
         if self.doAAanalysis:
             resiIDs = list(str(Seq(self.refProtein).translate()))
@@ -483,9 +484,8 @@ class MutationAnalysis:
                 AAmutDF = AAmutDF.divide(totalSeqs)
             AAmutDF.to_csv(self.outputList[6])
 
-            AAdistDF = pd.DataFrame(AAmutDist, columns=['seqs_with_n_AAsubstitutions'])
-            AAdistDF.index.name = 'n'
-            AAdistDF.to_csv(self.outputList[7])
+            AAdistDF = dist_to_DF(np.trim_zeros(AAmutDist,'b'), 'AA mutations', 'sequences')
+            AAdistDF.to_csv(self.outputList[7], index=False)
 
 if __name__ == '__main__':
     main()

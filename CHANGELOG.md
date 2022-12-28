@@ -1,3 +1,10 @@
+## v0.8.10
+# Minor
+ - Fixed color mapping for RCA plot
+ - Added timepoint and numerical color mapping for genotypes2D
+ - Refactored and improved plotting of distributions of hamming distance / mutations / demux counts / UMI subreads
+ - Added hamming distance and mutation distribution plots for timepoints
+
 ## v0.8.9
 # Minor
  - Fixed genotype plotting color/sizes

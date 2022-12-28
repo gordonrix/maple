@@ -164,15 +164,15 @@ AA_distribution_plot_x_max: 10                    # maximum x value to show for 
 #   barcode group name to be used as the background for analyses that require subtraction of sequencing error
 #   To use, this barcode group name must be present within all sample tags being analyzed.
 #   This is to prevent using a background sequencing error from a different sequencing run than the sample.
-#   Comment out if not using
-background: False
+#   Comment out or set to False if not using
+background: control
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # plot mutation diversity (hamming distance and genotypes plots)
 diversity_plot_all: True                                   # set to True if diversity plotting should be done for all tag/barcode combinations
 diversity_plot_downsample: False                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False to use all genotypes
-diversity_plot_hamming_distance_edge_limit: 10              # maximum hamming distance between two sequences for an edge to be drawn between them. If int, will use the provided number. if string in the format 'x/N' (e.g. x/4), will divide the median (x) by N to determine the edge limit. Slightly less than the median pairwise hamming distance usually works well. Highly connected graphs may fail to render and can be harder to interpret, so lower is probably better in most cases. If set to False, the median pairwise hamming distance will be used as a maximum instead.
+hamming_distance_distribution_raw: False                     # bool, if True, y axis for individual hamming distance plots will show raw counts of sequence pairs instead of proprotion of total sequence pairs
 hamming_distance_distribution_plot_x_max: 40                 # maximum x value to show for all HD distribution plots
-genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical. default, count
+genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical
 genotypes2D_plot_point_size_range: 30, 60                 # comma separated pair of integers, minimum and maximum point size to be used on the genotypes2D plot. If all values in 'genotypes_plot_point_size_col' are the same, the minimum size will be used 
-genotypes2D_plot_point_color_col: barcode(s)       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default, NT_substitutions_count
+genotypes2D_plot_point_color_col: NT_substitutions_count       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default, NT_substitutions_count
