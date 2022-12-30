@@ -7,8 +7,8 @@ runs:
     TrpB:
         # if sequences to be used are not provided as 'sequences/<yourRunTag>.fastq.gz, then either runname or fwdReads/rvsReads must be provided
 
-        # Unique folder name in which batches of sequences are stored, to be merged together and processed. All sequences from this run will be retrieved, but only those that align to the reference sequence will be used
-        #   Searches 2 directories deep within the 'minknowDir' (defined above) for the provided runname directories. If multiple runname directories are provided, all will be used
+        # Unique folder name in which batches of sequences are stored, to be merged together and processed together. All sequences from this run will be retrieved, but only those that align to the reference sequence will be used
+        #   Searches 2 directories deep within the 'sequences_dir' (defined below) for the provided runname directories. If multiple runname directories are provided, all will be used
         runname:
             - 20220827_1323_MN35267_FAU75463_1d527443
 
@@ -76,21 +76,10 @@ runs:
 
 
 
-
-
-
-
-### begin nanopore only section ###
 # path to minknow directory containing nanopore sequencing data. In this example directory we use a relative path, but this should be replaced with an absolute path to a location
 #   where sequences are typically stored so that it does not need to change every time a new working directory is made for a new experiment
-minknowDir: data
-fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail'
-
-# medaka
-medaka_model: 'r104_e81_sup_variant_g610'      # Model for medaka to use. Use `medaka smolecule --help` to see all available model options. Maple uses a reference-guided approach, so the appropriate variant model should be used, eg r103_sup_variant_g507
-medaka_flags: '--quiet'        # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added.
-
-### end nanopore only section ###
+sequences_dir: data
+fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq.gz files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail' for nanopore data
 
 nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
 
@@ -118,10 +107,14 @@ RCA_batch_size: 10000           # number of sequences to batch together in each 
 RCA_consensus_minimum: 3        # inclusive minimum number of complete subreads that will be used to generate an RCA consensus read. C3POa only counts complete repeats (i.e. flanked on both sides by the splint sequence), so filtering is based on both the number of repeats found by C3POa and the length of the original RCA read
 RCA_consensus_maximum: 20       # inclusive maximum number of complete subreads that will be used to generate an RCA consensus read. RCA reads with more than this number of subreads will not be used. Note that this behavior differs slightly from that of UMI_consensus_maximum
 
+# medaka (nanopore only)
+medaka_model: 'r104_e81_sup_variant_g610'   # Model for medaka to use. Use `medaka smolecule --help` to see all available model options. Maple uses a reference-guided approach, so the appropriate variant model should be used, eg r103_sup_variant_g507
+medaka_flags: '--quiet'                     # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added. 
+
 # UMI clustering and consensus
 UMI_mismatches: 4               # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
 UMI_consensus_minimum: 1       # inclusive minimum number of subreads that will be used to generate a UMI consensus read
-UMI_consensus_maximum: 1       # inclusive maximum number of subreads that will be used to generate a UMI consensus read. UMI groups with more subreads than this value 'n' will be downsampled to 'n' subreads
+UMI_consensus_maximum: 1       # inclusive maximum number of subreads that will be used to generate a UMI consensus read. UMI groups with more subreads than this value 'n' will be downsampled to 'n' subreads. Note that this behavior differs slightly from that of RCA_consensus_maximum
 UMI_medaka_batches: 1          # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
 
 # alignment

@@ -252,11 +252,12 @@ def get_demuxed_barcodes(tag, bcGroupsDict):
     """
     tag:            string, run tag
     bcGroupsDict:   dictionary, barcodeGroups dict from config file for a specific tag,
-                        if it exists, otherwise an empty dict
+                        if it exists, otherwise an empty dict if no sorting is needed
 
     grabs all barcodes for a given tag that were properly demultiplexed
             if that tag was demultiplexed, then sorts according to the
             barcode groups in the config file"""
+
     if config['do_demux'][tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
@@ -266,6 +267,25 @@ def get_demuxed_barcodes(tag, bcGroupsDict):
     else:
         out = ['all']
     return out
+
+def get_demuxed_barcodes_timepoint(tag_bcs):
+    """
+    filters a list of (tag,bc) tuples for availability after demux
+
+    tag_bcs ( list(tuples) ): (tag, bc) tuples that will be checked for in the demux outputs.
+        If any are not within the demux outputs, a warning will be pushed but the pipeline will proceed
+    """
+    out = []
+    allowedBCsDict = {}
+    for tag, bc in tag_bcs:
+        if tag not in allowedBCsDict:
+            allowedBCsDict[tag] = get_demuxed_barcodes(tag, {})
+        if bc in allowedBCsDict[tag]: # add (tag,bc) tuple to output if that tag,bc combination is output by demux
+            out.append( (tag,bc) )
+        else:
+            print(f'[NOTICE] tag_bc combination "{tag}_{bc}" was not demultiplexed. Not including in timepoint outputs')
+    return out
+    
 
 def dms_view_input(wildcards):
     out = []
@@ -379,7 +399,7 @@ rule plot_distribution_barcodeGroup:
 rule plot_distribution_timepointGroup:
     input:
         lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-{distType}-distribution.csv',
-                                tag_bc_tag_bc = [ f'{tag}/{bc}/{tag}_{bc}' for tag, bc in config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() ],
+                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )],
                                 NTorAA = wildcards.NTorAA,
                                 distType = wildcards.distType)
     output:
@@ -417,14 +437,14 @@ rule plot_genotypes2D:
 
 rule merge_timepoint_genotypes:
     input:
-        genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in config['timepointsInfo'][wildcards.timepointSample]['tag_barcode_tp'].keys()]),
+        genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )]),
     output:
         mergedGenotypes = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint-genotypes.csv'
     params:
         tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
     run:
         import pandas as pd
-        timepoints = list(params.tpInfo.values())
+        timepoints = list(params.tpInfo.values())   # timepoint values are an amount of time like X generations
         DFs = []
         for i, csv in enumerate(input.genotypeCSVs):
             df = pd.read_csv(csv)

@@ -1,47 +1,66 @@
 #
 #  DESCRIPTION   : Supplementary snakefile in the Maple snakemake pipeline.
-#                   Rules for retrieval of sequence file from locations outside of the working directory
+#                   Rules for retrieval of sequence files from locations outside of the working directory
 #
 #  RESTRICTIONS  : none
 #
 #  AUTHOR(S)     : Gordon Rix
 #
 
-def get_batch_sequences(runpath, fastq_dir):
-    batches_fastqgz, = glob_wildcards("{runpath}/{fastq_dir}/{{id}}.fastq.gz".format(runpath=runpath, fastq_dir=fastq_dir))
-    return batches_fastqgz
+def retrieve_fastqs(rootFolder, folderList, subfolderString):
+    """
+    Search for a uniquely named folder within the root folder, and retrieve the file names ending in '.fastq.gz' for all files within a list of subfolders.
+    
+    Parameters:
+        rootFolder (str):       The path to the root folder to search in.
+        folderName (list(str)): A list of folders to search for files within the root directory.
+                                    Each one must appear only once within the root folder
+        subfolderNames (str):   A string of comma separated subfolder names to search for within the uniquely named folder.
+                                    At least one must be present, but all don't need to be
+    
+    Returns:
+        List[str]: A list of the full file paths, including the root folder, for all files ending in '.fastq.gz' within all of the subfolders found within the folders.
+        If the folder or any of the subfolders were not found, or if the folder was found more than once, or if none of the subfolders were found within the folder, returns an empty list.
+    """
+    subfolders = subfolderString.replace(' ','').split(',')
+    filePaths = []
 
-# get batches of sequences for each provided runname to be merged together
-def get_batches(wildcards):
-    output = []
-    for runname in config['runs'][wildcards.tag]['runname']:
+    for folder in folderList:
+        folderCount = 0
+        folderFilePaths = []
+        # Search for the uniquely named folder within the root folder
+        for root, dirs, _ in os.walk(rootFolder):
+            if folder in dirs:
+                folderCount += 1
+                if folderCount > 1:
+                    # Folder was found more than once, print warning and return empty list
+                    print(f'[WARNING] Found folder "{folder}" more than once in root folder "{rootFolder}".')
+                    return []
+                # Search for each subfolder
+                folderPath = os.path.join(root, folder)
+                subfolderCount = 0
+                for subfolder in subfolders:
+                    for _, subdirs, _ in os.walk(folderPath):
+                        if subfolder in subdirs:
+                            # Found the subfolder, now retrieve the file names
+                            subfolderCount += 1
+                            subfolderPath = os.path.join(folderPath, subfolder)
+                            for _, _, files in os.walk(subfolderPath):
+                                for file in files:
+                                    if file.endswith('.fastq.gz'):
+                                        folderFilePaths.append(os.path.join(root, folder, subfolder, file))
+                if subfolderCount == 0:
+                    # None of the subfolders were found, print warning and return empty list
+                    print(f'[WARNING] None of the subfolders "{subfolder}" were found in folder "{folder}" within root folder "{rootFolder}".')
 
-        # search through all directories two directories deep within the minknowDir for the provided runname, and stop once a matching directory is found
-        experimentDirs = [d for d in os.listdir(config['minknowDir']) if os.path.isdir(os.path.join(config['minknowDir'],d))]
-        expt_sample = False
-        for expt in experimentDirs:
-            if expt_sample: break # stop once a matching directory is found
-            sampleDirs = [d for d in os.listdir(os.path.join(config['minknowDir'], expt)) if os.path.isdir(os.path.join(config['minknowDir'], expt,d))]
-            for sample in sampleDirs:
-                if runname in os.listdir(os.path.join(config['minknowDir'], expt, sample)):
-                    expt_sample = (expt, sample)
-                    break
+        if folderCount == 0:
+            print(f'[WARNING] Folder "{folder}" not found in root folder "{rootFolder}".')
+        if len(folderFilePaths) == 0:
+            print(f'[WARNING] No .fastq.gz files found within subfolders {subfolderString} within folder "{folder}" within root folder "{rootFolder}".')
 
-        if expt_sample: # add all batches of sequences to a list to be merged together
-            outputs = []
-            for fastq_dir in config['fastq_dir'].replace(' ','').split(','):
-                batch = get_batch_sequences(os.path.join(config['minknowDir'].rstrip('/'), expt_sample[0], expt_sample[1], runname), fastq_dir)
-                outputs.extend(expand("{minknowDir}/{expt}/{sample}/{runname}/{fastq_dir}/{batch}.fastq.gz",
-                                        minknowDir = config['minknowDir'].rstrip('/'),
-                                        expt = expt_sample[0],
-                                        sample = expt_sample[1],
-                                        runname = runname,
-                                        fastq_dir = fastq_dir,
-                                        batch = batch))
-        else:
-            print('[WARNING] No folders matching the provided runname was found. This is fine if you have already combined the sequences you want to combine but if not, then it is not fine and you should refer to the documentation.')
-        output.extend(outputs)
-    return output
+        filePaths.extend(folderFilePaths)
+
+    return filePaths
 
 rule merge_paired_end:
     input:
@@ -62,7 +81,7 @@ rule merge_paired_end:
 
 rule basecaller_combine_tag: # combine batches of basecalled reads into a single file
     input:
-        lambda wildcards: get_batches(wildcards)
+        lambda wildcards: retrieve_fastqs(config['sequences_dir'], config['runs'][wildcards.tag]['runname'], config['fastq_dir'])
     output:
         temp("sequences/{tag, [^\/_]*}_combined.fastq.gz")
     run:

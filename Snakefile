@@ -182,7 +182,9 @@ else:
 errors = []
 
 # list of required options. Will be added to if certain tools are used
-required = ['references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['sequences_dir', 'fastq_dir', 'references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'analyze_seqs_w_frameshift_indels', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+if ('minknowDir' in config) and ('sequences_dir' not in config):
+    print('[WARNING] "sequences_dir" is a new required config variable that replaces "minknowDir", please replaced "minknowDir" with "sequences_dir" in your config file"')
 
 config['merge_paired_end'] = {}
 for tag in config['runs']:
@@ -218,10 +220,10 @@ for tag in config['runs']:
 # Check minknow directory
 if runs_to_import != []:
     for runname in runs_to_import:
-        if not os.path.isdir(config['minknowDir']):
-            print_(f"[WARNING] May need to import runname `{runname}`, but the provided minknow directory, `{config['minknowDir']}`, does not exist.\n", file=sys.stderr)
-        elif all([runname not in dirs for _, dirs, _ in os.walk(config['minknowDir'].rstrip('/'))]):
-            print_(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['minknowDir']}`.\n", file=sys.stderr)
+        if not os.path.isdir(config['sequences_dir']):
+            print_(f"[WARNING] May need to import runname `{runname}`, but the provided minknow directory, `{config['sequences_dir']}`, does not exist.\n", file=sys.stderr)
+        elif all([runname not in dirs for _, dirs, _ in os.walk(config['sequences_dir'].rstrip('/'))]):
+            print_(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['sequences_dir']}`.\n", file=sys.stderr)
 
 
 # check reference sequences
