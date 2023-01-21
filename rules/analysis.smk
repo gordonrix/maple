@@ -191,6 +191,8 @@ rule mutation_analysis_NTonly:
         unpack(ma_NTonly_input)
     output:
         expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv'])
+    params:
+        NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest','')
     script:
         'utils/mutation_analysis.py'
 
@@ -200,6 +202,9 @@ rule mutation_analysis:
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
         expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv', 'AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
+    params:
+        NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
+        AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest','')
     script:
         'utils/mutation_analysis.py'
 
@@ -350,7 +355,7 @@ rule hamming_distance:
         HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv',
         HDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
     params:
-        downsample = lambda wildcards: config.get('diversity_plot_downsample', False),
+        downsample = lambda wildcards: config.get('hamming_distance_distribution_downsample', False),
         refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
     script:
         'utils/hamming_distance.py'
@@ -429,6 +434,7 @@ rule plot_genotypes2D:
     output:
         genotypes2Dplot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2D.html'
     params:
+        downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count')
@@ -468,6 +474,7 @@ rule plot_genotypes2D_timepoints:
     output:
         genotypes2Dplot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html'
     params:
+        downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = 'timepoint'
