@@ -31,11 +31,6 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
         # Search for the uniquely named folder within the root folder
         for root, dirs, _ in os.walk(rootFolder):
             if folder in dirs:
-                folderCount += 1
-                if folderCount > 1:
-                    # Folder was found more than once, print warning and return empty list
-                    print(f'[WARNING] Found folder "{folder}" more than once in root folder "{rootFolder}".')
-                    return []
                 # Search for each subfolder
                 folderPath = os.path.join(root, folder)
                 subfolderCount = 0
@@ -43,15 +38,20 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
                     for _, subdirs, _ in os.walk(folderPath):
                         if subfolder in subdirs:
                             # Found the subfolder, now retrieve the file names
-                            subfolderCount += 1
                             subfolderPath = os.path.join(folderPath, subfolder)
                             for _, _, files in os.walk(subfolderPath):
                                 for file in files:
                                     if file.endswith('.fastq.gz'):
+                                        folderCount += 1
+                                        subfolderCount += 1 # only care about folders / subfolders that contain the sequences in the right place
                                         folderFilePaths.append(os.path.join(root, folder, subfolder, file))
+
                 if subfolderCount == 0:
-                    # None of the subfolders were found, print warning and return empty list
-                    print(f'[WARNING] None of the subfolders "{subfolder}" were found in folder "{folder}" within root folder "{rootFolder}".')
+                    # None of the subfolders were found, print warning
+                    print(f'[NOTICE] None of the subfolders "{subfolder}" were found in directory "{os.path.join(root, folder)}".')
+
+        if folderCount > 1:
+            print(f'[NOTICE] Found folder "{folder}" more than once in root folder "{rootFolder}". Merging all sequences within the designated subfolders.')
 
         if folderCount == 0:
             print(f'[WARNING] Folder "{folder}" not found in root folder "{rootFolder}".')
