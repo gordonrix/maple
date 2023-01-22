@@ -6,12 +6,21 @@
 #
 
 import hvplot.pandas
+import holoviews as hv
 import pandas as pd
+import numpy as np
 import colorcet as cc
-from pandas.api.types import is_numeric_dtype
+from bokeh.models import HoverTool
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
 data = data[data.loc[:,['dim1','dim2']].notnull().all(axis=1)] # ignore genotypes that could not be assigned x/y values because of indels
+
+downsample = snakemake.params.downsample
+if downsample:
+    if downsample < len(data):
+        idx = np.sort(np.random.choice(np.arange(len(data)), size=downsample, replace=False))
+        data = data.iloc[idx]
+
 size_column = snakemake.params.size_column
 color_column = snakemake.params.color_column
 
@@ -34,20 +43,17 @@ else:
 # assign color
 colorDict = {} # dictionary of value:color key:value pairs to map color_column variables to specific colors
 if is_numeric_dtype(data[color_column]):                            # color by value for numerical column
-    legendBool = True
-    colormap = cc.blues
-    minColorCol, maxColorCol = data[color_column].min(), data[color_column].max()
-    colorConstant = (len(colormap)-1) / ( maxColorCol - minColorCol )
-    for ccValue in data[color_column].unique():
-        colorDict[ccValue] = colormap[int((ccValue-minColorCol)*colorConstant)]
+    legendBool = False
+    colormap = 'kbc_r'
 else:                                                               # random colors for non-numerical column
     legendBool = False
-    colormap = cc.bmy   
-    colorConstant = len(colormap) / len(data[color_column].unique())
-    for i, ccValue in enumerate(data[color_column].unique()):
-        colorDict[ccValue] = colormap[int(i*colorConstant)]
-data['color'] = data[color_column].map(colorDict)
+    colormap = 'bmy'
 
-plot = data.hvplot.scatter(x='dim1', y='dim2', size='point_size', by=color_column, color='color', legend=legendBool, hover_cols=list(data.columns)[:10], width=1200, height=1000).opts(
+hover = HoverTool(tooltips=[('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
+                            ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
+tools = ['box_select', 'lasso_select',hover]
+plot = data.hvplot(kind='points', x='dim1', y='dim2', size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
+    legend=legendBool, width=1000, height=800).opts(
     xaxis=None, yaxis=None)
+
 hvplot.save(plot, snakemake.output.genotypes2Dplot)

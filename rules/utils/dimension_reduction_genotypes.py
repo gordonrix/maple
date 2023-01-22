@@ -42,17 +42,22 @@ def main(ntref, inputCSV, outputCSV):
     genotypes = pd.merge(genotypes, seq2Ddf, how='left', left_index=True, right_index=True)
     genotypes.to_csv(outputCSV, index=False)
 
-def seq_array_from_genotypes(refSeq, genotypes, NTorAA):
+def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False):
     """
     args:
         genotypes:          pandas DataFrame of a genotypes.csv file
         refSeq:             string, AA or NT sequence that serves as a template for the mutations
                                 in substitutionsList and deletionsList
         NTorAA:             string, either 'NT' or 'AA
+        onehot:             bool, if set to True outputs a 3D array of onehot encoded seqs
     
-    returns an array of integer-encoded sequences of shape (N,L) where
-        N = len(substitutionsList = len(deletionsList) and L = len(refSeq),
-        and also the genotypes DataFrame because it gets modified
+    returns an array of integer- or onehot-encoded sequences of
+    shape (N,L) or (N,L,C), respectively, where:
+            N = len(substitutionsList = len(deletionsList),
+            L = len(refSeq), and
+            C = len(list of NT or AA characters)
+        and also the genotypes DataFrame for index matching to the original
+        because it gets modified
     """
 
     genotypes = genotypes[genotypes['NT_insertions'].isna()]   # remove genotypes with insertions because they mess with indexing and are hard
@@ -67,15 +72,25 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA):
 
     baseSeq = SequenceEncoder(refSeq,chars)                       # base sequence from reference sequence that will be copied and modified
 
-    # make an array of integer encoded genotypes of shape (N,L),
-    #   where N = number of genotypes and L = nucleotide length
-    intSeqs = []
-    for subs,dels in genotypes[[subs,'NT_deletions']].itertuples(index=False, name=None):
-        seq = deepcopy(baseSeq)
-        seq.genotype_modify(subs,dels)
-        intSeqs.append(seq.integer)
+    if onehot:
+        # make a 3D array of onehot encoded genotypes of shape (N,L,C)
+        arrayList = []
+        for subs,dels in genotypes[[subs, 'NT_deletions']].itertuples(index=False, name=None):
+            seq = deepcopy(baseSeq)
+            seq.genotype_modify(subs,dels)
+            arrayList.append(seq.onehot)
+        outArray = np.stack(arrayList)
 
-    return np.array(intSeqs), genotypes
+    elif not onehot:
+        # make an array of integer encoded genotypes of shape (N,L)
+        arrayList = []
+        for subs,dels in genotypes[[subs,'NT_deletions']].itertuples(index=False, name=None):
+            seq = deepcopy(baseSeq)
+            seq.genotype_modify(subs,dels)
+            arrayList.append(seq.integer)
+        outArray = np.array(arrayList)
+
+    return outArray, genotypes
 
 class SequenceEncoder:
     def __init__(self, sequence, characters):
