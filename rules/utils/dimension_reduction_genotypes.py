@@ -19,27 +19,40 @@ from copy import deepcopy
 from Bio import SeqIO
 import re
 
-def main(ntref, inputCSV, outputCSV):
+def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
     """
-    ntref       string, nucleotide reference sequence
-    inputCSV    string, .csv file name that contains a NT_substitutions, NT_insertions, and NT_deletions columns
-    outputCSV   string, .csv file name to output to
+    ref_fasta       string, reference fasta file that includes the nucleotide and the untranslated DNA sequence corresponding
+                        to the AA sequence (if include_AA==True)
+    inputCSV        string, .csv file name that contains a NT_substitutions, NT_insertions, and NT_deletions columns
+    outputCSV       string, .csv file name to output to
+    include_AA      bool, whether to only perform DR on NT sequence or to also output DR on AA sequence
 
     Uses NT substitutions and NT deletions to encode all sequences without insertions as an array, then uses
         PaCMAP to reduce dimensions to 2. These 2 dimensional coordinates are then appended to the original
         .csv file and output as a new .csv file
     """
 
+    refSeqs = [ str(s.seq).upper() for s in list(SeqIO.parse(ref_fasta, 'fasta')) ]
+
+    embedding_types = ['NT']
+
+    if include_AA:
+        embedding_types.append('AA')
+
     genotypes = pd.read_csv(inputCSV)
-    array_of_seqs, genotypesNoIns = seq_array_from_genotypes(ntref, genotypes, 'NT')
 
-    # initializing the pacmap instance
-    embedding = pm.PaCMAP(n_components=2, MN_ratio=0.5, FP_ratio=2.0) 
+    for i, emb_type in enumerate(embedding_types):
+        ref = refSeqs[i+1]
+        array_of_seqs, genotypes_used = seq_array_from_genotypes(ref, genotypes, emb_type)
 
-    # fit the data to 2 dimensions, add as columns to the original genotypes DF, and export
-    seq2D = embedding.fit_transform(array_of_seqs, init="pca")
-    seq2Ddf = pd.DataFrame(seq2D, columns=['dim1','dim2'], index=genotypesNoIns.index)
-    genotypes = pd.merge(genotypes, seq2Ddf, how='left', left_index=True, right_index=True)
+        # initializing the pacmap instance
+        embedding = pm.PaCMAP(n_components=2, MN_ratio=0.5, FP_ratio=2.0) 
+
+        # fit the data to 2 dimensions, add as columns to the original genotypes DF, and export
+        seq2D = embedding.fit_transform(array_of_seqs, init="pca")
+        seq2Ddf = pd.DataFrame(seq2D, columns=[f'{emb_type}_PaCMAP1',f'{emb_type}_PaCMAP2'], index=genotypes_used.index)
+        genotypes = pd.merge(genotypes, seq2Ddf, how='left', left_index=True, right_index=True)
+
     genotypes.to_csv(outputCSV, index=False)
 
 def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False):
@@ -146,4 +159,4 @@ class SequenceEncoder:
 if __name__ == '__main__':
 
     ntref = str(list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[1].seq)
-    main(ntref, snakemake.input.genotypes, snakemake.output.reduced)
+    main(snakemake.params.refSeqs, snakemake.input.genotypes, snakemake.output.reduced, snakemake.params.include_AA)

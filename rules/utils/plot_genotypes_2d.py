@@ -14,7 +14,13 @@ from bokeh.models import HoverTool
 from pandas.api.types import is_numeric_dtype
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
-data = data[data.loc[:,['dim1','dim2']].notnull().all(axis=1)] # ignore genotypes that could not be assigned x/y values because of indels
+
+if snakemake.params.plot_AA:
+    dim1,dim2 = 'AA_PaCMAP1', 'AA_PaCMAP2'
+else:
+    dim1,dim2 = 'NT_PaCMAP1', 'NT_PaCMAP2'
+
+data = data[data.loc[:,[dim1,dim2]].notnull().all(axis=1)] # ignore genotypes that could not be assigned x/y values because of indels
 
 downsample = snakemake.params.downsample
 if downsample:
@@ -47,14 +53,16 @@ if is_numeric_dtype(data[color_column]):                            # color by v
     legendBool = False
     colormap = 'kbc_r'
 else:                                                               # random colors for non-numerical column
-    legendBool = False
+    legendBool = True
     colormap = 'bmy'
+
 
 hover = HoverTool(tooltips=[('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
 tools = ['box_select', 'lasso_select',hover]
-plot = data.hvplot(kind='points', x='dim1', y='dim2', size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
-    legend=legendBool, width=1000, height=800).opts(
-    xaxis=None, yaxis=None)
+plot = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
+    legend=legendBool, width=1000, height=800, xticks=[100], yticks=[100]).opts(
+    xlabel=dim1, ylabel=dim2)
 
 hvplot.save(plot, snakemake.output.genotypes2Dplot)
+

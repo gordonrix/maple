@@ -420,11 +420,12 @@ rule plot_distribution_timepointGroup:
 
 rule reduce_genotypes_dimensions:
     input:
-        genotypes = '{dir}/{tag}_{barcodes}_genotypes.csv'
+        genotypes = '{dir}/{tag}{barcodes}_genotypes.csv'
     output:
-        reduced = '{dir}/{tag, [^\/_]*}_{barcodes, [^\/_]*}_genotypes-reduced-dimensions.csv'
+        reduced = '{dir}/{tag, [^\/_]*}{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
     params:
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False)
+        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False),
+        include_AA = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag] if wildcards.tag in config['runs'] else config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.tag]['tag'] ]
     script:
         'utils/dimension_reduction_genotypes.py'
 
@@ -435,9 +436,39 @@ rule plot_genotypes2D:
         genotypes2Dplot = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2D.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
+        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count')
+    script:
+        'utils/plot_genotypes_2d.py'
+
+rule merge_tag_genotypes:
+    input:
+        genotypeCSVs = lambda wildcards: expand( 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})) ),
+    output:
+        mergedGenotypes = 'mutation_data/{tag}/{tag}_genotypes.csv'
+    run:
+        import pandas as pd
+        DFs = []
+        for csv in input.genotypeCSVs:
+            df = pd.read_csv(csv)
+            barcode_group = csv.split('_')[-2]
+            df['barcode_group'] = barcode_group
+            DFs.append(df)
+        pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
+
+rule plot_genotypes2D_bcGroup:
+    input:
+        genotypesReduced = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv'
+    output:
+        genotypes2Dplot = 'plots/{tag, [^\/_]*}/{tag}_genotypes2D.html'
+    params:
+        downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
+        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
+        size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
+        size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
+        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'barcode_group')
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -445,7 +476,7 @@ rule merge_timepoint_genotypes:
     input:
         genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )]),
     output:
-        mergedGenotypes = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint-genotypes.csv'
+        mergedGenotypes = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv'
     params:
         tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
     run:
@@ -456,28 +487,19 @@ rule merge_timepoint_genotypes:
             df = pd.read_csv(csv)
             df['timepoint'] = timepoints[i]
             DFs.append(df)
-        pd.concat(DFs).to_csv(output.mergedGenotypes)
-
-rule reduce_genotypes_dimensions_timepoints:
-    input:
-        genotypes = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint-genotypes.csv'
-    output:
-        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint-genotypes-reduced-dimensions.csv'
-    params:
-        refSeqs = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['reference']
-    script:
-        'utils/dimension_reduction_genotypes.py'
+        pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
 
 rule plot_genotypes2D_timepoints:
     input:
-        genotypesReduced = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint-genotypes-reduced-dimensions.csv'
+        genotypesReduced = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint_genotypes-reduced-dimensions.csv'
     output:
         genotypes2Dplot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
+        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.timepointsGroup]['tag'] ] else False,
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
-        color_column = 'timepoint'
+        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint')
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -492,6 +514,21 @@ rule plot_mutation_diversity_all:
         all_diversity_plots_input
     output:
         touch('plots/.{tag}_allDiversityPlots.done')
+
+# def dashboard_input(wildcards):
+#     sample = config.get('dashboard_input', False)
+    
+#     # use the first run tag as the sample for the dashboard if no sample is provided by user
+#     if not sample:
+#         sample = config['runs'].values()[0]
+
+#     if sample in config['runs']:
+#         return 
+    
+
+# def run_dashboard:
+#     input:
+
 
 rule plot_pipeline_throughput:
     input:
