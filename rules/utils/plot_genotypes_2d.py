@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 import colorcet as cc
 from bokeh.models import HoverTool
+from pandas.api.types import is_numeric_dtype
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
 data = data[data.loc[:,['dim1','dim2']].notnull().all(axis=1)] # ignore genotypes that could not be assigned x/y values because of indels
