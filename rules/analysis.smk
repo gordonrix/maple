@@ -515,19 +515,35 @@ rule plot_mutation_diversity_all:
     output:
         touch('plots/.{tag}_allDiversityPlots.done')
 
-# def dashboard_input(wildcards):
-#     sample = config.get('dashboard_input', False)
+def dashboard_input(wildcards):
+    sample = config.get('dashboard_input', False)
     
-#     # use the first run tag as the sample for the dashboard if no sample is provided by user
-#     if not sample:
-#         sample = config['runs'].values()[0]
+    # use the first run tag as the sample for the dashboard if no sample is provided by user
+    if not sample:
+        sample = config['runs'].values()[0]
 
-#     if sample in config['runs']:
-#         return 
-    
+    if sample in config['runs']:
+        inputDict = {'genotypes': f'mutation_data/{sample}/{sample}_genotypes.csv',
+                'refFasta': config['runs'][sample]['reference']}
+    elif sample in config['timepointsInfo']:
+        inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
+                    'refFasta': config['timepointsInfo'][sample]['reference']}
+    else: # assume a tag/barcode combo was given
+        tag, barcodes = sample.split('_')
+        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
+                    'refFasta': config['runs'][tag]['reference']}
+    return inputDict
 
-# def run_dashboard:
-#     input:
+rule run_dashboard:
+    input:
+        unpack(dashboard_input)
+    params:
+        port = config['dashboard_port'],
+        basedir = workflow.basedir
+    shell:
+        """
+        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta}
+        """
 
 
 rule plot_pipeline_throughput:
