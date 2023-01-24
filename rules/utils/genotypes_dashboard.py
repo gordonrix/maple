@@ -56,7 +56,7 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
     selected_idx = np.array(ds.data.index)
     arrIdx_in_selected = np.where(np.isin(idx_all, selected_idx))[0]
     onehot_selected = onehotArrayDict[NTorAA]['array'][arrIdx_in_selected,:,:]
-    
+
     
     # onehot_selected = onehotArrayDict[NTorAA]['array']
     
@@ -109,7 +109,7 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
     wt_onehot = SequenceEncoder(refSeq, characters).onehot
     all_muts_2D_arr = np.subtract( all_muts_2D_arr, wt_onehot )
     all_muts_2D_arr[all_muts_2D_arr<0] = 0
-        
+
     # perform matrix multiplication between the 2D onehot array representing all mutations 
     #    of interest and the 3D onehot array representing all sequences resulting 3D array
     #    will have ones at positions where a sequence contained a mutation of interest, 0s elsewhere
@@ -148,7 +148,7 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
         MOI_combo_strings_sorted.append(mut_string)
         
     MOI_combo_strings_sorted = np.array(MOI_combo_strings_sorted)
-    MOI_combo_strings_unsorted = MOI_combo_strings_sorted[sorted_idx] # convert to original order of unique arrays with reverse indexing
+    MOI_combo_strings_unsorted = MOI_combo_strings_sorted[np.argsort(sorted_idx)] # convert to original order of unique arrays with reverse indexing
 
     # search for unique array without any MOIs if it hasn't already been found
     if not none_found:
@@ -450,7 +450,8 @@ color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
 embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
-
+# hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
+#                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
 tools = ['box_select', 'lasso_select']
 
 def points(ds, embedding, tools):
