@@ -457,7 +457,7 @@ tools = ['box_select', 'lasso_select']
 def points(ds, embedding, tools):
     dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
     return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options, xticks=[100], yticks=[100]).opts(
-        xlabel=dim1, ylabel=dim2, height=600, width=800, tools=tools)
+        xlabel=dim1, ylabel=dim2, height=500, width=600, tools=tools)
 
 static_points = dataset.apply(points, embedding=embedding_select, tools=tools)
 index_stream = Selection1D(source=static_points)
@@ -499,7 +499,7 @@ unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity'
 # I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
 def points_bind(ds, embedding, filtered_ds, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha):
     points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
-    points_filtered = filtered_ds.apply(points, embedding=embedding_select, tools=[]).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap)
+    points_filtered = filtered_ds.apply(points, embedding=embedding_select, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
     
     return points_unfiltered*points_filtered
 
@@ -537,7 +537,7 @@ agg_muts_width_slider = pn.widgets.IntSlider(name='plot width',
                                 start=160,
                                 end=1200,
                                 step=10,
-                                value=590 )
+                                value=500 )
 
 num_positions_slider = pn.widgets.IntSlider(name='number of positions',
                                     start=5,
@@ -567,7 +567,6 @@ snakemake_dir = pathlib.Path(__file__).parent.parent.parent
 ## build the layout
 layout = pn.Column(
 pn.Row(
-    dynamic_points,
     pn.Column(
         downsample_slider,
         pn.Row(selected_alpha_slider,unselected_alpha_slider),
@@ -577,18 +576,19 @@ pn.Row(
         pn.Row(color_by_select,cmap_selector),
         pn.Row(NT_muts_text,AA_muts_text),
         max_mut_combos_slider),
+    dynamic_points
     ),
 pn.Row(
-    pn.panel(pathlib.Path(snakemake_dir/'images'/'dashboard_legend.png'),width=200,align='start'),
+    pn.Column(
+        dynamic_hist*static_hist,
+        hist_col_selector),
     pn.Column(
         aggregated_muts_panel, NTorAA_radio,
         agg_plot_type_selector,
         num_positions_slider,
         agg_muts_width_slider,
         ),
-    pn.Column(
-        dynamic_hist*static_hist,
-        hist_col_selector)
+    pn.panel(pathlib.Path(snakemake_dir/'images'/'dashboard_legend.png'),width=200,align='start')
     ))
 
 layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')

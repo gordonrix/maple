@@ -18,6 +18,7 @@ from sklearn.preprocessing import LabelEncoder
 from copy import deepcopy
 from Bio import SeqIO
 import re
+from timeit import default_timer as now
 
 def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
     """
@@ -43,7 +44,14 @@ def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
 
     for i, emb_type in enumerate(embedding_types):
         ref = refSeqs[i+1]
-        array_of_seqs, genotypes_used = seq_array_from_genotypes(ref, genotypes, emb_type)
+        array_of_seqs, genotypes_used = seq_array_from_genotypes(ref, genotypes, emb_type, onehot=True)
+
+        # reshape the 3D array of onehot encoded sequences into a 2D array of onehot encoded sequences, and remove positions that don't
+        #   have any nonzero values (i.e. that particular mutation is not present in the dataset
+        N,L,C = array_of_seqs.shape
+        array_of_seqs = array_of_seqs.reshape((N,L*C))
+        cols_with_nonzero = np.where(np.any(array_of_seqs, axis=0))[0]
+        array_of_seqs = array_of_seqs[:, cols_with_nonzero]
 
         # initializing the pacmap instance
         embedding = pm.PaCMAP(n_components=2, MN_ratio=0.5, FP_ratio=2.0) 

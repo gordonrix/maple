@@ -4,29 +4,24 @@ channels:
   - bioconda
   - conda-forge
   - anaconda
+  - pyviz
 dependencies:
   - snakemake
   - python
-  - PyYAML>=5.1
   - setuptools
   - wget
   - numpy
   - pandas
-  - reportlab
-  - svglib
-  - bokeh
   - biopython
   - umi_tools
-  - h5py >=2.7.1
-  - ont-fast5-api
   - medaka
   - nanoplot
   - natsort
-  - holoviews
   - hvplot
-  - panel==0.14.1 # temporary pin until support for bokeh 3.0
-  - networkx
-  - seaborn
+  - holoviews
+  - datashader
+  - bokeh
+  - panel==0.14.1 # temporary pin until I figure out the dependency issue with bokeh 3.0
   - editdistance
   - racon
   - wheel
@@ -36,9 +31,7 @@ dependencies:
   - blat
   - mappy
   - scikit-learn
-  - sparse_dot_topn
-  - ipykernel
   - pip
   - pip:
-    - pyabpoa==1.0.5
+    - pyabpoa==1.4.0
     - pacmap
