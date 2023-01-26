@@ -1,3 +1,14 @@
+## v0.9.1
+# Minor
+ - Fixed dashboard bug resulting in incorrect selections when downsampling
+
+## v0.9.0
+# Major
+ - Added a holoviz-based interactive dashboard
+# Minor
+ - Added amino acid level sequence embeddings for dimensionality reduction (DR)
+ - Fixed how sequence embeddings are done for DR. Mutations are now encoded in binary format.
+
 ## v0.8.11
 # Minor
  - Simplified sequence import

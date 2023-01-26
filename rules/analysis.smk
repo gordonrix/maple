@@ -538,7 +538,7 @@ rule run_dashboard:
     input:
         unpack(dashboard_input)
     params:
-        port = config['dashboard_port'],
+        port = config.get('dashboard_port', 3365),
         basedir = workflow.basedir
     shell:
         """

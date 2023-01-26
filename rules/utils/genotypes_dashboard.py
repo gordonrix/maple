@@ -163,14 +163,13 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
     df[f'{NTorAA}_muts_of_interest'] = MOI_combo_strings_original
     return hv.Dataset(df)
 
-def aggregate_mutations(onehotArr, arr_idx, selected_idx, NTorAA, refSeq):
+def aggregate_mutations(onehotArr, selected_idx, NTorAA, refSeq):
     """
     Generate a tidy format pd.DataFrame of counts of all mutations within the provided onehot-encoded
         sequences among the selected indices
     
     Parameters:
         onehotArr (np.array):   3D array of onehot encoded sequences, output by seq_array_from_genotypes
-        arrIdx (np.array):      1d array of indices of onehot encoded sequences for matching to selection indices
         selectedIdx (np.array): 1d array of indices of a selection
         NTorAA (str):           'NT' or 'AA', type of analysis
         refSeq (str):           NT or AA sequence to be used for reference to know the WT NT or AA at each position
@@ -180,13 +179,10 @@ def aggregate_mutations(onehotArr, arr_idx, selected_idx, NTorAA, refSeq):
         int:          total number of sequences analyzed
     """
 
-    idx_all = np.arange(onehotArrayDict[NTorAA]['array'].shape[0])
-    # selected_idx = np.array(ds.data.index)
+    idx_all = np.arange(onehotArr.shape[0])
     arrIdx_in_selected = np.where(np.isin(idx_all, selected_idx))[0]
-    onehot_selected = onehotArrayDict[NTorAA]['array'][arrIdx_in_selected,:,:]
-    
-    # arrIdx_in_selected = np.where(np.isin(arr_idx, selected_idx))[0]
-    # onehot_selected = onehotArr[arrIdx_in_selected,:,:]
+    onehot_selected = onehotArr[arrIdx_in_selected,:,:]
+
     total_seqs = len(onehot_selected)
     
     aggregatedMuts = np.sum(onehot_selected, axis=0, dtype=np.int32)
@@ -239,7 +235,6 @@ def plot_mutations_aggregated(ds, onehotArrayDict, idx, num_positions, NTorAA, p
     """
     produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input
     """
-    
     NTorAA = NTorAA[-3:-1]
     if plot_type.endswith('frequent'):
         if plot_type.startswith('most'):
@@ -250,7 +245,6 @@ def plot_mutations_aggregated(ds, onehotArrayDict, idx, num_positions, NTorAA, p
         total_seqs = len(selected_idx)
         df, total_seqs = aggregate_mutations(
                                  onehotArrayDict[NTorAA]['array'],
-                                 arr_idx=idx,
                                  selected_idx=selected_idx,
                                  NTorAA=NTorAA,
                                  refSeq=onehotArrayDict[NTorAA]['refSeq'])
@@ -450,28 +444,41 @@ color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
 embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
-# hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
-#                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
-tools = ['box_select', 'lasso_select']
+hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
+                            ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
+tools = ['box_select', 'lasso_select', hover]
 
 def points(ds, embedding, tools):
     dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
-    return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options, xticks=[100], yticks=[100]).opts(
-        xlabel=dim1, ylabel=dim2, height=500, width=600, tools=tools)
+    return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options+['index','AA_substitutions_nonsynonymous'], xticks=[100], yticks=[100]).opts(
+        xlabel=dim1, ylabel=dim2, height=600, width=800, tools=tools)
 
 static_points = dataset.apply(points, embedding=embedding_select, tools=tools)
 index_stream = Selection1D(source=static_points)
 
+def get_OG_index(downsampled_ds, idx_selected):
+    df = downsampled_ds.data.iloc[idx_selected]
+    return df['index']
+
 # filter dataset by selection if any points are selected
 def select_ds(ds, idx_selected):
+
     df = ds.data
-    df2 = df[df.index.isin(idx_selected)]
+    df2 = df.iloc[idx_selected]
     if len(df2)==0:
         return hv.Dataset(df)
     else:
         return hv.Dataset(df2)
 
-selected_ds = filtered_ds.apply(select_ds, idx_selected=index_stream.param.index)
+# need to rerun the filter so that I can apply the selection indices to the downsampled dataset, ]
+#   whose indices match that of the selection stream
+#   unfortunately can't figure out a way to just get the indices of the original dataset 
+prefilter_selected_ds = dataset.apply(select_ds, idx_selected=index_stream.param.index)
+selected_ds = prefilter_selected_ds.apply(filter_ds,
+                            filter_by=filter_by_select,
+                            filter_range=filter_range_slider,
+                            count_range=count_range_slider,
+                            group=group_choice)
 
 
 
@@ -497,13 +504,13 @@ unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity'
                                     value=0.1 )
 
 # I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
-def points_bind(ds, embedding, filtered_ds, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha):
+def points_bind(embedding, filtered_ds, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha):
     points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
-    points_filtered = filtered_ds.apply(points, embedding=embedding_select, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
+    points_filtered = filtered_ds.apply(points, embedding=embedding, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
     
     return points_unfiltered*points_filtered
 
-dynamic_points = pn.bind(points_bind, ds=dataset, embedding=embedding_select,
+dynamic_points = pn.bind(points_bind, embedding=embedding_select,
                         points_unfiltered=static_points,
                         filtered_ds=filtered_ds,
                         colorby=color_by_select,
