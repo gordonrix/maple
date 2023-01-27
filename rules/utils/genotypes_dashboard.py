@@ -49,16 +49,10 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
     returns:
         hv.Dataset with one additional column
     """
-
     df = ds.data
-    
-    idx_all = np.arange(onehotArrayDict[NTorAA]['array'].shape[0])
-    selected_idx = np.array(ds.data.index)
-    arrIdx_in_selected = np.where(np.isin(idx_all, selected_idx))[0]
-    onehot_selected = onehotArrayDict[NTorAA]['array'][arrIdx_in_selected,:,:]
 
-    
-    # onehot_selected = onehotArrayDict[NTorAA]['array']
+    selected_idx = np.array(df.index)
+    onehot_selected = onehotArrayDict[NTorAA]['array'][selected_idx,:,:]
     
     refSeq = onehotArrayDict[NTorAA]['refSeq']
     all_L_idx = [x for x in range(0,len(refSeq))]
@@ -72,7 +66,7 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
     # build a 2D array of shape (L,C) of onehot encoded mutations of interes
     #    to be broadcast and multiplied by the 3D onehot array of shape (N,L,C)
     #    to find genotypes that have one or more of the mutations in muts
-    all_muts_2D_arr = np.zeros((len(refSeq), len(charactersDict[NTorAA])))
+    MOIs_2D_arr = np.zeros((len(refSeq), len(charactersDict[NTorAA])))
     
     for mut_input in muts_list:
         mut = mut_input
@@ -102,27 +96,40 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
         else:
             L_idx = all_L_idx
             
-        all_muts_2D_arr[L_idx, C_idx] = 1
+        MOIs_2D_arr[L_idx, C_idx] = 1
         
     # zero out all non-mutations by subtracting out the onehot encoded wild type sequence
     #    then converting any -1s to 0
     wt_onehot = SequenceEncoder(refSeq, characters).onehot
-    all_muts_2D_arr = np.subtract( all_muts_2D_arr, wt_onehot )
-    all_muts_2D_arr[all_muts_2D_arr<0] = 0
+    MOIs_2D_arr = np.subtract( MOIs_2D_arr, wt_onehot )
+    MOIs_2D_arr[MOIs_2D_arr<0] = 0
 
     # perform matrix multiplication between the 2D onehot array representing all mutations 
-    #    of interest and the 3D onehot array representing all sequences resulting 3D array
+    #    of interest and the 3D onehot array representing all sequences. Resulting 3D array
     #    will have ones at positions where a sequence contained a mutation of interest, 0s elsewhere
-    all_muts_2D_arr = (all_muts_2D_arr==1) # mask non-1 values as False so these indices will be 0 in the result
-    all_muts_3D_arr = np.einsum('NLC,LC->NLC', onehot_selected, all_muts_2D_arr)
+    MOIs_2D_arr = (MOIs_2D_arr==1) # mask non-1 values as False so these positions are not multiplied. positions in resulting array are 0. ~10-fold speedup in einsum
+    all_MOIs_3D_arr = np.einsum('NLC,LC->NLC', onehot_selected, MOIs_2D_arr)
     
-    # find all unique combinations of mutations of interest, sort by count, then loop through the most common
-    #    ones, assign strings to them, then assign these strings to the correct row of the dataset
-    unique_MOI_combo_arrs, idx_original, counts = np.unique(all_muts_3D_arr, axis=0, return_counts=True, return_inverse=True)
+    # need to find all unique combinations of mutations of interest but np.unique can be sped up ~10-fold by
+    #   getting rid of values that we don't care about, so we make a new array
+    #   in which only mutation positions are present and call np.unique on that
+
+    # list to store subset of all_MOIs_3D_arr
+    all_MOIs_subset = []
+
+    for (i,j), value in np.ndenumerate(MOIs_2D_arr):
+        if value == 1:
+            all_MOIs_subset.append(all_MOIs_3D_arr[:,i,j])
+    all_MOIs_subset = np.stack(all_MOIs_subset, axis=1)
+    _, idx_first, idx_original, counts = np.unique(all_MOIs_subset, axis=0, return_index=True, return_inverse=True, return_counts=True)
+
+    # retrieve the original 2D arrays representing all unique combinations of mutations of interest that are observed,
+    #   sort by count, iterate through the most frequently observed, and label with human readable strings 
+    unique_MOI_combo_arrs = all_MOIs_3D_arr[idx_first,:,:]
     sorted_idx = np.argsort(-counts)
     MOI_combo_strings_sorted = []
     none_found = False # flag for doing a search for the MOI_combo without any mutations of interest
-    
+
     for num_combos, unique_idx in enumerate(sorted_idx):
         
         # if no more groups need to be made, fill remaining values with 'other'
@@ -146,7 +153,7 @@ def add_MOI_column(ds, onehotArrayDict, muts, NTorAA, max_groups):
             mut_string = 'none'
 
         MOI_combo_strings_sorted.append(mut_string)
-        
+
     MOI_combo_strings_sorted = np.array(MOI_combo_strings_sorted)
     MOI_combo_strings_unsorted = MOI_combo_strings_sorted[np.argsort(sorted_idx)] # convert to original order of unique arrays with reverse indexing
 
@@ -231,7 +238,7 @@ def conspicuous_mutations(df, num_positions, colormap, most_common=True):
                     xrotation=40, stacked=True, cmap=colormap, tools=['hover'])
     return plot
 
-def plot_mutations_aggregated(ds, onehotArrayDict, idx, num_positions, NTorAA, plot_type):
+def plot_mutations_aggregated(ds, onehotArrayDict, num_positions, NTorAA, plot_type):
     """
     produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input
     """
@@ -329,7 +336,7 @@ size_range_slider = pn.widgets.IntRangeSlider(name='point size range',
 
 def initialize_ds(ds, downsample, size_column, size_range):
     df = ds.data
-    
+
     if downsample < len(df):
         df = df.sample(n=downsample, random_state=0)
     
@@ -444,25 +451,22 @@ color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
 embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
-hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
-                            ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
-tools = ['box_select', 'lasso_select', hover]
+
+#TODO: add toggle switch for hover
+# hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
+#                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
+tools = ['box_select', 'lasso_select']
 
 def points(ds, embedding, tools):
     dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
-    return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options+['index','AA_substitutions_nonsynonymous'], xticks=[100], yticks=[100]).opts(
+    return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options, xticks=[100], yticks=[100]).opts(
         xlabel=dim1, ylabel=dim2, height=600, width=800, tools=tools)
 
 static_points = dataset.apply(points, embedding=embedding_select, tools=tools)
 index_stream = Selection1D(source=static_points)
 
-def get_OG_index(downsampled_ds, idx_selected):
-    df = downsampled_ds.data.iloc[idx_selected]
-    return df['index']
-
 # filter dataset by selection if any points are selected
 def select_ds(ds, idx_selected):
-
     df = ds.data
     df2 = df.iloc[idx_selected]
     if len(df2)==0:
@@ -560,7 +564,6 @@ NTorAA_radio = pn.widgets.RadioButtonGroup(
 agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent', 'least frequent'])
 aggregated_muts_plot = selected_ds.apply(plot_mutations_aggregated,
                                         onehotArrayDict=onehotArrayDict,
-                                        idx=data.index.to_numpy(),
                                         num_positions=num_positions_slider,
                                         NTorAA=NTorAA_radio,
                                         plot_type=agg_plot_type_selector)

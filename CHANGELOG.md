@@ -1,3 +1,8 @@
+## v0.9.2
+# Minor
+ - Fixed dashboard bug resulting in incorrect muts_of_interest in dashboard
+ - Dramatic speedup of muts_of_interest calculation in dashboard
+
 ## v0.9.1
 # Minor
  - Fixed dashboard bug resulting in incorrect selections when downsampling
