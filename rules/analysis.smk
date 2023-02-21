@@ -28,7 +28,7 @@ rule minimap2:
         log = "alignments/{tag, [^\/_]*}.log"
     params:
         flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]
-    threads: config['threads_alignment']
+    threads: config['threads_alignment'] if config['threads_alignment']<(workflow.cores-1) else max(workflow.cores-1,1)
     group: "minimap2"
     resources:
         threads = lambda wildcards, threads: threads,
@@ -320,10 +320,11 @@ rule plot_mutation_rate:
         mutStats = 'mutation-stats.csv',
         timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
     output:
-        rate = 'plots/{tag, [^\/]*}_mutation-rates.html',
-        rateCSV = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates.csv',
-        spectrum = 'plots/{tag, [^\/]*}_mutation-rate-spectrum.html',
-        spectrumCSV = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rate-spectrum.csv'
+        boxplot_mut_grouped = 'plots/{tag, [^\/]*}_mutation-rates-mut-grouped.html',
+        boxplot_plot_sample_grouped = 'plots/{tag, [^\/]*}_mutation-rates-sample-grouped.html',
+        heatmap = 'plots/{tag, [^\/]*}_mutation-rates-heatmap.html',
+        CSV_all_rates = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates.csv',
+        CSV_summary = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates-summary.csv'
     script:
         'utils/plot_mutation_rate.py'
 
@@ -408,7 +409,7 @@ rule plot_distribution_timepointGroup:
                                 NTorAA = wildcards.NTorAA,
                                 distType = wildcards.distType)
     output:
-        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
+        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-{distType, [^\/_]*}-distribution.html'
     params:
         labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
         title = lambda wildcards: wildcards.timepointsGroup,

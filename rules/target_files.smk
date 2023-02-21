@@ -34,7 +34,7 @@ def targets_input(wildcards):
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
         if 'timepoints' in config:
-            out.extend(expand('plots/{tag}_mutation-rates.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
+            out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
             out.extend(expand('plots/timepoints/{timepointSample}_genotypes2D.html', timepointSample=config['timepointsInfo']))    # each genotypes2D timepoints plot includes data for a single row in the timepoints file
             timepointSample_NTorAA = []
             for timepointSample in config['timepointsInfo']:

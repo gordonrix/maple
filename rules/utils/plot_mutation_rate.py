@@ -11,12 +11,14 @@ import pandas as pd
 import bokeh
 import re
 import scipy
+import math
 from bokeh.layouts import column, gridplot
 from bokeh.models import ColumnDataSource
 from bokeh.palettes import Blues5
 from bokeh.plotting import figure, output_file, save
 from Bio import SeqIO
 import holoviews as hv
+import hvplot.pandas #noqa
 from holoviews import opts
 from scipy import stats
 hv.extension('bokeh')
@@ -72,12 +74,8 @@ def main():
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()
     ###
 
-    ### Output variables
-    ratePlotOut = snakemake.output.rate
-    rateCSVout = snakemake.output.rateCSV
-    spectrumPlotOut = snakemake.output.spectrum
-    spectrumCSVout = snakemake.output.spectrumCSV
-    for outFile in [ratePlotOut, rateCSVout, spectrumPlotOut, spectrumCSVout]:
+    ### Make paths for outputs
+    for outFile in snakemake.output:
         dir = '/'.join(outFile.split('/')[:-1])
         if not os.path.exists(dir):
             os.mkdir(dir)
@@ -108,12 +106,12 @@ def main():
             normTrimmedRow = trim_normalize_row(row, rowRefSeq, mutTypes)
             backgroundRows[rowTag] = normTrimmedRow
 
-    allTimepointsDFrowList = [] # list to be populated with one row as a list for each timepoint
+    allTimepointsDFrowList = [] # list to be populated with rows of mutations per sequence of each mutation type, one row for each timepoint
     allTimepointsDFcolumns = ['sample_label', 'replicate', timeUnit, 'per_base_all'] + ['per_base_'+mt for mt in mutTypes]
     allTimepointsDF = pd.DataFrame(allTimepointsDFrowList, columns=allTimepointsDFcolumns)
 
     allRatesDFrowList = [] # list to be populated with correlations between all types of mutations and timepoints, yielding a mutation rate as slope
-    allRatesDFcolumns = ['sample_label', 'replicate', 'rate_type', 'rate', 'intercept', 'r_value', 'p_value', 'std_err']
+    allRatesDFcolumns = ['sample_label', 'replicate', 'mut_type', 'wt_nt', 'mut_nt', f'rate (substitutions per base per {timeUnit}', 'intercept', 'r_value', 'p_value', 'std_err']
     allRatesDF = pd.DataFrame(allRatesDFrowList, columns=allRatesDFcolumns)
 
     # loop through each row in the timepoints table, then loop through each column in the timepoints table,
@@ -163,102 +161,66 @@ def main():
 
             sampleTimepointDF = pd.DataFrame(sampleTimepointDFrowList, columns=allTimepointsDFcolumns)
             sampleRatesDFrowList = []
-            for mt in ['per_base_all'] + ['per_base_'+mt for mt in mutTypes]:
-                rate, intercept, r_value, p_value, std_err = scipy.stats.linregress(sampleTimepointDF[timeUnit].astype(float).values.tolist(), sampleTimepointDF[mt].astype(float).values.tolist())
-                sampleRatesDFrowList.append([sampleLabel, replicateIndex, mt+f'_substitutions_per_{timeUnit}', rate, intercept, r_value, p_value, std_err])
+
+            # calculate mutation rates for each type of mutation
+            for mut_type in ['all'] + mutTypes:
+                rate, intercept, r_value, p_value, std_err = scipy.stats.linregress(sampleTimepointDF[timeUnit].astype(float).values.tolist(), sampleTimepointDF['per_base_'+mut_type].astype(float).values.tolist())
+                if mut_type == 'all':
+                    wt, mut = 'all', 'all'
+                else:
+                    wt, mut = mut_type[0], mut_type[-1]
+                sampleRatesDFrowList.append([sampleLabel, replicateIndex, mut_type, wt, mut, rate, intercept, r_value, p_value, std_err])
 
             allRatesDF = pd.concat([allRatesDF, pd.DataFrame(sampleRatesDFrowList, columns=allRatesDFcolumns)]).reset_index(drop=True)
             allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
 
     # compute mean rates for replicate samples then remove negatives
-    meanRatesDF = allRatesDF.groupby(['sample_label', 'rate_type'])['rate'].mean().reset_index()
-    meanRatesDF['rate'] = meanRatesDF['rate'].clip(lower=10^-9) # convert negative values to 10^-9
+    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'])[f'rate (substitutions per base per {timeUnit}'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
+    meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
+    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
+    allRatesDF[f'rate (substitutions per base per {timeUnit}'] = allRatesDF[f'rate (substitutions per base per {timeUnit}'].clip(lower=10^-10)
 
-    defaults = dict(width=100*len(uniqueSamples), xrotation=70, height=400, tools=['tap', 'hover', 'box_select'])
-    hv.opts.defaults(hv.opts.Bars(**defaults), hv.opts.Points(**defaults))
-    ratePlotList = []
+    defaults = dict(height=400, tools=['tap', 'hover', 'box_select'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
+    hv.opts.defaults(hv.opts.BoxWhisker(**defaults), hv.opts.HeatMap(**defaults))
+    mutType_grouped_plot_list = []
 
-    for mt in ['all'] + mutTypes:
-        # plot mean as bar
-        mtTypeMeanRateDF = meanRatesDF[meanRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
-        meanPlot = hv.Bars(mtTypeMeanRateDF[['sample_label','rate']])
-        meanPlot.opts(logy=True, color='grey')
-
-        # plot individual replicates as points
-        mtTypeRepsRateDF = allRatesDF[allRatesDF['rate_type']==f'per_base_{mt}_substitutions_per_{timeUnit}']
-        repsPlot = hv.Points(mtTypeRepsRateDF[['sample_label','rate']])
-        repsPlot.opts(logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
-
-        plot = meanPlot * repsPlot
-
-        # log plots in holoviews currently seem to be quite buggy, so I am using hardcoded y axis bounds.
-        #   Might be able to make this better adapted to data if holoviews/bokeh fix this. submitted a bug report.
-        plot.opts(ylim=(0.0000009, 0.0005))
-        plot.opts(ylabel=f'per_base_{mt}_substitutions_per_{timeUnit}')
-        ratePlotList.append(plot)
+    # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate == 13)
+    for mut_type in ['all'] + mutTypes:
+        mtType_rate_DF = allRatesDF[allRatesDF['mut_type']==mut_type]
+        print(mtType_rate_DF.head())
+        boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims=f'rate (substitutions per base per {timeUnit}')
+        boxPlot.opts(logy=True, box_color='grey', width=100*len(uniqueSamples), xrotation=70,
+                        xlabel='sample',
+                        ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
+        mutType_grouped_plot_list.append(boxPlot)
         
-    # export rate plot and data for replicates
-    if len(ratePlotList) > 0:
-        hv.save(hv.Layout(ratePlotList).cols(1), ratePlotOut, backend='bokeh')
-    allRatesDF.to_csv(rateCSVout)
-    
-    # DF that will convert the different absolute mutation rates into relative rates
-    relativeSpectrumDF = allRatesDF
-    # make new column that includes both sample name and replicate
-    relativeSpectrumDF['sample_replicate'] = relativeSpectrumDF.apply(lambda row:
-        str(row['sample_label'])+'_'+str(row['replicate']), axis=1)
-    
-    # rename column and column values to serve as better column titles after pivot, e.g. A->T
-    relativeSpectrumDF['mutation_type'] = relativeSpectrumDF.apply(lambda row:
-        row['rate_type'].split('_')[2], axis=1)
-    
-    relativeSpectrumDF = relativeSpectrumDF.pivot(index='sample_replicate', columns='mutation_type', values='rate')
-    # zero out negative rates, compute new total rates, compute relative rates, remove 'all' column
-    relativeSpectrumDF[relativeSpectrumDF<0] = 0
-    relativeSpectrumDF['all'] = relativeSpectrumDF.apply(lambda row:
-        sum(row[mutTypes]), axis=1)
-    for mt in mutTypes:
-        relativeSpectrumDF[mt] = relativeSpectrumDF.apply(lambda row:
-            row[mt]/row['all'], axis=1)
+    # plots that show individual rates, grouped together by sample (# of plots == # of samples)
+    sample_grouped_plot_list = []
+    heatmap_list = []
+    for sample in uniqueSamples:
 
-    relativeSpectrumDF.drop(columns='all', inplace=True)
+        # boxplot
+        sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
+        boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims=f'rate (substitutions per base per {timeUnit}')
+        boxPlot.opts(logy=True, box_color='grey', ylim=(0.000000001, 0.0005),
+                        title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
+                        width=800, ylabel=f'per base substitutions per {timeUnit}')
+        sample_grouped_plot_list.append(boxPlot)
 
-    # melt to manipulate column names
-    relativeSpectrumDF = relativeSpectrumDF.melt(value_vars=relativeSpectrumDF.columns, ignore_index=False)
-    relativeSpectrumDF['wtNT'] = relativeSpectrumDF.apply(lambda row:
-        row['mutation_type'][0], axis=1)
-    relativeSpectrumDF['mutNT'] = relativeSpectrumDF.apply(lambda row:
-        row['mutation_type'][3], axis=1)
+        mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
+                                            ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
+        heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
+                                                        flip_yaxis=True, width=480, title=f'sample: {sample}',
+                                                        xlabel='wild type nucleotide', ylabel='mutation nucleotide'
+                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'})
+        heatmap_list.append(heatmap)
 
-    # dictionary for renaming columns
-    renameDict = {}
-    for nt in list('ATGC'): renameDict[nt] = 'mut: '+nt
-    spectrumPlotList = []
-
-    for sample_replicate in relativeSpectrumDF.index.unique():
-        plotDF = relativeSpectrumDF[relativeSpectrumDF.index==sample_replicate]
-        plotDF = plotDF.pivot(index='wtNT', columns='mutNT', values = 'value')
-        plotDF.rename(columns=renameDict)
-        plotDF = plotDF.fillna(0.0) # replace NaNs with 0
-
-        TOOLTIPS = [('mutation type', '@wtNT'+'->'+'$name'), ('proportion of mutations', '@$name')]
-        spectrumPlot = figure(title=sample_replicate, plot_height=400, plot_width=460, x_range=list('ATGC'), tooltips=TOOLTIPS)
-
-        spectrumPlot.vbar_stack(list('ATGC'), x='wtNT', width = 0.9, source=ColumnDataSource(plotDF),
-            color = Blues5[:4], legend_label=list('ATGC'))
-        spectrumPlot.legend.title = 'mutation'
-        spectrumPlot.add_layout(spectrumPlot.legend[0], 'right')
-
-        spectrumPlot.yaxis.axis_label = 'normalized substitution frequency'
-
-        spectrumPlotList.append(spectrumPlot)
-
-        spectrumPlotList[-1].xaxis.axis_label = 'wild type nucleotide' # label x axis for bottom plot
-
-    output_file(spectrumPlotOut)
-    if len(spectrumPlotList) > 0:
-        save(column(spectrumPlotList))
-    relativeSpectrumDF.to_csv(spectrumCSVout)
+    # export rate plots and data
+    hv.save(hv.Layout(mutType_grouped_plot_list).cols(1), snakemake.output.boxplot_mut_grouped, backend='bokeh')
+    hv.save(hv.Layout(sample_grouped_plot_list).cols(1), snakemake.output.boxplot_plot_sample_grouped, backend='bokeh')
+    hv.save(hv.Layout(heatmap_list).cols(1), snakemake.output.heatmap, backend='bokeh')
+    allRatesDF.to_csv(snakemake.output.CSV_all_rates, index=False)
+    meanRatesDF.pivot(index='sample_label', columns='mut_type', values='rate_mean').to_csv(snakemake.output.CSV_summary)
 
 if __name__ == '__main__':
     main()
