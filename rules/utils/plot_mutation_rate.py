@@ -111,7 +111,7 @@ def main():
     allTimepointsDF = pd.DataFrame(allTimepointsDFrowList, columns=allTimepointsDFcolumns)
 
     allRatesDFrowList = [] # list to be populated with correlations between all types of mutations and timepoints, yielding a mutation rate as slope
-    allRatesDFcolumns = ['sample_label', 'replicate', 'mut_type', 'wt_nt', 'mut_nt', f'rate (substitutions per base per {timeUnit}', 'intercept', 'r_value', 'p_value', 'std_err']
+    allRatesDFcolumns = ['sample_label', 'replicate', 'mut_type', 'wt_nt', 'mut_nt', 'rate', 'intercept', 'r_value', 'p_value', 'std_err']
     allRatesDF = pd.DataFrame(allRatesDFrowList, columns=allRatesDFcolumns)
 
     # loop through each row in the timepoints table, then loop through each column in the timepoints table,
@@ -175,10 +175,10 @@ def main():
             allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
 
     # compute mean rates for replicate samples then remove negatives
-    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'])[f'rate (substitutions per base per {timeUnit}'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
+    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'])['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
-    allRatesDF[f'rate (substitutions per base per {timeUnit}'] = allRatesDF[f'rate (substitutions per base per {timeUnit}'].clip(lower=10^-10)
+    allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10^-10)
 
     defaults = dict(height=400, tools=['tap', 'hover', 'box_select'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
     hv.opts.defaults(hv.opts.BoxWhisker(**defaults), hv.opts.HeatMap(**defaults))
@@ -187,8 +187,7 @@ def main():
     # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate == 13)
     for mut_type in ['all'] + mutTypes:
         mtType_rate_DF = allRatesDF[allRatesDF['mut_type']==mut_type]
-        print(mtType_rate_DF.head())
-        boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims=f'rate (substitutions per base per {timeUnit}')
+        boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate')
         boxPlot.opts(logy=True, box_color='grey', width=100*len(uniqueSamples), xrotation=70,
                         xlabel='sample',
                         ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
@@ -201,7 +200,7 @@ def main():
 
         # boxplot
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
-        boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims=f'rate (substitutions per base per {timeUnit}')
+        boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate')
         boxPlot.opts(logy=True, box_color='grey', ylim=(0.000000001, 0.0005),
                         title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
                         width=800, ylabel=f'per base substitutions per {timeUnit}')
