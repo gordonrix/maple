@@ -24,7 +24,7 @@ def targets_input(wildcards):
         if config['do_NT_mutation_analysis'][tag]:
             out.extend(expand('plots/{tag}_{NTorAA}-mutation-distribution.html', tag=tag, NTorAA=['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             out.extend(expand('plots/{tag}_{NTorAA}-mutation-frequencies.html', tag=tag, NTorAA=['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
-            out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
+            # out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
         if config['do_RCA_consensus'][tag]:
             out.append(f'plots/{tag}_RCA-distribution.html')
         if config['do_UMI_analysis'][tag]:
