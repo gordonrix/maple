@@ -175,7 +175,7 @@ def main():
             allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
 
     # compute mean rates for replicate samples then remove negatives
-    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'])['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
+    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10^-10)
@@ -220,7 +220,12 @@ def main():
     hv.save(hv.Layout(sample_grouped_plot_list).cols(1), snakemake.output.boxplot_plot_sample_grouped, backend='bokeh')
     hv.save(hv.Layout(heatmap_list).cols(1), snakemake.output.heatmap, backend='bokeh')
     allRatesDF.to_csv(snakemake.output.CSV_all_rates, index=False)
-    meanRatesDF.pivot(index='sample_label', columns='mut_type', values='rate_mean').to_csv(snakemake.output.CSV_summary)
+
+    # pivot mean rates, return to original order, then export
+    meanRatesPivotDF = meanRatesDF.pivot(index='sample_label', columns='mut_type', values='rate_mean').reset_index()
+    sortOrder = {value:position for position,value in enumerate(meanRatesDF['sample_label'].unique())}
+    meanRatesPivotDF = meanRatesPivotDF.sort_values('sample_label', key=lambda x: x.apply(lambda y: sortOrder[y]))
+    meanRatesPivotDF.to_csv(snakemake.output.CSV_summary, index=False)
 
 if __name__ == '__main__':
     main()
