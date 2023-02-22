@@ -180,15 +180,16 @@ def main():
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10^-10)
 
-    defaults = dict(height=400, tools=['tap', 'hover', 'box_select'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
-    hv.opts.defaults(hv.opts.BoxWhisker(**defaults), hv.opts.HeatMap(**defaults))
+    defaults = dict(height=400, tools=['hover'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
+    boxwhisker_defaults = dict(box_fill_color='grey', box_line_width=1, whisker_line_width=1)
+    hv.opts.defaults(hv.opts.BoxWhisker(**{**defaults, **boxwhisker_defaults}), hv.opts.HeatMap(**defaults))
     mutType_grouped_plot_list = []
 
     # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate == 13)
     for mut_type in ['all'] + mutTypes:
         mtType_rate_DF = allRatesDF[allRatesDF['mut_type']==mut_type]
         boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate')
-        boxPlot.opts(logy=True, box_color='grey', width=100*len(uniqueSamples), xrotation=70,
+        boxPlot.opts(logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
                         xlabel='sample',
                         ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
         mutType_grouped_plot_list.append(boxPlot)
@@ -201,9 +202,9 @@ def main():
         # boxplot
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
         boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate')
-        boxPlot.opts(logy=True, box_color='grey', ylim=(0.000000001, 0.0005),
+        boxPlot.opts(logy=True, ylim=(0.000000001, 0.0005),
                         title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
-                        width=800, ylabel=f'per base substitutions per {timeUnit}')
+                        width=650, ylabel=f'per base substitutions per {timeUnit}')
         sample_grouped_plot_list.append(boxPlot)
 
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
@@ -211,7 +212,7 @@ def main():
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}',
                                                         xlabel='wild type nucleotide', ylabel='mutation nucleotide'
-                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'})
+                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'}, axiswise=True)
         heatmap_list.append(heatmap)
 
     # export rate plots and data
