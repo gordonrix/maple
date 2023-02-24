@@ -177,10 +177,11 @@ def main():
     # compute mean rates for replicate samples then remove negatives
     meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
-    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
-    print(allRatesDF['rate'].sort_values()
-    allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10^-10)
-    print(allRatesDF['rate'].sort_values()
+    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=0) # convert negative values to 0
+    # print(allRatesDF['rate'].sort_values())
+    allRatesDF['rate'] = allRatesDF['rate'].clip(lower=0)
+    # print(allRatesDF['rate'].sort_values())
+    # print(allRatesDF.head())
 
     defaults = dict(height=400, tools=['hover'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
     boxwhisker_defaults = dict(box_fill_color='grey', box_line_width=1, whisker_line_width=1)
@@ -194,7 +195,7 @@ def main():
                     logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
                     xlabel='sample', outlier_alpha=0, # hide outliers because will show all points with Points
                     ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
-        points = hv.Points(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
+        points = hv.Points(mtType_rate_DF[['sample_label', 'rate']]).opts(
                     logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
         mutType_grouped_plot_list.append(boxPlot*points)
         
@@ -203,18 +204,20 @@ def main():
     heatmap_list = []
     for sample in uniqueSamples:
 
-        # boxplot and points
+        # boxplot only because points can't do multi category x axis
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
         boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
                     logy=True, ylim=(0.000000001, 0.0005),
                     title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
                     width=650, ylabel=f'per base substitutions per {timeUnit}')
-        points = hv.Points(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
-                    logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
-        sample_grouped_plot_list.append(boxPlot*points)
+        # points = hv.Points(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
+        #             logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
+        sample_grouped_plot_list.append(boxPlot)
 
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
+        mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean'].clip(lower=10**-8))
+        mean_rates_individual.loc[mean_rates_individual['rate_mean'] == -8, 'rate_mean'] = np.nan
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}',
                                                         xlabel='wild type nucleotide', ylabel='mutation nucleotide'
