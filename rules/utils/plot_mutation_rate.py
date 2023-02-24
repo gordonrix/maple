@@ -178,7 +178,9 @@ def main():
     meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10^-10) # convert negative values to 10^-10
+    print(allRatesDF['rate'].sort_values()
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10^-10)
+    print(allRatesDF['rate'].sort_values()
 
     defaults = dict(height=400, tools=['hover'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
     boxwhisker_defaults = dict(box_fill_color='grey', box_line_width=1, whisker_line_width=1)
@@ -188,24 +190,28 @@ def main():
     # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate == 13)
     for mut_type in ['all'] + mutTypes:
         mtType_rate_DF = allRatesDF[allRatesDF['mut_type']==mut_type]
-        boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate')
-        boxPlot.opts(logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
-                        xlabel='sample',
-                        ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
-        mutType_grouped_plot_list.append(boxPlot)
+        boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
+                    logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
+                    xlabel='sample', outlier_alpha=0, # hide outliers because will show all points with Points
+                    ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
+        points = hv.Points(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
+                    logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
+        mutType_grouped_plot_list.append(boxPlot*points)
         
     # plots that show individual rates, grouped together by sample (# of plots == # of samples)
     sample_grouped_plot_list = []
     heatmap_list = []
     for sample in uniqueSamples:
 
-        # boxplot
+        # boxplot and points
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
-        boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate')
-        boxPlot.opts(logy=True, ylim=(0.000000001, 0.0005),
-                        title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
-                        width=650, ylabel=f'per base substitutions per {timeUnit}')
-        sample_grouped_plot_list.append(boxPlot)
+        boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
+                    logy=True, ylim=(0.000000001, 0.0005),
+                    title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
+                    width=650, ylabel=f'per base substitutions per {timeUnit}')
+        points = hv.Points(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
+                    logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
+        sample_grouped_plot_list.append(boxPlot*points)
 
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
