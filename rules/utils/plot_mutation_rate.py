@@ -12,6 +12,7 @@ import bokeh
 import re
 import scipy
 import math
+from common import export_svg_plots
 from bokeh.layouts import column, gridplot
 from bokeh.models import ColumnDataSource
 from bokeh.palettes import Blues5
@@ -178,12 +179,12 @@ def main():
     meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=0) # convert negative values to 0
-    # print(allRatesDF['rate'].sort_values())
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=0)
-    # print(allRatesDF['rate'].sort_values())
-    # print(allRatesDF.head())
 
-    defaults = dict(height=400, tools=['hover'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
+    def hook(plot, element):
+        plot.output_backend = 'svg'
+
+    defaults = dict(height=400, tools=['hover'], fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, hooks=[hook])
     boxwhisker_defaults = dict(box_fill_color='grey', box_line_width=1, whisker_line_width=1)
     hv.opts.defaults(hv.opts.BoxWhisker(**{**defaults, **boxwhisker_defaults}), hv.opts.HeatMap(**defaults))
     mutType_grouped_plot_list = []
@@ -194,7 +195,7 @@ def main():
         boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
                     logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
                     xlabel='sample', outlier_alpha=0, # hide outliers because will show all points with Points
-                    ylim=(0.000000001, 0.0005), ylabel=f'{mut_type} substitution rate')
+                    ylim=(0.00000001, 0.0005), ylabel=f'{mut_type} substitution rate')
         points = hv.Points(mtType_rate_DF[['sample_label', 'rate']]).opts(
                     logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
         mutType_grouped_plot_list.append(boxPlot*points)
@@ -207,7 +208,7 @@ def main():
         # boxplot only because points can't do multi category x axis
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
         boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
-                    logy=True, ylim=(0.000000001, 0.0005),
+                    logy=True, ylim=(0.00000001, 0.0005),
                     title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
                     width=650, ylabel=f'per base substitutions per {timeUnit}')
         # points = hv.Points(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
@@ -228,6 +229,12 @@ def main():
     hv.save(hv.Layout(mutType_grouped_plot_list).cols(1), snakemake.output.boxplot_mut_grouped, backend='bokeh')
     hv.save(hv.Layout(sample_grouped_plot_list).cols(1), snakemake.output.boxplot_plot_sample_grouped, backend='bokeh')
     hv.save(hv.Layout(heatmap_list).cols(1), snakemake.output.heatmap, backend='bokeh')
+
+    if snakemake.params.export_SVG:
+        export_svg_plots(mutType_grouped_plot_list, snakemake.output.boxplot_mut_grouped)
+        export_svg_plots(sample_grouped_plot_list, snakemake.output.boxplot_plot_sample_grouped)
+        export_svg_plots(heatmap_list, snakemake.output.heatmap)
+
     allRatesDF.to_csv(snakemake.output.CSV_all_rates, index=False)
 
     # pivot mean rates, return to original order, then export

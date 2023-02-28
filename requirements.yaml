@@ -21,6 +21,8 @@ dependencies:
   - holoviews
   - datashader
   - bokeh
+  - selenium # for bokeh SVG export
+  - webdriver-manager # for bokeh SVG export
   - panel==0.14.1 # temporary pin until I figure out the dependency issue with bokeh 3.0
   - editdistance
   - racon

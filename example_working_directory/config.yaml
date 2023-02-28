@@ -81,6 +81,8 @@ runs:
 sequences_dir: data
 fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq.gz files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail' for nanopore data
 
+export_SVG: False                            # whether to export plot outputs to SVG format in addition to .html. Best to leave this as False unless you are generating publication-quality figures as performance will suffer.
+
 nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
 
 references_directory: ref   # directory name for reference files, located in working directory
