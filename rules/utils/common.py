@@ -38,8 +38,13 @@ def dist_to_DF(dist, x, y):
     return df
 
 def export_svg_plots(plots, file_name):
-    """exports individual bokeh plots from a list of holoviews plots
-    with the provided file name and the index of the plot in the list"""
+    """
+    exports individual bokeh plots from a list of holoviews plots
+    with the provided file name and the index of the plot in the list
+    
+    plots:      list of holoviews bokeh plots
+    file_name   file name being used to save the plots. must end in '.html'
+    """
 
     options = wd.ChromeOptions()
     options.add_argument('--headless')

@@ -51,6 +51,7 @@ class MutationAnalysis:
             self.refTrimmedStr = str(self.refTrimmed.seq)
             self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
         self.refTrimmedEnd = len(self.refTrimmedStr) + self.refTrimmedStart
+        self.analyze_seqs_with_indels = snakemake.params.analyze_seqs_with_indels
 
         if 'mutation_analysis_quality_score_minimum' in config:
             self.QSminimum = config['mutation_analysis_quality_score_minimum']
@@ -115,7 +116,7 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 1: #insertion, not added to sequence to maintain alignment to reference
-                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.doAAanalysis and not self.analyze_seqs_with_indels and cTuple[1]%3 != 0 and self.refProteinStart <= refIndex < self.refProteinEnd: # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift insertion', queryIndex)
                     return None
                 if self.refTrimmedStart <= refIndex < self.refTrimmedEnd: # record insertions as tuples of position and sequence
@@ -123,7 +124,7 @@ class MutationAnalysis:
                 queryIndex += cTuple[1]
 
             elif cTuple[0] == 2: #deletion, '-' added to sequence to maintain alignment to reference
-                if self.doAAanalysis and not self.config['analyze_seqs_w_frameshift_indels'] and cTuple[1]%3 != 0 and ( self.refProteinStart <= refIndex + cTuple[1] ) and ( refIndex < self.refProteinEnd ): # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
+                if self.doAAanalysis and not self.analyze_seqs_with_indels and cTuple[1]%3 != 0 and ( self.refProteinStart <= refIndex + cTuple[1] ) and ( refIndex < self.refProteinEnd ): # frameshift, discard sequence if protein sequence analysis is being done and indel sequences are being ignored
                     self.alignmentFailureReason = ('frameshift deletion', queryIndex)
                     return None
                 refAln += self.refStr[refIndex:refIndex+cTuple[1]]
@@ -452,9 +453,8 @@ class MutationAnalysis:
         ntPositions = [f'{str(i)}' for i in range(0, len(self.refTrimmedStr))]
         WTnts = [ID+ntPosi for ID,ntPosi in zip(ntIDs,ntPositions)]
         NTmutDF = pd.DataFrame(NTmutArray, columns=list(self.NTs))
-        NTmutDF['wt_nucleotides'] = pd.Series(WTnts)
-        NTmutDF.set_index('wt_nucleotides', inplace=True)
-        NTmutDF = NTmutDF.transpose()
+        NTmutDF['wt_nucleotide'] = pd.Series(WTnts)
+        NTmutDF.set_index('wt_nucleotide', inplace=True)
 
         totalSeqs = int(NTmutDist.sum())
 
@@ -464,7 +464,6 @@ class MutationAnalysis:
         genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
 
         failuresDF.to_csv(self.outputList[3], index=False)
-        NTmutDF.index.name = 'NT_mutation_count'
         if not self.config['mutations_frequencies_raw'] and totalSeqs>0:
             NTmutDF = NTmutDF.divide(totalSeqs)
         NTmutDF.to_csv(self.outputList[4])
@@ -478,8 +477,6 @@ class MutationAnalysis:
             AAmutDF = pd.DataFrame(AAmutArray, columns=list(self.AAs))
             AAmutDF['wt_residues'] = pd.Series(WTresis)
             AAmutDF.set_index('wt_residues', inplace=True)
-            AAmutDF = AAmutDF.transpose()
-            AAmutDF.index.name = 'AA_mutation_count'
             if not self.config['mutations_frequencies_raw'] and totalSeqs > 0:
                 AAmutDF = AAmutDF.divide(totalSeqs)
             AAmutDF.to_csv(self.outputList[6])

@@ -81,7 +81,7 @@ runs:
 sequences_dir: data
 fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq.gz files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail' for nanopore data
 
-export_SVG: False                            # whether to export plot outputs to SVG format in addition to .html. Best to leave this as False unless you are generating publication-quality figures as performance will suffer.
+export_SVG: False                            # whether to export plot outputs to SVG format in addition to .html. Best to leave this as False unless you are generating publication-quality figures, as the .html plots are grouped and are much more feature rich. Note that the resulting .svg files are not tracked by the snakemake pipeline
 
 nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
 
@@ -140,7 +140,8 @@ sequence_length_threshold: 0.1              # Proportion of sequence length to b
 highest_abundance_genotypes: 10                # int, number of most frequently appearing genotypes to find a representative sequence for and write the alignment (output of clean_alignment method) to a file. Sequence with the highest average quality score will be chosen. 
 genotype_ID_alignments: 0                # similar to above, but a comma separated list of genotype IDs. Will be included in the same output file as the highest abundance genotypes. set to 0 if not desired
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
-analyze_seqs_w_frameshift_indels: True      # Set to true if sequences containing frameshift indels should be analyzed
+analyze_seqs_with_indels: True          # Set to true if sequences containing indels should be analyzed
+mutations_frequencies_number_of_positions: 20              # number of mutations to include in the most/least frequent mutations plots
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count

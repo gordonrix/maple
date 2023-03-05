@@ -39,7 +39,7 @@ def main():
             failCount = len(DFdict['failures'])
 
             
-            NTmuts = DFdict['NT-mutation-frequencies'].transpose()
+            NTmuts = DFdict['NT-mutation-frequencies']
             if not config['mutations_frequencies_raw']:
                 NTmuts = NTmuts * totalSeqs
                 NTmuts = np.rint(NTmuts)
@@ -49,13 +49,13 @@ def main():
             NTmuts.reset_index(inplace=True)
             NTmuts_unique.reset_index(inplace=True)
             transNTmuts = NTmuts.apply(lambda row:
-                transversions_transitions(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
+                transversions_transitions(row['wt_nucleotide'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
             transNTmuts_unique = NTmuts_unique.apply(lambda row:
-                transversions_transitions(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
+                transversions_transitions(row['wt_nucleotide'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
             allMutTypes = NTmuts.apply(lambda row:
-                mut_type(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
+                mut_type(row['wt_nucleotide'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand')
             allMutTypes_unique = NTmuts_unique.apply(lambda row:
-                mut_type(row['index'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand').add_suffix('_unique')
+                mut_type(row['wt_nucleotide'], row['A'], row['T'], row['G'], row['C']), axis=1, result_type='expand').add_suffix('_unique')
             NTmuts = pd.concat([NTmuts, transNTmuts, allMutTypes], axis='columns')
             NTmuts_unique = pd.concat([NTmuts_unique, transNTmuts_unique, allMutTypes_unique], axis='columns')
 

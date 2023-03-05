@@ -190,6 +190,8 @@ def aggregate_mutations(onehotArr, selected_idx, NTorAA, refSeq):
     arrIdx_in_selected = np.where(np.isin(idx_all, selected_idx))[0]
     onehot_selected = onehotArr[arrIdx_in_selected,:,:]
 
+    # TODO: account for genotype counts in total_seqs and aggregatedMuts (just need to multiply basically)
+
     total_seqs = len(onehot_selected)
     
     aggregatedMuts = np.sum(onehot_selected, axis=0, dtype=np.int32)
@@ -261,344 +263,347 @@ def plot_mutations_aggregated(ds, onehotArrayDict, num_positions, NTorAA, plot_t
     return plot
 
 
+def main():
 
+    parser = argparse.ArgumentParser()
 
-parser = argparse.ArgumentParser()
+    parser.add_argument('--genotypes', type=str, help='Name of the csv file that describes genotypes')
+    parser.add_argument('--reference', type=str, help='Name of the fasta file that contains alignment, nucleotide, and ORF sequenes')
+    args = parser.parse_args()
 
-parser.add_argument('--genotypes', type=str, help='Name of the csv file that describes genotypes')
-parser.add_argument('--reference', type=str, help='Name of the fasta file that contains alignment, nucleotide, and ORF sequenes')
-args = parser.parse_args()
+    # load in data
+    data = pd.read_csv(pathlib.Path(args.genotypes))
+    embedding_options = [col.split('_')[0] for col in list(data.columns) if col.endswith('_PaCMAP1')]
+    do_AA_analysis = 'AA' in embedding_options
 
-# load in data
-data = pd.read_csv(pathlib.Path(args.genotypes))
-embedding_options = [col.split('_')[0] for col in list(data.columns) if col.endswith('_PaCMAP1')]
-do_AA_analysis = 'AA' in embedding_options
+    # remove genotypes that don't have all 2D embedding options
+    for embedding in embedding_options:
+        data = data[data[embedding+'_PaCMAP1'].notna()]
+    data = data.reset_index().drop('index', axis='columns')
 
-# remove genotypes that don't have all 2D embedding options
-for embedding in embedding_options:
-    data = data[data[embedding+'_PaCMAP1'].notna()]
-data = data.reset_index().drop('index', axis='columns')
+    ## Create two 3D arrays of onehot-encoded sequences, one for NT and one for AA. These will be used for vectorized
+    #   queries of mutations. Index corresponds to the index of 'data'. Also adding colormaps and reference sequences
 
-## Create two 3D arrays of onehot-encoded sequences, one for NT and one for AA. These will be used for vectorized
-#   queries of mutations. Index corresponds to the index of 'data'. Also adding colormaps and reference sequences
+    # nested dictionary to hold the arrays for both NT and AA analysis
+    onehotArrayDict = {'NT':{'colormap':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
+                                        'T':palettes.Reds[3][1],
+                                        'G':'#000000',           #black
+                                        'C':palettes.Blues[3][1],
+                                        '-':'#d3d3d3'}}}          #grey
 
-# nested dictionary to hold the arrays for both NT and AA analysis
-onehotArrayDict = {'NT':{'colormap':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
-                                    'T':palettes.Reds[3][1],
-                                    'G':'#000000',           #black
-                                    'C':palettes.Blues[3][1],
-                                    '-':'#d3d3d3'}}}          #grey
+    if do_AA_analysis:
+        AAs_by_group = [['K','R','H'],              # positive, red
+                        ['D','E'],                  # negative, green
+                        ['F','Y','W'],              # aromatic, purple
+                        ['A','V','I','L'],          # small hydrophobic, blue
+                        ['C','M','S','T','N','Q']]  # sulfurous and polar uncharged, yellow->orange
 
-if do_AA_analysis:
-    AAs_by_group = [['K','R','H'],              # positive, red
-                    ['D','E'],                  # negative, green
-                    ['F','Y','W'],              # aromatic, purple
-                    ['A','V','I','L'],          # small hydrophobic, blue
-                    ['C','M','S','T','N','Q']]  # sulfurous and polar uncharged, yellow->orange
+        colorDictList= [palettes.Reds,
+                        palettes.Greens,
+                        palettes.Purples,
+                        palettes.Blues,
+                        palettes.YlOrBr]
 
-    colorDictList= [palettes.Reds,
-                    palettes.Greens,
-                    palettes.Purples,
-                    palettes.Blues,
-                    palettes.YlOrBr]
+        amino_acid_colormap = {}
+        for AAs,colorDict in zip(AAs_by_group,colorDictList):
+            colorList = colorDict[len(AAs)+1][::-1]
+            for i,AA in enumerate(AAs):
+                amino_acid_colormap[AA] = colorList[i+1]
+        amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
+        
+        onehotArrayDict.update({'AA':{'colormap':amino_acid_colormap}})
 
-    amino_acid_colormap = {}
-    for AAs,colorDict in zip(AAs_by_group,colorDictList):
-        colorList = colorDict[len(AAs)+1][::-1]
-        for i,AA in enumerate(AAs):
-            amino_acid_colormap[AA] = colorList[i+1]
-    amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
-    
-    onehotArrayDict.update({'AA':{'colormap':amino_acid_colormap}})
-
-for seqIndex, seqType in enumerate(onehotArrayDict.keys(), start=1):
-    refSeq = str(list(SeqIO.parse(args.reference, 'fasta'))[seqIndex].seq).upper()
-    if seqType == 'AA':
-        refSeq = Seq.translate(refSeq)
-    onehot3DArray, genotypesDF = seq_array_from_genotypes(refSeq, data, seqType, onehot=True)
-    onehotArrayDict[seqType].update( {'refSeq':refSeq, 'array':onehot3DArray} )
-
-
-
-## Convert into a hv.Dataset, then use some widgets to downsample data and add a column for the size of points
-downsample_slider = pn.widgets.IntSlider(name='downsample',
-                                        start=1000,
-                                        end=len(data),
-                                        step=1000,
-                                        value=10000)
-
-size_column_select = pn.widgets.Select(name='point size column', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count'])
-size_range_slider = pn.widgets.IntRangeSlider(name='point size range',
-                                    start=1,
-                                    end=100,
-                                    step=1,
-                                    value=(10,60))
-
-def initialize_ds(ds, downsample, size_column, size_range):
-    df = ds.data
-
-    if downsample < len(df):
-        df = df.sample(n=downsample, random_state=0)
-    
-    # add a size column scaled to user provided point size values
-    minSize, maxSize = size_range
-    sizeCol = df[size_column]
-    maxSizeCol = sizeCol.max()
-    minSizeCol = sizeCol.min()
-    if minSizeCol==maxSizeCol:
-        df['size'] = minSize
-    else:
-        df['size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
-    
-    return hv.Dataset(df)
-
-downsampled = hv.Dataset(data).apply(initialize_ds,
-                                downsample=downsample_slider,
-                                size_column=size_column_select,
-                                size_range=size_range_slider)
+    for seqIndex, seqType in enumerate(onehotArrayDict.keys(), start=1):
+        refSeq = str(list(SeqIO.parse(args.reference, 'fasta'))[seqIndex].seq).upper()
+        if seqType == 'AA':
+            refSeq = Seq.translate(refSeq)
+        onehot3DArray, genotypesDF = seq_array_from_genotypes(refSeq, data, seqType, onehot=True)
+        onehotArrayDict[seqType].update( {'refSeq':refSeq, 'array':onehot3DArray} )
 
 
 
-## add columns for coloring by nucleotide or amino acid mutations of interest
+    ## Convert into a hv.Dataset, then use some widgets to downsample data and add a column for the size of points
+    downsample_slider = pn.widgets.IntSlider(name='downsample',
+                                            start=1000,
+                                            end=len(data),
+                                            step=1000,
+                                            value=10000)
 
-NT_muts_text = pn.widgets.TextInput(name='NT muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"')
-AA_muts_text = pn.widgets.TextInput(name='AA muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"', disabled=not do_AA_analysis)
-max_mut_combos_slider = pn.widgets.IntSlider(name='maximum number of mutation of interest combinations',
+    size_column_select = pn.widgets.Select(name='point size column', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count'])
+    size_range_slider = pn.widgets.IntRangeSlider(name='point size range',
                                         start=1,
                                         end=100,
                                         step=1,
-                                        value=10)
+                                        value=(10,60))
 
-def add_muts_of_interest_columns(ds, onehotArrayDict, NT_muts, AA_muts, max_groups, do_AA_analysis):
-    if NT_muts != '':
-        ds = add_MOI_column(ds, onehotArrayDict, NT_muts, 'NT', max_groups)
-    if AA_muts != '' and do_AA_analysis:
-        ds = add_MOI_column(ds, onehotArrayDict, AA_muts, 'AA', max_groups)
-    return ds
+    def initialize_ds(ds, downsample, size_column, size_range):
+        df = ds.data
 
-dataset = downsampled.apply(add_muts_of_interest_columns,
-                                onehotArrayDict=onehotArrayDict,
-                                NT_muts=NT_muts_text,
-                                AA_muts=AA_muts_text,
-                                max_groups=max_mut_combos_slider,
-                                do_AA_analysis=do_AA_analysis)
-
-
-
-## define some widgets for filtering and apply filters
-
-filter_by_select = pn.widgets.Select(name='substitutions count filter', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
-
-filter_range_slider = pn.widgets.IntRangeSlider(name='NT mutations range',
-                                    start=round(data['NT_substitutions_count'].min()),
-                                    end=round(data['NT_substitutions_count'].max()),
-                                    step=1,
-                                    value=( round(data['NT_substitutions_count'].min()),round(data['NT_substitutions_count'].max()) ))
-
-# update the range of the filter based on which column is selected
-def range_widget_callback(IntRangeSlider, event):
-    column = event.new
-    NTorAA = column[:2]
-    minVal = round(data[column].min())
-    maxVal = round(data[column].max())
-    IntRangeSlider.name  = f"{NTorAA} substitutions range"
-    IntRangeSlider.start = minVal
-    IntRangeSlider.end   = maxVal
-    IntRangeSlider.value = (minVal, maxVal)
-    
-filter_by_select.link(filter_range_slider, callbacks={'value':range_widget_callback})
-
-count_range_slider = pn.widgets.IntRangeSlider(name='genotype count range',
-                                    start=round(data['count'].min()),
-                                    end=round(data['count'].max()),
-                                    step=1,
-                                    value=( round(data['count'].min()),round(data['count'].max()) ))
-
-# multi select widget that depends on the kind of genotypes CSV file columns
-for choice in ['barcode_group','timepoint']:
-    if choice in data.columns:
-        choice_col = choice
-group_choice = pn.widgets.MultiChoice( name=f'select {choice_col}', value=list(data[choice_col].unique()),
-                                        options=list(data[choice_col].unique()) )
-
-def filter_ds(ds, filter_by, filter_range, count_range, group):
-    df = ds.data
-    df = df[
-        (df['count'] >= count_range[0]) &
-        (df['count'] <= count_range[1])]
-
-    df = df[
-        (df[filter_by] >= filter_range[0]) &
-        (df[filter_by] <= filter_range[1])]
-    
-    df = df[df[choice_col].isin(group)]
-
-    return hv.Dataset(df)
-
-filtered_ds = dataset.apply(filter_ds,
-                            filter_by=filter_by_select,
-                            filter_range=filter_range_slider,
-                            count_range=count_range_slider,
-                            group=group_choice)
-
-
-
-## define widgets for the static points plot, then make a points plot that will be used for tracking selections, but
-#   will just show grey empty circles which will remain when a subset are selected. selected points will then
-#   be used to further filter the data via a selection stream, and this selected data will be used by other plots
-
-color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count', 'NT_muts_of_interest', choice_col]
-if do_AA_analysis:
-    color_options.append('AA_muts_of_interest')
-embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
-
-#TODO: add toggle switch for hover
-# hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
-#                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
-tools = ['box_select', 'lasso_select']
-
-def points(ds, embedding, tools):
-    dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
-    return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options, xticks=[100], yticks=[100]).opts(
-        xlabel=dim1, ylabel=dim2, height=600, width=800, tools=tools)
-
-static_points = dataset.apply(points, embedding=embedding_select, tools=tools)
-index_stream = Selection1D(source=static_points)
-
-# filter dataset by selection if any points are selected
-def select_ds(ds, idx_selected):
-    df = ds.data
-    df2 = df.iloc[idx_selected]
-    if len(df2)==0:
+        if downsample < len(df):
+            df = df.sample(n=downsample, random_state=0)
+        
+        # add a size column scaled to user provided point size values
+        minSize, maxSize = size_range
+        sizeCol = df[size_column]
+        maxSizeCol = sizeCol.max()
+        minSizeCol = sizeCol.min()
+        if minSizeCol==maxSizeCol:
+            df['size'] = minSize
+        else:
+            df['size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
+        
         return hv.Dataset(df)
-    else:
-        return hv.Dataset(df2)
 
-# need to rerun the filter so that I can apply the selection indices to the downsampled dataset, ]
-#   whose indices match that of the selection stream
-#   unfortunately can't figure out a way to just get the indices of the original dataset 
-prefilter_selected_ds = dataset.apply(select_ds, idx_selected=index_stream.param.index)
-selected_ds = prefilter_selected_ds.apply(filter_ds,
-                            filter_by=filter_by_select,
-                            filter_range=filter_range_slider,
-                            count_range=count_range_slider,
-                            group=group_choice)
+    downsampled = hv.Dataset(data).apply(initialize_ds,
+                                    downsample=downsample_slider,
+                                    size_column=size_column_select,
+                                    size_range=size_range_slider)
 
 
 
-## define widgets for the dynamic points plot, then use pn.bind to combine this with the static points plot
+    ## add columns for coloring by nucleotide or amino acid mutations of interest
 
-color_by_select = pn.widgets.Select(name='color by', options=color_options)
+    NT_muts_text = pn.widgets.TextInput(name='NT muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"')
+    AA_muts_text = pn.widgets.TextInput(name='AA muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"', disabled=not do_AA_analysis)
+    max_mut_combos_slider = pn.widgets.IntSlider(name='maximum number of mutation of interest combinations',
+                                            start=1,
+                                            end=100,
+                                            step=1,
+                                            value=10)
 
-cmaps  = ['kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4']
-cmaps_r = [c+'_r' for c in cmaps]
-cmaps = cmaps_r+cmaps
-cmap_selector = pn.widgets.Select(name='colormap', options=cmaps)
+    def add_muts_of_interest_columns(ds, onehotArrayDict, NT_muts, AA_muts, max_groups, do_AA_analysis):
+        if NT_muts != '':
+            ds = add_MOI_column(ds, onehotArrayDict, NT_muts, 'NT', max_groups)
+        if AA_muts != '' and do_AA_analysis:
+            ds = add_MOI_column(ds, onehotArrayDict, AA_muts, 'AA', max_groups)
+        return ds
 
-selected_alpha_slider = pn.widgets.FloatSlider(name='selected point opacity',
-                                    start=0.01,
-                                    end=1.00,
-                                    step=0.01,
-                                    value=1.0 )
-
-unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity',
-                                    start=0.00,
-                                    end=1.00,
-                                    step=0.01,
-                                    value=0.1 )
-
-# I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
-def points_bind(embedding, filtered_ds, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha):
-    points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
-    points_filtered = filtered_ds.apply(points, embedding=embedding, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
-    
-    return points_unfiltered*points_filtered
-
-dynamic_points = pn.bind(points_bind, embedding=embedding_select,
-                        points_unfiltered=static_points,
-                        filtered_ds=filtered_ds,
-                        colorby=color_by_select,
-                        cmap=cmap_selector,
-                        unselected_alpha=unselected_alpha_slider,
-                        selected_alpha=selected_alpha_slider)
+    dataset = downsampled.apply(add_muts_of_interest_columns,
+                                    onehotArrayDict=onehotArrayDict,
+                                    NT_muts=NT_muts_text,
+                                    AA_muts=AA_muts_text,
+                                    max_groups=max_mut_combos_slider,
+                                    do_AA_analysis=do_AA_analysis)
 
 
 
-## histogram for a column chosen by a widget. selection will be highlighted by combining a low opacity histogram
-#   of the pre-filter dataset with a high opacity histogram of the selected dataset
+    ## define some widgets for filtering and apply filters
 
-hist_col_selector = pn.widgets.Select(name='histogram column', options=['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
+    filter_by_select = pn.widgets.Select(name='substitutions count filter', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
 
-def histogram(ds, histCol):
-    # calculate bin range based on maximum value, 1:1 bin:mutations ratio
-    max_x_val = ds.data[histCol].max()
-    bins = np.linspace(-0.5, max_x_val-0.5, max_x_val+1)
-    return ds.data.hvplot(y=histCol, kind='hist', width=500,height=500, bins=bins, xlabel=histCol, ylabel='total sequences', color='grey')
+    filter_range_slider = pn.widgets.IntRangeSlider(name='NT mutations range',
+                                        start=round(data['NT_substitutions_count'].min()),
+                                        end=round(data['NT_substitutions_count'].max()),
+                                        step=1,
+                                        value=( round(data['NT_substitutions_count'].min()),round(data['NT_substitutions_count'].max()) ))
 
-dynamic_hist = selected_ds.apply(histogram, histCol=hist_col_selector).opts(alpha=1)
-static_hist = dataset.apply(histogram, histCol=hist_col_selector).opts(alpha=0.1)
+    # update the range of the filter based on which column is selected
+    def range_widget_callback(IntRangeSlider, event):
+        column = event.new
+        NTorAA = column[:2]
+        minVal = round(data[column].min())
+        maxVal = round(data[column].max())
+        IntRangeSlider.name  = f"{NTorAA} substitutions range"
+        IntRangeSlider.start = minVal
+        IntRangeSlider.end   = maxVal
+        IntRangeSlider.value = (minVal, maxVal)
+        
+    filter_by_select.link(filter_range_slider, callbacks={'value':range_widget_callback})
+
+    count_range_slider = pn.widgets.IntRangeSlider(name='genotype count range',
+                                        start=round(data['count'].min()),
+                                        end=round(data['count'].max()),
+                                        step=1,
+                                        value=( round(data['count'].min()),round(data['count'].max()) ))
+
+    # multi select widget that depends on the kind of genotypes CSV file columns
+    for choice in ['barcode_group','timepoint']:
+        if choice in data.columns:
+            choice_col = choice
+    group_choice = pn.widgets.MultiChoice( name=f'select {choice_col}', value=list(data[choice_col].unique()),
+                                            options=list(data[choice_col].unique()) )
+
+    def filter_ds(ds, filter_by, filter_range, count_range, group):
+        df = ds.data
+        df = df[
+            (df['count'] >= count_range[0]) &
+            (df['count'] <= count_range[1])]
+
+        df = df[
+            (df[filter_by] >= filter_range[0]) &
+            (df[filter_by] <= filter_range[1])]
+        
+        df = df[df[choice_col].isin(group)]
+
+        return hv.Dataset(df)
+
+    filtered_ds = dataset.apply(filter_ds,
+                                filter_by=filter_by_select,
+                                filter_range=filter_range_slider,
+                                count_range=count_range_slider,
+                                group=group_choice)
 
 
 
-## plot that describes mutations aggregated over the selected genotypes
-# Current options:
-#   - bar plot of most frequent mutations
-#   - bar plot of least frequent mutations
-agg_muts_width_slider = pn.widgets.IntSlider(name='plot width',
-                                start=160,
-                                end=1200,
-                                step=10,
-                                value=500 )
+    ## define widgets for the static points plot, then make a points plot that will be used for tracking selections, but
+    #   will just show grey empty circles which will remain when a subset are selected. selected points will then
+    #   be used to further filter the data via a selection stream, and this selected data will be used by other plots
 
-num_positions_slider = pn.widgets.IntSlider(name='number of positions',
-                                    start=5,
-                                    end=100,
-                                    step=1,
-                                    value=10 )
+    color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count', 'NT_muts_of_interest', choice_col]
+    if do_AA_analysis:
+        color_options.append('AA_muts_of_interest')
+    embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
 
-NTorAA_radio_options = ['nucleotide (NT)']
-if do_AA_analysis:
-    NTorAA_radio_options.append('amino acid (AA)')
-NTorAA_radio = pn.widgets.RadioButtonGroup(
-    name='bar plot mutation type', options=NTorAA_radio_options, value=NTorAA_radio_options[-1], disabled=(not do_AA_analysis), button_type='default')
-agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent', 'least frequent'])
-aggregated_muts_plot = selected_ds.apply(plot_mutations_aggregated,
-                                        onehotArrayDict=onehotArrayDict,
-                                        num_positions=num_positions_slider,
-                                        NTorAA=NTorAA_radio,
-                                        plot_type=agg_plot_type_selector)
-aggregated_muts_panel = pn.panel(aggregated_muts_plot, width=agg_muts_width_slider.value)
-def mod_width_callback(muts_panel, event):
-    muts_panel.width=event.new
-agg_muts_width_slider.link(aggregated_muts_panel, callbacks={'value':mod_width_callback})
+    #TODO: add toggle switch for hover
+    # hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
+    #                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
+    tools = ['box_select', 'lasso_select']
 
-snakemake_dir = pathlib.Path(__file__).parent.parent.parent
+    def points(ds, embedding, tools):
+        dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
+        return ds.data.hvplot(kind='points', x=dim1, y=dim2, size='size', hover_cols=color_options, xticks=[100], yticks=[100]).opts(
+            xlabel=dim1, ylabel=dim2, height=600, width=800, tools=tools)
 
-## build the layout
-layout = pn.Column(
-pn.Row(
-    pn.Column(
-        downsample_slider,
-        pn.Row(selected_alpha_slider,unselected_alpha_slider),
-        pn.Row(size_column_select,size_range_slider),
-        pn.Row(pn.Column(embedding_select,count_range_slider),group_choice),
-        pn.Row(filter_by_select,filter_range_slider),
-        pn.Row(color_by_select,cmap_selector),
-        pn.Row(NT_muts_text,AA_muts_text),
-        max_mut_combos_slider),
-    dynamic_points
-    ),
-pn.Row(
-    pn.Column(
-        dynamic_hist*static_hist,
-        hist_col_selector),
-    pn.Column(
-        aggregated_muts_panel, NTorAA_radio,
-        agg_plot_type_selector,
-        num_positions_slider,
-        agg_muts_width_slider,
+    static_points = dataset.apply(points, embedding=embedding_select, tools=tools)
+    index_stream = Selection1D(source=static_points)
+
+    # filter dataset by selection if any points are selected
+    def select_ds(ds, idx_selected):
+        df = ds.data
+        df2 = df.iloc[idx_selected]
+        if len(df2)==0:
+            return hv.Dataset(df)
+        else:
+            return hv.Dataset(df2)
+
+    # need to rerun the filter so that I can apply the selection indices to the downsampled dataset, ]
+    #   whose indices match that of the selection stream
+    #   unfortunately can't figure out a way to just get the indices of the original dataset 
+    prefilter_selected_ds = dataset.apply(select_ds, idx_selected=index_stream.param.index)
+    selected_ds = prefilter_selected_ds.apply(filter_ds,
+                                filter_by=filter_by_select,
+                                filter_range=filter_range_slider,
+                                count_range=count_range_slider,
+                                group=group_choice)
+
+
+
+    ## define widgets for the dynamic points plot, then use pn.bind to combine this with the static points plot
+
+    color_by_select = pn.widgets.Select(name='color by', options=color_options)
+
+    cmaps  = ['kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4']
+    cmaps_r = [c+'_r' for c in cmaps]
+    cmaps = cmaps_r+cmaps
+    cmap_selector = pn.widgets.Select(name='colormap', options=cmaps)
+
+    selected_alpha_slider = pn.widgets.FloatSlider(name='selected point opacity',
+                                        start=0.01,
+                                        end=1.00,
+                                        step=0.01,
+                                        value=1.0 )
+
+    unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity',
+                                        start=0.00,
+                                        end=1.00,
+                                        step=0.01,
+                                        value=0.1 )
+
+    # I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
+    def points_bind(embedding, filtered_ds, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha):
+        points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
+        points_filtered = filtered_ds.apply(points, embedding=embedding, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
+        
+        return points_unfiltered*points_filtered
+
+    dynamic_points = pn.bind(points_bind, embedding=embedding_select,
+                            points_unfiltered=static_points,
+                            filtered_ds=filtered_ds,
+                            colorby=color_by_select,
+                            cmap=cmap_selector,
+                            unselected_alpha=unselected_alpha_slider,
+                            selected_alpha=selected_alpha_slider)
+
+
+
+    ## histogram for a column chosen by a widget. selection will be highlighted by combining a low opacity histogram
+    #   of the pre-filter dataset with a high opacity histogram of the selected dataset
+
+    hist_col_selector = pn.widgets.Select(name='histogram column', options=['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
+
+    def histogram(ds, histCol):
+        # calculate bin range based on maximum value, 1:1 bin:mutations ratio
+        max_x_val = ds.data[histCol].max()
+        bins = np.linspace(-0.5, max_x_val-0.5, max_x_val+1)
+        return ds.data.hvplot(y=histCol, kind='hist', width=500,height=500, bins=bins, xlabel=histCol, ylabel='total sequences', color='grey')
+
+    dynamic_hist = selected_ds.apply(histogram, histCol=hist_col_selector).opts(alpha=1)
+    static_hist = dataset.apply(histogram, histCol=hist_col_selector).opts(alpha=0.1)
+
+
+
+    ## plot that describes mutations aggregated over the selected genotypes
+    # Current options:
+    #   - bar plot of most frequent mutations
+    #   - bar plot of least frequent mutations
+    agg_muts_width_slider = pn.widgets.IntSlider(name='plot width',
+                                    start=160,
+                                    end=1200,
+                                    step=10,
+                                    value=500 )
+
+    num_positions_slider = pn.widgets.IntSlider(name='number of positions',
+                                        start=5,
+                                        end=100,
+                                        step=1,
+                                        value=10 )
+
+    NTorAA_radio_options = ['nucleotide (NT)']
+    if do_AA_analysis:
+        NTorAA_radio_options.append('amino acid (AA)')
+    NTorAA_radio = pn.widgets.RadioButtonGroup(
+        name='bar plot mutation type', options=NTorAA_radio_options, value=NTorAA_radio_options[-1], disabled=(not do_AA_analysis), button_type='default')
+    agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent', 'least frequent'])
+    aggregated_muts_plot = selected_ds.apply(plot_mutations_aggregated,
+                                            onehotArrayDict=onehotArrayDict,
+                                            num_positions=num_positions_slider,
+                                            NTorAA=NTorAA_radio,
+                                            plot_type=agg_plot_type_selector)
+    aggregated_muts_panel = pn.panel(aggregated_muts_plot, width=agg_muts_width_slider.value)
+    def mod_width_callback(muts_panel, event):
+        muts_panel.width=event.new
+    agg_muts_width_slider.link(aggregated_muts_panel, callbacks={'value':mod_width_callback})
+
+    snakemake_dir = pathlib.Path(__file__).parent.parent.parent
+
+    ## build the layout
+    layout = pn.Column(
+    pn.Row(
+        pn.Column(
+            downsample_slider,
+            pn.Row(selected_alpha_slider,unselected_alpha_slider),
+            pn.Row(size_column_select,size_range_slider),
+            pn.Row(pn.Column(embedding_select,count_range_slider),group_choice),
+            pn.Row(filter_by_select,filter_range_slider),
+            pn.Row(color_by_select,cmap_selector),
+            pn.Row(NT_muts_text,AA_muts_text),
+            max_mut_combos_slider),
+        dynamic_points
         ),
-    pn.panel(pathlib.Path(snakemake_dir/'images'/'dashboard_legend.png'),width=200,align='start')
-    ))
+    pn.Row(
+        pn.Column(
+            dynamic_hist*static_hist,
+            hist_col_selector),
+        pn.Column(
+            aggregated_muts_panel, NTorAA_radio,
+            agg_plot_type_selector,
+            num_positions_slider,
+            agg_muts_width_slider,
+            ),
+        pn.panel(pathlib.Path(snakemake_dir/'images'/'dashboard_legend.png'),width=200,align='start')
+        ))
 
-layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')
+    layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')
+
+if __name__ == '__main__':
+    main()

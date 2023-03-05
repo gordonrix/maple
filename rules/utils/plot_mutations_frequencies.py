@@ -1,128 +1,92 @@
-import os
-import random
-from math import pi
-
 import numpy as np
 import pandas as pd
-from bokeh.layouts import column
-from bokeh.models import (BasicTicker, ColorBar, ColumnDataSource, FactorRange,
-                          HoverTool, Legend, LinearColorMapper,
-                          PrintfTickFormatter)
-from bokeh.palettes import Inferno
-from bokeh.plotting import figure, output_file, save, show
+import holoviews as hv
+from genotypes_dashboard import conspicuous_mutations
 from snakemake.io import Namedlist
+from bokeh import palettes
 
-### Asign variables from config file and inputs
-config = snakemake.config
-tag = snakemake.wildcards.tag
-AAorNT = snakemake.wildcards.AAorNT
-inputList = snakemake.input.frequencies
-mutStatsDF = pd.read_csv(snakemake.input.mutStats, dtype={'tag':str,'barcode_group':str})
-if config['mutations_frequencies_raw'] == True:
-    yAxisLabel = 'total mutation count'
-elif config['mutations_frequencies_raw'] == False:
-    yAxisLabel = 'proportion of reads'
-###
+def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wildcards):
 
-output_file(snakemake.output[0])
+    number_of_positions = 20    # number of positions to include for most and least frequent
 
-if type(inputList) == Namedlist:
-    mode = 'grouped'
-else:
-    mode = 'individual'
-    inputList = [inputList]
+    # define colormaps
+    colormaps = {'NT':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
+                                    'T':palettes.Reds[3][1],
+                                    'G':'#000000',           #black
+                                    'C':palettes.Blues[3][1],
+                                    '-':'#d3d3d3'}}           #grey
 
-inputList = sorted(inputList)
+    AAs_by_group = [['K','R','H'],              # positive, red
+                    ['D','E'],                  # negative, green
+                    ['F','Y','W'],              # aromatic, purple
+                    ['A','V','I','L'],          # small hydrophobic, blue
+                    ['C','M','S','T','N','Q']]  # sulfurous and polar uncharged, yellow->orange
 
-wtColumn = f'wt_{AAorNT}'
+    colorDictList= [palettes.Reds,
+                    palettes.Greens,
+                    palettes.Purples,
+                    palettes.Blues,
+                    palettes.YlOrBr]
 
-plotList = []
-first = True #add legend only for first plot
-for inFile in inputList:
+    amino_acid_colormap = {}
+    for AAs,colorDict in zip(AAs_by_group,colorDictList):
+        colorList = colorDict[len(AAs)+1][::-1]
+        for i,AA in enumerate(AAs):
+            amino_acid_colormap[AA] = colorList[i+1]
+    amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
 
-    ### Get mutation data, convert to more readily plottable format
-    barcodeGroup = inFile.split('_')[-2]
-    plotTitle = f'{tag}_{barcodeGroup}'
-    mutsDF = pd.read_csv(inFile, index_col=0).transpose()
-    wt = list(mutsDF.index)
-    totalSequences = mutStatsDF.loc[mutStatsDF['barcode_group']==barcodeGroup, 'total_seqs'].iloc[0]
+    colormaps.update({'AA':amino_acid_colormap})
 
-    if totalSequences == 0:
-        continue
+    mutStatsDF = pd.read_csv(stats_input, dtype={'tag':str,'barcode_group':str})
 
-    # set appropriate dataframe and tooltips label to use for plotting
-    if yAxisLabel == 'total mutation count':
-        tooltipValueLabel = 'total count'
-    elif yAxisLabel == 'proportion of reads':
-        tooltipValueLabel = 'proportion of reads'
+    if type(frequencies_input) != Namedlist:
+        frequencies_input = [frequencies_input]
 
-    yAxisLabelWithReadCount = yAxisLabel + f' (n = {totalSequences})'
-
-    # setting colors and hatch patterns
-    if AAorNT == 'AA':
-
-        palette = Inferno[6]
-        newPalette = []
-        for p in palette[::-1]:
-            newPalette.append(p)
-        palette = newPalette
-
-        muts =     ['A', 'V', 'I', 'L', 'M', 'F', 'Y', 'W',
-                    'S', 'T', 'N', 'Q',
-                    'R', 'H', 'K',
-                    'D', 'E',
-                    'C', 'G', 'P',
-                    '*']
-
-        mutsDF = mutsDF[muts]
-
-        colors =  []    # assign colors to different mutation types
-        for i,n in enumerate([8, 4, 3, 2, 3, 1]):
-            colors.extend([palette[i] for x in range(0,n)])
-
-        hatches =  [' ', 'v', '"', '>', '.', '`', 'x', 'o',
-                    ' ', 'v', '"', '>',
-                    ' ', 'v', '"',
-                    ' ', 'v',
-                    ' ', 'v', '"',
-                    ' ']
-
-        hatchColors = []
-        for c,n in zip(['#000000', '#000000', '#D4DCDE', '#D4DCDE', '#D4DCDE', '#D4DCDE'],[8, 4, 3, 2, 3, 1]):
-            hatchColors.extend([c for x in range(0,n)])
-
-    elif AAorNT == 'NT':
-        colors = Inferno[4]
-        hatches = [' ', ' ' ,' ' ,' ']
-        hatchColors = ['#000000', '#000000', '#000000', '#000000']
-        muts = list(mutsDF.columns)
-
-    pHeight = 250
-    if first:
-        pHeight = int(pHeight*1.3)
-        maxCount = max(list(mutsDF.max(axis=0)))
-
-    mutsDF = mutsDF.reset_index().rename(columns={'index':wtColumn})
-    source = ColumnDataSource(mutsDF)
-
-    TOOLTIPS = [('mutation', f'@{wtColumn}'+'$name'), (tooltipValueLabel, '@$name')]
-    barcodePlot = figure(title=plotTitle, plot_height=pHeight, plot_width=len(mutsDF)*12, x_range=FactorRange(*wt), tooltips=TOOLTIPS)
-
-    v = barcodePlot.vbar_stack(muts, x=wtColumn, width=0.9, color=colors, source=source,
-        legend_label=muts, hatch_pattern=hatches, hatch_scale=5.0, hatch_color=hatchColors)
-    barcodePlot.xaxis.major_label_orientation = pi/2.6
-    barcodePlot.xaxis.axis_label = f'wild type {AAorNT}'
-    barcodePlot.yaxis.axis_label = yAxisLabelWithReadCount
-
-    # add legend only for first (top) plot
-    if first:
-        barcodePlot.y_range.end = maxCount*1.5 # make first plot taller to accomodate legend
-        barcodePlot.legend.location = 'top_left'
-        barcodePlot.legend.orientation = 'horizontal'
-        first = False
+    if mutations_frequencies_raw:
+        value_label = 'total_count'
     else:
-        barcodePlot.legend.visible = False
+        value_label = 'proportion_of_seqs'
 
-    plotList.append(barcodePlot)
+    plots = []
+    mutsDF_all = pd.DataFrame(columns=['group', 'wt', 'position', 'mutation', 'total_count'])
 
-save(column(plotList))
+    for inFile in frequencies_input:
+
+        # Get mutation data, convert to tidy format
+        barcodeGroup = inFile.split('_')[-2]
+        plotTitle = f'{wildcards.tag}_{barcodeGroup}'
+        mutsDF = pd.read_csv(inFile, index_col=False)
+        mutsDF = mutsDF.rename(columns={mutsDF.columns[0]:'wt'})
+        wt = list(mutsDF.columns[1:])
+        total_seqs = mutStatsDF.loc[mutStatsDF['barcode_group']==barcodeGroup, 'total_seqs'].iloc[0]
+        mutsDF = mutsDF.melt(id_vars='wt', var_name='mutation', value_name=value_label)
+        mutsDF['position'] = pd.to_numeric(mutsDF['wt'].str[1:])
+        mutsDF['wt'] = mutsDF['wt'].str[0]
+        mutsDF['group']=plotTitle
+
+        if mutations_frequencies_raw:
+            mutsDF['proportion_of_seqs'] = mutsDF['total_count'] / total_seqs
+        else:
+            mutsDF['total_count'] = mutsDF['proportion_of_seqs'] * total_seqs
+
+        plots.append( conspicuous_mutations(mutsDF, mutsDF['position'].max()-1, colormaps[wildcards.NTorAA], most_common=True).opts(title=plotTitle, xlabel='all mutated positions', ylabel=f"frequency (n={total_seqs})", width=1000) )
+        mutsDF_all = pd.concat([mutsDF_all, mutsDF])
+
+    # determine the most and least frequently mutated positions across all sample groups
+    group_DF = mutsDF_all.groupby(['wt', 'position'], as_index=False).sum().sort_values(['total_count'], ascending=True).reset_index().drop(columns='index')
+    group_DF['wt_position'] = group_DF['wt'] + group_DF['position'].astype(str)
+    least_frequent_positions = group_DF.iloc[:number_of_positions]['wt_position'].to_list()
+    most_frequent_positions = group_DF.iloc[-number_of_positions:]['wt_position'].to_list()
+
+    plots_least_frequent, plots_most_frequent = [],[]
+    for plot in plots:
+        plots_least_frequent.append(plot[least_frequent_positions,:].opts(width=number_of_positions*20))
+        plots_most_frequent.append(plot[most_frequent_positions,:].opts(width=number_of_positions*20))
+
+    hv.save( hv.Layout(plots_least_frequent).cols(1), output.least_frequent, backend='bokeh')
+    hv.save( hv.Layout(plots_most_frequent).cols(1), output.most_frequent, backend='bokeh')
+    hv.save( hv.Layout(plots).cols(1), output.all_muts, backend='bokeh')
+
+if __name__ == '__main__':
+    main(snakemake.input.genotypes, snakemake.input.mut_stats, snakemake.output, snakemake.params.mutations_frequencies_raw, snakemake.wildcards)
+

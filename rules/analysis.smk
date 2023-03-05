@@ -173,8 +173,8 @@ rule plot_demux:
     script:
         'utils/plot_demux.py'
 
-# Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output, so creating a separate
-#   rule for which correct input files are only given when AA analysis is not being performed, and giving this rule priority. It's not pretty but it works.
+# Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output,
+#   so instead we create a separate rule for which correct input files are only given when AA analysis is not being performed, and give this rule priority. It's not pretty but it works.
 ruleorder: mutation_analysis_NTonly > mutation_analysis
 
 def ma_NTonly_input(wildcards):
@@ -192,7 +192,8 @@ rule mutation_analysis_NTonly:
     output:
         expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv'])
     params:
-        NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest','')
+        NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False)
     script:
         'utils/mutation_analysis.py'
 
@@ -204,7 +205,8 @@ rule mutation_analysis:
         expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv', 'AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
     params:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
-        AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest','')
+        AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest',''),
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False)
     script:
         'utils/mutation_analysis.py'
 
@@ -325,27 +327,37 @@ rule plot_mutation_rate:
         heatmap = 'plots/{tag, [^\/]*}_mutation-rates-heatmap.html',
         CSV_all_rates = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates.csv',
         CSV_summary = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates-summary.csv'
+    params:
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_mutation_rate.py'
 
-rule plot_mutations_frequencies:
+rule plot_mutation_frequencies:
     input:
-        frequencies = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{AAorNT}-mutation-frequencies.csv',
+        genotypes = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
                                                     tag=wildcards.tag,
                                                     barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
-                                                    AAorNT = wildcards.AAorNT ),
-        mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
+                                                    NTorAA = wildcards.NTorAA ),
+        mut_stats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-frequencies.html'
+        all_muts = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies.html',
+        most_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies-common.html',
+        least_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies-rare.html'
+    params:
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
+        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20)
     script:
         'utils/plot_mutations_frequencies.py'
 
 rule plot_mutations_frequencies_barcodeGroup:
     input:
-        frequencies = 'mutation_data/{tag}_{barcodes}_{AAorNT}-mutation-frequencies.csv',
+        frequencies = 'mutation_data/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
         mutStats = '{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{AAorNT, [^\/_]*}-mutation-frequencies.html'
+        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies.html'
+    params:
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
+        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20)
     script:
         'utils/plot_mutations_frequencies.py'
 
@@ -380,7 +392,8 @@ rule plot_distribution:
         title = lambda wildcards: wildcards.tag,
         legend_label = False,
         background = False,
-        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_distribution.py'
 
@@ -398,7 +411,8 @@ rule plot_distribution_barcodeGroup:
         title = lambda wildcards: wildcards.tag,
         legend_label = 'barcode group',
         background = lambda wildcards: config.get('background', False),
-        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_distribution.py'
 
@@ -415,7 +429,8 @@ rule plot_distribution_timepointGroup:
         title = lambda wildcards: wildcards.timepointsGroup,
         legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
         background = lambda wildcards: config.get('background', False),
-        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False)
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_distribution.py'
 

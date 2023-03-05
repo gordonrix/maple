@@ -231,7 +231,8 @@ rule plot_distribution_UMI_group:
         title = 'all tags',
         legend_label = 'tag',
         background = False,
-        raw = True
+        raw = True,
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_distribution.py'
 
