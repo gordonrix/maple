@@ -45,6 +45,7 @@ class MutationAnalysis:
         self.outputList = output
         self.refTrimmedStart = self.refStr.find(self.refTrimmedStr)
         self.useReverseComplement = False
+        self.use_raw_mut_count = snakemake.params.mutations_frequencies_raw
         if self.refTrimmedStart == -1:
             self.useReverseComplement = True
             self.refTrimmed.seq = self.refTrimmed.seq.reverse_complement()
@@ -387,7 +388,6 @@ class MutationAnalysis:
                 seqGenotype.append(mutStr)
                 seqGenotype.extend(mutOneHot)
             
-
             genotypesList.append(seqGenotype)
 
         genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
@@ -415,8 +415,8 @@ class MutationAnalysis:
                 genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
         else:
             genotypesDFcondensed.reset_index(drop=True, inplace=True)
-        if genotypesDFcondensed.index[0] == 0: # make barcode IDs 1-indexed if necessary
-            genotypesDFcondensed.index += 1
+        if (len(genotypesDFcondensed)!=0) and (genotypesDFcondensed.index[0] == 0) : # make barcode IDs 1-indexed if necessary
+                genotypesDFcondensed.index += 1
 
         # now that genotype IDs are established, add column that correlates every sequence ID with a genotype ID from the condensed genotypes DF
         genotypesDFcondensed = genotypesDFcondensed.reset_index().rename(columns={'index':'genotype_ID'})
@@ -464,7 +464,7 @@ class MutationAnalysis:
         genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
 
         failuresDF.to_csv(self.outputList[3], index=False)
-        if not self.config['mutations_frequencies_raw'] and totalSeqs>0:
+        if not self.use_raw_mut_count and totalSeqs>0:
             NTmutDF = NTmutDF.divide(totalSeqs)
         NTmutDF.to_csv(self.outputList[4])
         NTdistDF.to_csv(self.outputList[5], index=False)
@@ -477,7 +477,7 @@ class MutationAnalysis:
             AAmutDF = pd.DataFrame(AAmutArray, columns=list(self.AAs))
             AAmutDF['wt_residues'] = pd.Series(WTresis)
             AAmutDF.set_index('wt_residues', inplace=True)
-            if not self.config['mutations_frequencies_raw'] and totalSeqs > 0:
+            if not self.use_raw_mut_count and totalSeqs > 0:
                 AAmutDF = AAmutDF.divide(totalSeqs)
             AAmutDF.to_csv(self.outputList[6])
 

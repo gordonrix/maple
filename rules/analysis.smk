@@ -193,7 +193,8 @@ rule mutation_analysis_NTonly:
         expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv'])
     params:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
-        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False)
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True),
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
     script:
         'utils/mutation_analysis.py'
 
@@ -206,7 +207,8 @@ rule mutation_analysis:
     params:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
         AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest',''),
-        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False)
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False),
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
     script:
         'utils/mutation_analysis.py'
 
