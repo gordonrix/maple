@@ -81,7 +81,7 @@ runs:
 sequences_dir: data
 fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq.gz files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail' for nanopore data
 
-export_SVG: False                            # whether to export plot outputs to SVG format in addition to .html. Best to leave this as False unless you are generating publication-quality figures, as the .html plots are grouped and are much more feature rich. Note that the resulting .svg files are not tracked by the snakemake pipeline
+export_SVG: False                            # Requires a chrome installation on your machine in the default location. Whether to export plot outputs to SVG format in addition to .html. Best to leave this as False unless you are generating publication-quality figures, as the .html plots are grouped and are much more feature rich. Note that the resulting .svg files are not tracked by the snakemake pipeline
 
 nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
 

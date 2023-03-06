@@ -61,7 +61,7 @@ def plot_cumsum(DFlist, labels, colors, title, legendLabel):
     plot = hv.Overlay(plotList).opts(show_legend=True, legend_position='right', width=800, height=600,
                             title=f"{x} among {y}, cumulative distribution\nsample: {title}",
                             # legend_title = legendLabel, # This doesn't work for some reason, but a legend title would be nice
-                            xlabel=x, ylabel='cumulative frequency',
+                            xlabel=x, ylabel='cumulative frequency', ylim=(-0.05, 1.05),
                             fontsize={'title':16,'labels':14,'xticks':12,'yticks':12})
 
     return plot
