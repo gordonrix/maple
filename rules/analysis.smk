@@ -207,7 +207,7 @@ rule mutation_analysis:
     params:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
         AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest',''),
-        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', False),
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True),
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
     script:
         'utils/mutation_analysis.py'
