@@ -351,7 +351,7 @@ rule plot_mutation_frequencies:
     script:
         'utils/plot_mutations_frequencies.py'
 
-rule plot_mutations_frequencies_barcodeGroup:
+rule plot_mutations_frequencies_tag:
     input:
         frequencies = 'mutation_data/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
         mutStats = '{tag}_mutation-stats.csv'
@@ -399,7 +399,7 @@ rule plot_distribution:
     script:
         'utils/plot_distribution.py'
 
-rule plot_distribution_barcodeGroup:
+rule plot_distribution_tag:
     input:
         lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-{distType}-distribution.csv',
                                 tag = wildcards.tag,
@@ -435,6 +435,30 @@ rule plot_distribution_timepointGroup:
         export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_distribution.py'
+
+rule plot_violin_distribution_tag:
+    input:
+        'mutation_data/{tag}/{tag}_genotypes.csv'
+    output:
+        'plots/{tag, [^\/_]*}_mutation-distribution-violin.html'
+    params:
+        group_col = 'barcode_group',
+        x_label = 'sample',
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
+    script:
+        'utils/plot_mutation_violin_distribution.py'
+
+rule plot_violin_distribution_timepoint:
+    input:
+        'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv'
+    output:
+        'plots/timepoints/{timepointsGroup, [^\/_]*}_mutation-distribution-violin.html'
+    params:
+        group_col = 'timepoint',
+        x_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
+    script:
+        'utils/plot_mutation_violin_distribution.py'
 
 rule reduce_genotypes_dimensions:
     input:

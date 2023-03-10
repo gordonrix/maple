@@ -23,6 +23,7 @@ def targets_input(wildcards):
     for tag in config['runs']:
         if config['do_NT_mutation_analysis'][tag]:
             out.extend(expand('plots/{tag}_{NTorAA}-mutation-distribution.html', tag=tag, NTorAA=['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
+            out.extend(expand('plots/{tag}_mutation-distribution-violin.html', tag=tag))
             out.extend(expand('plots/{tag}_{NTorAA}-mutation-frequencies.html', tag=tag, NTorAA=['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']))
             # out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
         if config['do_RCA_consensus'][tag]:
@@ -35,7 +36,7 @@ def targets_input(wildcards):
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
         if 'timepoints' in config:
             out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
-            out.extend(expand('plots/timepoints/{timepointSample}_genotypes2D.html', timepointSample=config['timepointsInfo']))    # each genotypes2D timepoints plot includes data for a single row in the timepoints file
+            out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=config['timepointsInfo'], plot_type=['genotypes2D', 'mutation-distribution-violin']))    # each of these outputs includes data for a single row in the timepoints file
             timepointSample_NTorAA = []
             for timepointSample in config['timepointsInfo']:
                 tag = config['timepointsInfo'][timepointSample]['tag']
