@@ -11,21 +11,14 @@ Input: BAM file
 Output: barcodes fasta file, name defined in config file for each barcodeType
 """
 
-import datetime
 import multiprocessing as mp
 import os
-import re
-import shutil
-import time
-import gzip
-import itertools
-import pprint
+
 import pandas as pd
 import sys
 
 import pysam
-from Bio import Align, pairwise2, Seq
-from Bio.pairwise2 import format_alignment
+from Bio import Seq
 from Bio import SeqIO
 
 from demux import BarcodeParser

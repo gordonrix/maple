@@ -20,8 +20,7 @@ import itertools
 import numpy as np
 import pandas as pd
 import pysam
-from Bio import Align, pairwise2, Seq
-from Bio.pairwise2 import format_alignment
+from Bio import Seq
 from Bio import SeqIO
 from collections import Counter
 from timeit import default_timer as now
