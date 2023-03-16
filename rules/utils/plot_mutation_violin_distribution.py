@@ -16,7 +16,7 @@ hv.extension('bokeh')
 def main(input, output, group_col, x_label, export_svgs):
 
     df = pd.read_csv(input, index_col=False)
-    include_AA = False if df['AA_substitutions_nonsynonymous_count'].empty else True
+    include_AA = True if 'AA_substitutions_nonsynonymous_count' in df.columns else False
 
     plots = plot_violin(df, include_AA, group_col, x_label)
 
