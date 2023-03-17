@@ -24,7 +24,7 @@ rule minimap2:
         sequence = alignment_sequence_input,
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        aln = pipe("alignments/{tag, [^\/_]*}.sam"),
+        aln = temp("alignments/{tag, [^\/_]*}.sam"),
         log = "alignments/{tag, [^\/_]*}.log"
     params:
         flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]

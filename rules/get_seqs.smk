@@ -7,6 +7,8 @@
 #  AUTHOR(S)     : Gordon Rix
 #
 
+import os
+
 def retrieve_fastqs(rootFolder, folderList, subfolderString):
     """
     Search for a uniquely named folder within the root folder, and retrieve the file names ending in '.fastq.gz' for all files within a list of subfolders.
@@ -26,7 +28,7 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
     filePaths = []
 
     for folder in folderList:
-        folderCount = 0
+        folders_with_seqs = []
         folderFilePaths = []
         # Search for the uniquely named folder within the root folder
         for root, dirs, _ in os.walk(rootFolder):
@@ -42,7 +44,8 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
                             for _, _, files in os.walk(subfolderPath):
                                 for file in files:
                                     if file.endswith('.fastq.gz'):
-                                        folderCount += 1
+                                        if os.path.join(root,folder) not in folders_with_seqs:
+                                            folders_with_seqs.append(os.path.join(root,folder))
                                         subfolderCount += 1 # only care about folders / subfolders that contain the sequences in the right place
                                         folderFilePaths.append(os.path.join(root, folder, subfolder, file))
 
@@ -50,10 +53,10 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
                     # None of the subfolders were found, print warning
                     print(f'[NOTICE] None of the subfolders "{subfolder}" were found in directory "{os.path.join(root, folder)}".')
 
-        if folderCount > 1:
+        if len(folders_with_seqs) > 1:
             print(f'[NOTICE] Found folder "{folder}" more than once in root folder "{rootFolder}". Merging all sequences within the designated subfolders.')
 
-        if folderCount == 0:
+        if len(folders_with_seqs) == 0:
             print(f'[WARNING] Folder "{folder}" not found in root folder "{rootFolder}".')
         if len(folderFilePaths) == 0:
             print(f'[WARNING] No .fastq.gz files found within subfolders {subfolderString} within folder "{folder}" within root folder "{rootFolder}".')
@@ -62,10 +65,30 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
 
     return filePaths
 
+rule import_paired_end: # retrieves one specific paired end fastq file and moves it to the paired folder
+    input:
+        lambda wildcards: retrieve_fastqs(config['sequences_dir'], [wildcards.runname], config['fastq_dir'])
+    output:
+        temp('sequences/paired/{runname}/{fastq}')
+    run:
+        import os
+        import shutil
+        files = []
+        for seq_file in input:
+            if os.path.basename(seq_file) == wildcards.fastq:
+                files.append(seq_file)
+
+        if len(files) == 1:
+            parent_dir = os.path.abspath(os.path.dirname(str(output)))
+            os.makedirs(parent_dir, exist_ok=True)
+            shutil.copy2(seq_file, str(output))'
+        else:
+            print('[ERROR] More than one fastq file found that matches user input:\n'+''.join([f'{file}\n' for file in input]))
+
 rule merge_paired_end:
     input:
-        fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['fwdReads']),
-        rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['rvsReads'])
+        fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['runname'][0], config['runs'][wildcards.tag]['fwdReads']),
+        rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['runname'][0], config['runs'][wildcards.tag]['rvsReads'])
     output:
         merged = temp("sequences/paired/{tag, [^\/_]*}.fastq.gz"),
         log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
@@ -94,7 +117,7 @@ rule basecaller_combine_tag: # combine batches of basecalled reads into a single
 
 rule move_seqs: # allows for merging batches of sequences or merging paired end reads depending on the tag definition using the above rules
     input:
-        lambda wildcards: f'sequences/{wildcards.tag}_combined.fastq.gz' if config['merge_paired_end'][tag]==False else f'sequences/paired/{wildcards.tag}.fastq.gz'
+        lambda wildcards: f'sequences/{wildcards.tag}_combined.fastq.gz' if config['merge_paired_end'][wildcards.tag]==False else f'sequences/paired/{wildcards.tag}.fastq.gz'
     output:
         'sequences/{tag, [^\/_]*}.fastq.gz'
     shell:

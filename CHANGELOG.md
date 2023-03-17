@@ -1,3 +1,9 @@
+## v0.9.3
+# Major
+ - Reworked mutation frequency plotting, including most/least common mutations
+ - Added violin mutation distribution plots
+ - Enable SVG export for most plots 
+
 ## v0.9.2
 # Minor
  - Fixed dashboard bug resulting in incorrect muts_of_interest in dashboard

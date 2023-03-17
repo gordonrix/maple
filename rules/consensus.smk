@@ -110,7 +110,7 @@ rule UMI_minimap2:
         sequence = lambda wildcards: 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.fasta.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        aln = pipe("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
+        aln = temp("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
         log = "sequences/UMI/{tag, [^\/_]*}_noConsensus.log"
     threads: config['threads_alignment']
     group: "minimap2"

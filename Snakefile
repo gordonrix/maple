@@ -191,8 +191,6 @@ for tag in config['runs']:
     config['merge_paired_end'][tag] = False
     if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
         config['merge_paired_end'][tag] = True
-        if 'runname' in config['runs'][tag]:
-            errors.append('[ERROR] Run tag `{tag}` contains both `runname` and (`fwdReads` or `rvsReads). Reads can only be merged from paired end or from batches in the runname folder, not both.')
 
 runs_to_import = []
 # check for sequences
