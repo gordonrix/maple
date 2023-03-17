@@ -467,7 +467,8 @@ rule reduce_genotypes_dimensions:
         reduced = '{dir}/{tag, [^\/_]*}{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
     params:
         refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False),
-        include_AA = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag] if wildcards.tag in config['runs'] else config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.tag]['tag'] ]
+        include_AA = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag] if wildcards.tag in config['runs'] else config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.tag]['tag'] ],
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True)
     script:
         'utils/dimension_reduction_genotypes.py'
 

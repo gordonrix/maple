@@ -20,7 +20,7 @@ from Bio import SeqIO
 import re
 from timeit import default_timer as now
 
-def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
+def main(ref_fasta, inputCSV, outputCSV, include_AA=False, exclude_indels=True):
     """
     ref_fasta       string, reference fasta file that includes the nucleotide and the untranslated DNA sequence corresponding
                         to the AA sequence (if include_AA==True)
@@ -44,7 +44,7 @@ def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
 
     for i, emb_type in enumerate(embedding_types):
         ref = refSeqs[i+1]
-        array_of_seqs, genotypes_used = seq_array_from_genotypes(ref, genotypes, emb_type, onehot=True)
+        array_of_seqs, genotypes_used = seq_array_from_genotypes(ref, genotypes, emb_type, onehot=True, exclude_indels=exclude_indels)
 
         # reshape the 3D array of onehot encoded sequences into a 2D array of onehot encoded sequences, and remove positions that don't
         #   have any nonzero values (i.e. that particular mutation is not present in the dataset
@@ -63,7 +63,7 @@ def main(ref_fasta, inputCSV, outputCSV, include_AA=False):
 
     genotypes.to_csv(outputCSV, index=False)
 
-def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False):
+def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False, exclude_indels=True):
     """
     args:
         genotypes:          pandas DataFrame of a genotypes.csv file
@@ -81,7 +81,9 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False):
         because it gets modified
     """
 
-    genotypes = genotypes[genotypes['NT_insertions'].isna()]   # remove genotypes with insertions because they mess with indexing and are hard
+    if exclude_indels:
+        genotypes = genotypes[genotypes['NT_insertions'].isna()]
+        genotypes = genotypes[genotypes['NT_deletions'].isna()]
     
     if NTorAA=='NT':
         chars = 'ATGC-'
@@ -89,7 +91,6 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False):
     if NTorAA=='AA':
         chars = 'ACDEFGHIKLMNPQRSTVWY*' # no deletions for AA because they are hard
         subs = 'AA_substitutions_nonsynonymous'
-        genotypes = genotypes[genotypes['NT_deletions'].isna()]   # remove genotypes with deletions for AA analysis because they are hard
 
     baseSeq = SequenceEncoder(refSeq,chars)                       # base sequence from reference sequence that will be copied and modified
 
@@ -167,4 +168,4 @@ class SequenceEncoder:
 if __name__ == '__main__':
 
     ntref = str(list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[1].seq)
-    main(snakemake.params.refSeqs, snakemake.input.genotypes, snakemake.output.reduced, snakemake.params.include_AA)
+    main(snakemake.params.refSeqs, snakemake.input.genotypes, snakemake.output.reduced, snakemake.params.include_AA, (not snakemake.params.analyze_seqs_with_indels))
