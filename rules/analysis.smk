@@ -367,7 +367,7 @@ rule hamming_distance:
     input:
         'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
     output:
-        HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv',
+        # HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv', # not currently using and takes up a lot of disk space
         HDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
     params:
         downsample = lambda wildcards: config.get('hamming_distance_distribution_downsample', False),

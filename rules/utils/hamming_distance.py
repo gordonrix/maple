@@ -27,7 +27,7 @@ def main():
     elif snakemake.wildcards.NTorAA =='AA':
         refSeq = translate(list(SeqIO.parse(snakemake.params.refSeqs, 'fasta'))[2].seq)
     matrixDF, HDdistDF = HD_matrix_and_dist(refSeq, genotypesDF, snakemake.wildcards.NTorAA, snakemake.params.downsample)
-    matrixDF.to_csv(snakemake.output.HDmatrixCSV, index=False)
+    # matrixDF.to_csv(snakemake.output.HDmatrixCSV, index=False) # not currently using and uses a lot of disk space
     HDdistDF.to_csv(snakemake.output.HDdistCSV, index=False)
 
 def pairwise_hamming_distance_matrix(seqArray):
