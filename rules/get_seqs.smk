@@ -58,7 +58,7 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
 
         if len(folders_with_seqs) == 0:
             print(f'[WARNING] Folder "{folder}" not found in root folder "{rootFolder}".')
-        if len(folderFilePaths) == 0:
+        elif len(folderFilePaths) == 0:
             print(f'[WARNING] No .fastq.gz files found within subfolders {subfolderString} within folder "{folder}" within root folder "{rootFolder}".')
 
         filePaths.extend(folderFilePaths)

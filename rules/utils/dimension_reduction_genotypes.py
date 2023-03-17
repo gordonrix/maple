@@ -81,6 +81,9 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False, exclude_in
         because it gets modified
     """
 
+    # remove sequences with indels if needed. If not,
+    #   sequences with indels will be included but deletions will only contribute to DR for nucleotide sequences, not AA, and
+    #   insertions don't contribute to DR for either insertions or deletions
     if exclude_indels:
         genotypes = genotypes[genotypes['NT_insertions'].isna()]
         genotypes = genotypes[genotypes['NT_deletions'].isna()]
@@ -88,16 +91,19 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False, exclude_in
     if NTorAA=='NT':
         chars = 'ATGC-'
         subs = 'NT_substitutions'
+        genotypes_cols = genotypes[[subs, 'NT_deletions']]
     if NTorAA=='AA':
         chars = 'ACDEFGHIKLMNPQRSTVWY*' # no deletions for AA because they are hard
         subs = 'AA_substitutions_nonsynonymous'
+        genotypes_cols = genotypes.reindex([subs], axis=1)
+        genotypes_cols['empty'] = np.nan # empty column to avoid dealing with AA deletions
 
     baseSeq = SequenceEncoder(refSeq,chars)                       # base sequence from reference sequence that will be copied and modified
 
     if onehot:
         # make a 3D array of onehot encoded genotypes of shape (N,L,C)
         arrayList = []
-        for subs,dels in genotypes[[subs, 'NT_deletions']].itertuples(index=False, name=None):
+        for subs,dels in genotypes_cols.itertuples(index=False, name=None):
             seq = deepcopy(baseSeq)
             seq.genotype_modify(subs,dels)
             arrayList.append(seq.onehot)
@@ -106,7 +112,7 @@ def seq_array_from_genotypes(refSeq, genotypes, NTorAA, onehot=False, exclude_in
     elif not onehot:
         # make an array of integer encoded genotypes of shape (N,L)
         arrayList = []
-        for subs,dels in genotypes[[subs,'NT_deletions']].itertuples(index=False, name=None):
+        for subs,dels in genotypes_cols.itertuples(index=False, name=None):
             seq = deepcopy(baseSeq)
             seq.genotype_modify(subs,dels)
             arrayList.append(seq.integer)

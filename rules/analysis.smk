@@ -450,7 +450,7 @@ rule plot_violin_distribution_tag:
 
 rule plot_violin_distribution_timepoint:
     input:
-        'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv'
+        'mutation_data/timepoints/{timepointsGroup}_merged-timepoint_genotypes.csv'
     output:
         'plots/timepoints/{timepointsGroup, [^\/_]*}_mutation-distribution-violin.html'
     params:
