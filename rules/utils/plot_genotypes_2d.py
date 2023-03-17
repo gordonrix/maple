@@ -12,6 +12,7 @@ import numpy as np
 import colorcet as cc
 from bokeh.models import HoverTool
 from pandas.api.types import is_numeric_dtype
+from common import export_svg_plots
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
 
@@ -63,6 +64,12 @@ tools = ['box_select', 'lasso_select',hover]
 plot = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
     legend=legendBool, width=1000, height=800, xticks=[100], yticks=[100]).opts(
     xlabel=dim1, ylabel=dim2)
+
+try:
+    export_svg_plots([plot], snakemake.output.genotypes2Dplot)
+except:
+    print(f"""[ERROR] SVG export for {snakemake.output.genotypes2Dplot} failed. Pipeline continuing but the SVG version of this plot was not generated. 
+            Try again by deleting the associated .html file and rerunning snakemake.""")
 
 hvplot.save(plot, snakemake.output.genotypes2Dplot)
 

@@ -37,13 +37,15 @@ def dist_to_DF(dist, x, y):
 
     return df
 
-def export_svg_plots(plots, file_name):
+def export_svg_plots(plots, file_name, labels=[]):
     """
     exports individual bokeh plots from a list of holoviews plots
     with the provided file name and the index of the plot in the list
     
     plots:      list of holoviews bokeh plots
     file_name   file name being used to save the plots. must end in '.html'
+    labels      list of strings to be appended to the end of the file name for 
+                    each of the plots, which are exported as separate files
     """
 
     options = wd.ChromeOptions()
@@ -56,12 +58,15 @@ def export_svg_plots(plots, file_name):
     service = Service(ChromeDriverManager().install())
     webdriver = wd.Chrome(service=service, options=options)
 
+    # unless labels are provided, name plots just using their order in the plot list
+    if not labels:
+        labels = [i for i in range(0,len(plots))]
     file_name_base = 'SVG_'+file_name[:-5]
 
     pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
     
-    for i, plot in enumerate(plots):
-        fName = f'{file_name_base}_{i}.svg'
+    for plot, label in zip(plots, labels):
+        fName = f'{file_name_base}_{label}.svg'
         p = hv.render(plot,backend='bokeh')
         p.output_backend='svg'
         export_svgs(p, 
