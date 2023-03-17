@@ -81,7 +81,7 @@ rule import_paired_end: # retrieves one specific paired end fastq file and moves
         if len(files) == 1:
             parent_dir = os.path.abspath(os.path.dirname(str(output)))
             os.makedirs(parent_dir, exist_ok=True)
-            shutil.copy2(seq_file, str(output))'
+            shutil.copy2(seq_file, str(output))
         else:
             print('[ERROR] More than one fastq file found that matches user input:\n'+''.join([f'{file}\n' for file in input]))
 
