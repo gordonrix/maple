@@ -71,9 +71,9 @@ hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
     xlabel=dim1, ylabel=dim2, height=800, width=800)
 
 try:
-    export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dplot, labels=['scatter','hexbins'])
+    export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dscatter, labels=['scatter','hexbins'])
 except:
-    print(f"""[ERROR] SVG export for {snakemake.output.genotypes2Dplot} failed. Pipeline continuing but the SVG version of this plot was not generated. 
+    print(f"""[ERROR] SVG export for {snakemake.output.genotypes2Dscatter} failed. Pipeline continuing but the SVG version of this plot was not generated. 
             Try again by deleting the associated .html file and rerunning snakemake.""")
 
 hvplot.save(scatter, snakemake.output.genotypes2Dscatter)
