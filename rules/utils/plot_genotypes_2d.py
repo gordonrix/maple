@@ -52,7 +52,7 @@ else:
 colorDict = {} # dictionary of value:color key:value pairs to map color_column variables to specific colors
 if is_numeric_dtype(data[color_column]):                            # color by value for numerical column
     legendBool = False
-    colormap = 'kbc_r'
+    colormap = 'blues'
 else:                                                               # random colors for non-numerical column
     legendBool = True
     colormap = 'bmy'
@@ -62,7 +62,7 @@ hover = HoverTool(tooltips=[('count','@count'),('NT mutations count','@NT_substi
                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
 tools = ['box_select', 'lasso_select',hover]
 plot = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
-    legend=legendBool, width=1000, height=800, xticks=[100], yticks=[100]).opts(
+    cmap=colormap, legend=legendBool, width=1000, height=800, xticks=[100], yticks=[100]).opts(
     xlabel=dim1, ylabel=dim2)
 
 try:
