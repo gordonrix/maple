@@ -507,7 +507,8 @@ rule plot_genotypes2D_bcGroup:
     input:
         genotypesReduced = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv'
     output:
-        genotypes2Dplot = 'plots/{tag, [^\/_]*}/{tag}_genotypes2D.html'
+        genotypes2Dscatter = 'plots/{tag, [^\/_]*}/{tag}_genotypes2D.html',
+        genotypes2Dhexbins = 'plots/{tag, [^\/_]*}/{tag}_genotypes2Dhexbins.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
         plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
@@ -538,7 +539,8 @@ rule plot_genotypes2D_timepoints:
     input:
         genotypesReduced = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint_genotypes-reduced-dimensions.csv'
     output:
-        genotypes2Dplot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html'
+        genotypes2Dscatter = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html',
+        genotypes2Dhexbins = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2Dhexbins.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
         plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.timepointsGroup]['tag'] ] else False,
