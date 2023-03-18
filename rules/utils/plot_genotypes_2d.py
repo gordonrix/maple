@@ -61,15 +61,21 @@ else:                                                               # random col
 hover = HoverTool(tooltips=[('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
 tools = ['box_select', 'lasso_select',hover]
-plot = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
-    cmap=colormap, legend=legendBool, width=1000, height=800, xticks=[100], yticks=[100]).opts(
-    xlabel=dim1, ylabel=dim2)
+
+scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel='color_column', hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
+    cmap=colormap, legend=legendBool, xticks=[100], yticks=[100]).opts(
+    xlabel=dim1, ylabel=dim2, height=800, width=800)
+
+hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
+    cmap='dimgray', xticks=[100], yticks=[100]).opts(
+    xlabel=dim1, ylabel=dim2, height=800, width=800)
 
 try:
-    export_svg_plots([plot], snakemake.output.genotypes2Dplot)
+    export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dplot, labels=['scatter','hexbins'])
 except:
     print(f"""[ERROR] SVG export for {snakemake.output.genotypes2Dplot} failed. Pipeline continuing but the SVG version of this plot was not generated. 
             Try again by deleting the associated .html file and rerunning snakemake.""")
 
-hvplot.save(plot, snakemake.output.genotypes2Dplot)
+hvplot.save(scatter, snakemake.output.genotypes2Dscatter)
+hvplot.save(hexbins, snakemake.output.genotypes2Dhexbins)
 
