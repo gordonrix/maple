@@ -64,7 +64,7 @@ tools = ['box_select', 'lasso_select',hover]
 
 scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel='color_column', hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
     cmap=colormap, legend=legendBool, xticks=[100], yticks=[100]).opts(
-    xlabel=dim1, ylabel=dim2, height=800, width=800)
+    xlabel=dim1, ylabel=dim2, height=800, width=905)  # slightly wider to account for colorbar so that plot dimensions match hexbins
 
 hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
     cmap='dimgray', xticks=[100], yticks=[100]).opts(
