@@ -26,7 +26,8 @@ def main(ref_fasta, inputCSV, outputCSV, include_AA=False, exclude_indels=True):
                         to the AA sequence (if include_AA==True)
     inputCSV        string, .csv file name that contains a NT_substitutions, NT_insertions, and NT_deletions columns
     outputCSV       string, .csv file name to output to
-    include_AA      bool, whether to only perform DR on NT sequence or to also output DR on AA sequence
+    exclude_indels  bool, whether to only perform DR on sequences without any indels or to also perform DR on sequences with indels
+                        (regardless, indels will not be considered for DR)
 
     Uses NT substitutions and NT deletions to encode all sequences without insertions as an array, then uses
         PaCMAP to reduce dimensions to 2. These 2 dimensional coordinates are then appended to the original

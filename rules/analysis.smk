@@ -564,11 +564,9 @@ rule plot_mutation_diversity_all:
 
 def dashboard_input(wildcards):
     sample = config.get('dashboard_input', False)
-    
     # use the first run tag as the sample for the dashboard if no sample is provided by user
     if not sample:
         sample = config['runs'].values()[0]
-
     if sample in config['runs']:
         inputDict = {'genotypes': f'mutation_data/{sample}/{sample}_genotypes.csv',
                 'refFasta': config['runs'][sample]['reference']}
@@ -586,10 +584,11 @@ rule run_dashboard:
         unpack(dashboard_input)
     params:
         port = config.get('dashboard_port', 3365),
-        basedir = workflow.basedir
+        basedir = workflow.basedir,
+        exclude_indels = lambda wildcards: '' if config.get('analyze_seqs_with_indels', True) else '--exclude_indels'
     shell:
         """
-        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta}
+        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta} {params.exclude_indels}
         """
 
 
