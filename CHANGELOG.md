@@ -1,4 +1,4 @@
-## v0.9.4
+## v0.10.0
 # Major
  - introduced SequenceAnalyzer class for interconversion of multiple sequences
     among different encodings and fast, vectorized analysis operations
