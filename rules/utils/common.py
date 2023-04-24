@@ -14,6 +14,35 @@ from bokeh.io import export_svgs
 from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from bokeh import palettes
+
+# define colormaps
+colormaps = {'NT':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
+                                'T':palettes.Reds[3][1],
+                                'G':'#000000',           #black
+                                'C':palettes.Blues[3][1],
+                                '-':'#d3d3d3'}}           #grey
+
+AAs_by_group = [['K','R','H'],              # positive, red
+                ['D','E'],                  # negative, green
+                ['F','Y','W'],              # aromatic, purple
+                ['A','V','I','L'],          # small hydrophobic, blue
+                ['C','M','S','T','N','Q']]  # sulfurous and polar uncharged, yellow->orange
+
+colorDictList= [palettes.Reds,
+                palettes.Greens,
+                palettes.Purples,
+                palettes.Blues,
+                palettes.YlOrBr]
+
+amino_acid_colormap = {}
+for AAs,colorDict in zip(AAs_by_group,colorDictList):
+    colorList = colorDict[len(AAs)+1][::-1]
+    for i,AA in enumerate(AAs):
+        amino_acid_colormap[AA] = colorList[i+1]
+amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
+
+colormaps.update({'AA':amino_acid_colormap})
 
 def dist_to_DF(dist, x, y):
     """given a np.bincount output, i.e. a distribution of values in which each value is
@@ -72,3 +101,29 @@ def export_svg_plots(plots, file_name, labels=[]):
         export_svgs(p, 
             filename=fName,
             webdriver=webdriver)
+        
+def conspicuous_mutations(df, num_positions, colormap, most_common=True):
+    """
+    produces a bar plot of the most or least frequent mutations
+    
+    parameters:
+        df (pd.DataFrame):   dataframe of aggregated mutations output by aggregate_mutations
+        num_positions (int): number of mutations to include in the bar plot output
+        colormap (dict):     AA/NT letter : color hex code key:value pairs to use for the plot
+        most_common (bool):  if True/False, output the most/least commonly mutated positions
+        
+    returns:
+        hv.Bars object showing the topN most frequently observed mutations in the aggregated
+            mutations dataframe
+    """
+    
+    df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
+    df_grouped = df.groupby('position', as_index=False).sum().sort_values(['total_count','position'],ascending=[not most_common, True])
+    positions = df_grouped['position'].iloc[:num_positions]
+    df = df[df['position'].isin(positions)]
+    df = df.sort_values('position', ascending=True)
+    df['position'] = df['wt'] + df['position'].astype(str)
+    plot = hv.Bars(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+                    show_legend=False, height=500, xlabel='position',
+                    xrotation=40, stacked=True, cmap=colormap, tools=['hover'])
+    return plot

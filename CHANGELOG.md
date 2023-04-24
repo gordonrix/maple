@@ -1,8 +1,22 @@
+## v0.9.4
+# Major
+ - introduced SequenceAnalyzer class for interconversion of multiple sequences
+    among different encodings and fast, vectorized analysis operations
+ - New dashboard features:
+    - implemented SequenceAnalyzer backend
+    - datashaded points plot (now default)
+    - data export (SVG plots, CSVs, sequences as fasta, consensus sequences from selection)
+# Minor
+ - New required package spatialpandas, for making complex selections with datashader
+ - Mutation analysis genotypes output now includes AA insertions and deletions
+
 ## v0.9.3
 # Major
  - Reworked mutation frequency plotting, including most/least common mutations
  - Added violin mutation distribution plots
  - Enable SVG export for most plots 
+# Minor
+ - Genotypes 2D hexbins plot
 
 ## v0.9.2
 # Minor

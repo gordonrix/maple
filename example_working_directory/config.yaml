@@ -176,5 +176,5 @@ genotypes2D_plot_point_size_range: 30, 60                 # comma separated pair
 # genotypes2D_plot_point_color_col: NT_substitutions_count       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default depends on the genotypes.csv file being used. 
 
 # dashboard
-dashboard_input: TrpB-IE5                                # tag or timepoints name to use for the dashboard
+dashboard_input: TrpB-IE5-rep1                                # tag or timepoints name to use for the dashboard
 dashboard_port: 3365                                    # port to use for running the dashboard

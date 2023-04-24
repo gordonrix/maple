@@ -194,15 +194,20 @@ class MutationAnalysis:
                             Includes AA mutations in list only if self.doAAanalysis is True
         """
         ref, alignStr, seq, qScores, insertions, deletions = cleanAlignment
+        AA_insertions = []
+        AA_deletions = []
 
         mismatches = [i for i,a in enumerate(alignStr) if a=='.']
 
         if self.doAAanalysis:
             indelCodons = []    # list of amino acid positions that are affected by indel (for insertion, insertion is within a codon; for deletion, at least one base of codon deleted)
-            for index, _ in insertions:
+            for index, insertion_seq in insertions:
                 if self.refProteinStart <= index < self.refProteinEnd:
                     protIndex = index-self.refProteinStart
-                    if protIndex%3 == 0: continue # ignore if insertion occurs between codons
+                    if protIndex%3 == 0:
+                        if len(insertion_seq)%3 == 0:
+                            AA_insertions.append((protIndex, Seq.translate(insertion_seq)))
+                        continue # don't add to indelCodons if insertion occurs between codons
                     else: indelCodons.append( int(protIndex/3) )
 
             for index, length in deletions:
@@ -212,6 +217,8 @@ class MutationAnalysis:
                     firstCodon = int(protIndexStart/3)
                     lastCodon = int(protIndexEnd/3)
                     indelCodons.extend([i for i in range(firstCodon,lastCodon+1)])
+                    if length%3 == 0:
+                        AA_deletions.append( (firstCodon, length/3) )
             self.indelCodons = indelCodons
             AAmutArray = np.zeros((int(len(self.refProtein)/3), len(self.AAs)), dtype=int)
         else:
@@ -219,6 +226,8 @@ class MutationAnalysis:
 
         insOutput = ', '.join([str(index)+'ins'+NTs for index,NTs in insertions])               # string of all insertions for genotype output
         delOutput = ', '.join([str(index)+'del'+str(length) for index,length in deletions])     # string of all deletions for genotype output
+        AAins_output = ', '.join([str(index)+'ins'+AAs for index,AAs in AA_insertions])
+        AAdel_output = ', '.join([str(index)+'del'+str(length) for index,length in deletions])
 
         NTmutArray = np.zeros((int(len(self.refTrimmedStr)), len(self.NTs)), dtype=int)
         codonsChecked = []
@@ -276,6 +285,8 @@ class MutationAnalysis:
             for subType in [AAnonsynonymous, AAsynonymous]:
                 genotype.append(', '.join(subType))
             genotype.append(len(AAnonsynonymous))
+            genotype.append(AAins_output)
+            genotype.append(AAdel_output)
             
         return NTmutArray, AAmutArray, genotype
 
@@ -298,7 +309,7 @@ class MutationAnalysis:
             protLength = int( len(self.refProtein) / 3 )
             AAmutArray = np.zeros((protLength, len(self.AAs)), dtype=int)
             AAmutDist = np.zeros(protLength, dtype=int)
-            genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count'])
+            genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count', 'AA_insertions', 'AA_deletions'])
             wildTypeRow.extend(['', '', 0])
 
         # if any barcodes are not used to demultiplex, add a column that shows what these barcodes are

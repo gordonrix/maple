@@ -1,41 +1,13 @@
 import numpy as np
 import pandas as pd
 import holoviews as hv
-from genotypes_dashboard import conspicuous_mutations
+from common import conspicuous_mutations, colormaps
 from snakemake.io import Namedlist
-from bokeh import palettes
+
 
 def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wildcards):
 
     number_of_positions = 20    # number of positions to include for most and least frequent
-
-    # define colormaps
-    colormaps = {'NT':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
-                                    'T':palettes.Reds[3][1],
-                                    'G':'#000000',           #black
-                                    'C':palettes.Blues[3][1],
-                                    '-':'#d3d3d3'}}           #grey
-
-    AAs_by_group = [['K','R','H'],              # positive, red
-                    ['D','E'],                  # negative, green
-                    ['F','Y','W'],              # aromatic, purple
-                    ['A','V','I','L'],          # small hydrophobic, blue
-                    ['C','M','S','T','N','Q']]  # sulfurous and polar uncharged, yellow->orange
-
-    colorDictList= [palettes.Reds,
-                    palettes.Greens,
-                    palettes.Purples,
-                    palettes.Blues,
-                    palettes.YlOrBr]
-
-    amino_acid_colormap = {}
-    for AAs,colorDict in zip(AAs_by_group,colorDictList):
-        colorList = colorDict[len(AAs)+1][::-1]
-        for i,AA in enumerate(AAs):
-            amino_acid_colormap[AA] = colorList[i+1]
-    amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
-
-    colormaps.update({'AA':amino_acid_colormap})
 
     mutStatsDF = pd.read_csv(stats_input, dtype={'tag':str,'barcode_group':str})
 

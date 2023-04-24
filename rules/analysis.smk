@@ -466,11 +466,14 @@ rule reduce_genotypes_dimensions:
     output:
         reduced = '{dir}/{tag, [^\/_]*}{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
     params:
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False),
-        include_AA = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag] if wildcards.tag in config['runs'] else config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.tag]['tag'] ],
-        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True)
-    script:
-        'utils/dimension_reduction_genotypes.py'
+        ref_seqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False)
+    run:
+        from utils.SequenceAnalyzer import SequenceAnalyzer
+        sequences = SequenceAnalyzer(reference_fasta=params.ref_seqs, genotypesCSV=input.genotypes)
+        sequences.assign_dimension_reduction('NT')
+        if sequences.do_AA_analysis:
+            sequences.assign_dimension_reduction('AA')
+        sequences.genotypes.to_csv(output.reduced, index=False)
 
 rule plot_genotypes2D:
     input:
