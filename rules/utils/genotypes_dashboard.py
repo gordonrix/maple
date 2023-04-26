@@ -54,7 +54,7 @@ embedding_options = [col.split('_')[0] for col in list(all_data.genotypes.column
 
 ## Convert into a hv.Dataset, then use some widgets to downsample data and add a column for the size of points
 
-ds_checkbox = pn.widgets.Checkbox(name='datashade', value=True)
+ds_checkbox = pn.widgets.Checkbox(name='datashade (unticking may impede performance)', value=True)
 
 size_column_select = pn.widgets.Select(name='point size column', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count'], disabled=ds_checkbox.value)
 size_range_slider = pn.widgets.IntRangeSlider(name='point size range',
@@ -76,7 +76,7 @@ downsample_slider = pn.widgets.IntSlider(name='downsample',
                                         start=1000,
                                         end=len(all_data.genotypes),
                                         step=1000,
-                                        value=min(10000,len(all_data.genotypes)) )
+                                        value=len(all_data.genotypes) )
 
 def initialize_ds(dataset, downsample, size_column, size_range):
     df = dataset.data

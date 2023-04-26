@@ -3,6 +3,7 @@ import pandas as pd
 import holoviews as hv
 from common import conspicuous_mutations, colormaps
 from snakemake.io import Namedlist
+hv.extension("bokeh")
 
 
 def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wildcards):

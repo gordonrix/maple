@@ -571,14 +571,14 @@ def dashboard_input(wildcards):
     if not sample:
         sample = config['runs'].values()[0]
     if sample in config['runs']:
-        inputDict = {'genotypes': f'mutation_data/{sample}/{sample}_genotypes.csv',
+        inputDict = {'genotypes': f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv',
                 'refFasta': config['runs'][sample]['reference']}
     elif sample in config['timepointsInfo']:
         inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
                     'refFasta': config['timepointsInfo'][sample]['reference']}
     else: # assume a tag/barcode combo was given
         tag, barcodes = sample.split('_')
-        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
+        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
                     'refFasta': config['runs'][tag]['reference']}
     return inputDict
 

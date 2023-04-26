@@ -158,7 +158,7 @@ class SequenceAnalyzer:
         onehot_selected = {key:self.onehot_matrix[key][idx,:,:] for key in self.onehot_matrix}
         out_dict = {'integer':integer_selected, 'onehot':onehot_selected}
         if self.genotypes is not None:
-            out_dict['df'] = self.genotypes.iloc[idx]
+            out_dict['df'] = self.genotypes.iloc[idx].copy()
 
         # if selection is new, assign as most recent selection and wipe associated data
         if not np.array_equal(idx, self.selected_idx):
