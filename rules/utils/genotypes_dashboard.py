@@ -348,7 +348,8 @@ dynamic_points = pn.bind(points_bind,
                                 selected_alpha=selected_alpha_slider,
                                 do_datashade=ds_checkbox,
                                 NT_muts=NT_muts_text,
-                                AA_muts=AA_muts_text)
+                                AA_muts=AA_muts_text,
+                                max_muts=max_mut_combos_slider)
 
 
 # datashader requires some help to make the colorbar for numerical data
