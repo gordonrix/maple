@@ -296,7 +296,7 @@ unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity'
 
 
 # I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
-def points_bind(link, embedding, filtered_dataset, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha, do_datashade, NT_muts, AA_muts):
+def points_bind(link, embedding, filtered_dataset, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha, do_datashade, NT_muts, AA_muts, max_muts):
     # widgets that aren't used in this function are just there to trigger the callback
 
     if do_datashade:
