@@ -1,3 +1,9 @@
+## v0.10.1
+# Minor
+ - Dashboard:
+    - improved consensus export
+    - terminal feedback on export
+
 ## v0.10.0
 # Major
  - introduced SequenceAnalyzer class for interconversion of multiple sequences

@@ -447,14 +447,17 @@ class SequenceAnalyzer:
 
         return df
     
-    def get_consensus(self, NTorAA, idx=None, write_to=''):
+    def get_consensus(self, NTorAA, idx=None, write_to='', append=False, name=''):
         """
         Get the consensus sequence for a selection of sequences
         
         Parameters:
             NTorAA (str):           'NT' or 'AA' to indicate nucleotide or amino acid mutation level aggregation
             idx (np.array):         1d array of indices of a selection. If None, all sequences are used
-            string (str):           If not empty, write the consensus sequence to the given .fasta file
+            write_to (str):         If not empty, write the consensus sequence to the given .fasta file
+            append (bool):          If True, append to the given .fasta file instead of overwriting it.
+                                        Does nothing if string is empty
+            name (str):             Name to prepend to the consensus sequence in the .fasta file
         
         Returns:
             str: The consensus sequence
@@ -466,8 +469,11 @@ class SequenceAnalyzer:
 
         if write_to:
             total_seqs = self.get_count(idx=idx)
-            with open(write_to, 'w') as f:
-                f.write(f'>{NTorAA}_consensus_sequence_from_{total_seqs}_sequences\n{consensus}')
+            write_mode = 'a' if append else 'w'
+            with open(write_to, write_mode, encoding="utf-8") as f:
+                if name:
+                    name = name + '_'
+                f.write(f'>{name}{NTorAA}_consensus_sequence_from_{total_seqs}_sequences\n{consensus}\n')
 
         return consensus
     

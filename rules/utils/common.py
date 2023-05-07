@@ -90,7 +90,7 @@ def export_svg_plots(plots, file_name, labels=[]):
     # unless labels are provided, name plots just using their order in the plot list
     if not labels:
         labels = [i for i in range(0,len(plots))]
-    file_name_base = 'SVG_'+file_name[:-5]
+    file_name_base = file_name[:-5]
 
     pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
     

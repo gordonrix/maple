@@ -271,11 +271,11 @@ def float_to_gray(value):
     def interpolate_channel(channel1, channel2, value):
         return int(channel1 + (channel2 - channel1) * value)
 
-    r = interpolate_channel(white[0], grey[0], value)
-    g = interpolate_channel(white[1], grey[1], value)
-    b = interpolate_channel(white[2], grey[2], value)
+    red = interpolate_channel(white[0], grey[0], value)
+    green = interpolate_channel(white[1], grey[1], value)
+    blue = interpolate_channel(white[2], grey[2], value)
 
-    return matplotlib.colors.rgb2hex((r / 255, g / 255, b / 255))
+    return matplotlib.colors.rgb2hex((red / 255, green / 255, blue / 255))
 
 
 # alpha for selected points, disabled if datashader is on
@@ -480,10 +480,13 @@ def mod_width_callback(muts_panel, event):
     muts_panel.width=event.new
 agg_muts_width_slider.link(aggregated_muts_panel, callbacks={'value':mod_width_callback})
 
+# make a text input widget for naming exported files
+selection_name_text = pn.widgets.TextInput(name='selection name', value='unnamed')
+
 # make a button that reruns the aggregate_mutations function and exports the resulting dataframe to a csv file
 export_agg_muts_button = pn.widgets.Button(name='export aggregated mutations to .CSV', button_type='primary')
 def export_agg_muts(event):
-    # get date/time for filename
+    # get date/time for filename to prevent overwriting
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
     # get the most recently selected indices
@@ -494,7 +497,7 @@ def export_agg_muts(event):
     df = all_data.aggregate_mutations(NTorAA=NTorAA, idx=selected_idx)
 
     # export to csv
-    df.to_csv(f'dashboard/dashboard-{timestamp}_mutations-aggregated.csv', index=False)
+    df.to_csv(f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_mutations-aggregated.csv', index=False)
 export_agg_muts_button.on_click(export_agg_muts)
 
 # make a table to display the selected genotypes
@@ -521,7 +524,8 @@ def export_svg(event):
     points = dynamic_points()
 
     # get current plots
-    export_svg_plots([points, aggregated_muts_plot.last.opts(width=agg_muts_width_slider.value), dynamic_hist.last*static_hist.last], f'dashboard/dashboard-plot_{timestamp}.html', ['points', 'mutations-frequencies', 'histogram']) # "html" gets clipped and replaced with "SVG"
+    export_svg_plots([points, aggregated_muts_plot.last.opts(width=agg_muts_width_slider.value), dynamic_hist.last*static_hist.last], f'dashboard/dashboard-plot_{selection_name_text.value}_{timestamp}.html', ['points', 'mutations-frequencies', 'histogram']) # "html" gets clipped and replaced with "SVG"
+    print('plots exported as SVGs to dashboard folder')
 SVG_button.on_click(export_svg)
 
 # add button that exports the selected genotypes to a csv file
@@ -529,8 +533,10 @@ genotypes_CSV_button = pn.widgets.Button(name='export selected genotypes to .csv
 def export_csv(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
     selected_genotypes = all_data.get_selection()['df']
-    selected_genotypes.to_csv(f'dashboard/dashboard-{timestamp}_genotypes.csv')
+    selected_genotypes.to_csv(filename)
+    print(f'selected genotypes exported to {filename}')
 genotypes_CSV_button.on_click(export_csv)
 
 # add buttons that write sequences corresponding to selected indices to a fasta file
@@ -538,14 +544,18 @@ NT_fasta_button = pn.widgets.Button(name='export selected NT sequences to .fasta
 def export_NT_fasta(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    all_data.write_fasta(f'dashboard/dashboard-{timestamp}_NT-seqs.fasta', 'NT', idx=all_data.selected_idx)
+    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_NT-seqs.fasta'
+    all_data.write_fasta(filename, 'NT', idx=all_data.selected_idx)
+    print(f'wrote {len(all_data.selected_idx)} NT sequences to {filename}')
 NT_fasta_button.on_click(export_NT_fasta)
 
 AA_fasta_button = pn.widgets.Button(name='export selected AA sequences to .fasta', button_type='primary', disabled=(not do_AA_analysis))
 def export_AA_fasta(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    all_data.write_fasta(f'dashboard/dashboard-{timestamp}_AA-seqs.fasta', 'AA', idx=all_data.selected_idx)
+    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_AA-seqs.fasta'
+    all_data.write_fasta(filename, 'AA', idx=all_data.selected_idx)
+    print(f'wrote {len(all_data.selected_idx)} AA sequences to {filename}')
 AA_fasta_button.on_click(export_AA_fasta)
 
 # add buttons that aggregates mutations in selected sequences and uses them to produce a consensus sequence, which is then written to a fasta file
@@ -553,14 +563,18 @@ NT_consensus_button = pn.widgets.Button(name='export NT consensus of selected se
 def export_NT_consensus(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    all_data.get_consensus('NT', idx=all_data.selected_idx, write_to=f'dashboard/dashboard-{timestamp}_NT-consensus.fasta')
+    filename = 'dashboard/dashboard-NT-consensus.fasta'
+    all_data.get_consensus('NT', idx=all_data.selected_idx, write_to=filename, append=True, name=f'{selection_name_text.value}_{timestamp}')
+    print(f'appended 1 NT consensus sequence to {filename}')
 NT_consensus_button.on_click(export_NT_consensus)
 
 AA_consensus_button = pn.widgets.Button(name='export AA consensus of selected sequences to .fasta', button_type='primary', disabled=(not do_AA_analysis))
 def export_AA_consensus(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    all_data.get_consensus('AA', idx=all_data.selected_idx, write_to=f'dashboard/dashboard-{timestamp}_AA-consensus.fasta')
+    filename = 'dashboard/dashboard-AA-consensus.fasta'
+    all_data.get_consensus('AA', idx=all_data.selected_idx, write_to=filename, append=True, name=f'{selection_name_text.value}_{timestamp}')
+    print(f'appended 1 AA consensus sequence to {filename}')
 AA_consensus_button.on_click(export_AA_consensus)
 
 # make a button to reset all the widgets to their default values
@@ -586,7 +600,7 @@ layout = pn.Column(
         pn.Row(color_by_select,cmap_selector),
         pn.Row(NT_muts_text,AA_muts_text),
         pn.Row(SVG_button, max_mut_combos_slider),
-        reset_button),
+        pn.Row(selection_name_text, reset_button)),
     pn.Row(dynamic_points, colorbar),
     pn.Column(sample_size_slider,
               selected_table,
