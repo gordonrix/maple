@@ -1,3 +1,12 @@
+#
+#  DESCRIPTION   : Custom python script used in the maple snakemake pipeline.
+#                   Runs an interactive dashboard for visualizing genotypes.
+#
+#  RESTRICTIONS  : none
+#
+#  AUTHOR(S)     : Gordon Rix
+#
+
 import pathlib
 import pandas as pd
 import panel as pn
@@ -618,7 +627,7 @@ pn.Row(
         num_positions_slider,
         agg_muts_width_slider,
         export_agg_muts_button),
-    pn.panel(pathlib.Path(snakemake_dir/'images'/'dashboard_legend.png'),width=200,align='start')
+    pn.panel(pathlib.Path(snakemake_dir/'images'/'AA_NT_colormap.png'),width=200,align='start')
     ))
 
 layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')

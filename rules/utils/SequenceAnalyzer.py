@@ -469,7 +469,7 @@ class SequenceAnalyzer:
 
         if write_to:
             total_seqs = self.get_count(idx=idx)
-            write_mode = 'a' if append else 'w'
+            write_mode = 'a+' if append else 'w'
             with open(write_to, write_mode, encoding="utf-8") as f:
                 if name:
                     name = name + '_'

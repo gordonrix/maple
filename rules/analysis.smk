@@ -123,6 +123,8 @@ rule generate_barcode_ref:
         'alignments/{tag}.bam'
     output:
         'demux/.{tag, [^\/_]*}_generate_barcode_ref.done'
+    params:
+        lambda wildcards: [config['runs'][wildcards.tag]['barcodeInfo'][barcodeType].get('generate', False) for barcodeType in config['runs'][wildcards.tag]['barcodeInfo']]
     script:
         'utils/generate_barcode_ref.py'
 
