@@ -1,3 +1,7 @@
+## v0.10.2
+# Minor
+   - Updated README
+
 ## v0.10.1
 # Minor
  - Dashboard:

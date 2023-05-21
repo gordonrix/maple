@@ -16,7 +16,12 @@ Analysis is primarily performed by a mix of custom python scripts and several ex
 
 Built in visualizations are performed using the [HoloViz](https://holoviz.org/) ecosystem of python data visualization libraries.
 
-Additionally, many concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/)
+Additionally, some concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/), which was used
+as a starting point for Maple
+
+Note that documentation is still under construction
+
+![An overview of the pipeline steps](images/pipeline_overview.png?raw=true)
 
 ## Setup
 
