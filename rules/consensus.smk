@@ -105,7 +105,7 @@ rule plot_RCA_consensus:
 
         hv.save(plot, output.plot, backend='bokeh')
 
-rule UMI_minimap2:
+rule UMI_align:
     input:
         sequence = lambda wildcards: 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses.fasta.gz' if config['do_RCA_consensus'][wildcards.tag] else 'sequences/{tag}.fastq.gz',
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
@@ -113,7 +113,6 @@ rule UMI_minimap2:
         aln = temp("sequences/UMI/{tag, [^\/_]*}_noConsensus.sam"),
         log = "sequences/UMI/{tag, [^\/_]*}_noConsensus.log"
     threads: config['threads_alignment']
-    group: "minimap2"
     params:
         flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]
     resources:

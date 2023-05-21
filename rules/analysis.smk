@@ -19,7 +19,7 @@ def alignment_sequence_input(wildcards):
     else:
         return 'sequences/{tag}.fastq.gz'
 
-rule minimap2:
+rule align:
     input:
         sequence = alignment_sequence_input,
         alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
@@ -29,7 +29,6 @@ rule minimap2:
     params:
         flags = lambda wildcards: config['alignment_minimap2_flags'] if type(config['alignment_minimap2_flags'])==str else config['alignment_minimap2_flags'][wildcards.tag]
     threads: config['threads_alignment'] if config['threads_alignment']<(workflow.cores-1) else max(workflow.cores-1,1)
-    group: "minimap2"
     resources:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),

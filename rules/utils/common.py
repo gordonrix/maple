@@ -102,7 +102,7 @@ def export_svg_plots(plots, file_name, labels=[]):
             filename=fName,
             webdriver=webdriver)
         
-def conspicuous_mutations(df, num_positions, colormap, most_common=True):
+def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap=False):
     """
     produces a bar plot of the most or least frequent mutations
     
@@ -113,8 +113,8 @@ def conspicuous_mutations(df, num_positions, colormap, most_common=True):
         most_common (bool):  if True/False, output the most/least commonly mutated positions
         
     returns:
-        hv.Bars object showing the topN most frequently observed mutations in the aggregated
-            mutations dataframe
+        hv.Bars or hv.heatmap object showing the topN most frequently observed mutations
+            in the aggregated mutations dataframe
     """
     
     df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
@@ -123,7 +123,12 @@ def conspicuous_mutations(df, num_positions, colormap, most_common=True):
     df = df[df['position'].isin(positions)]
     df = df.sort_values('position', ascending=True)
     df['position'] = df['wt'] + df['position'].astype(str)
-    plot = hv.Bars(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+    if heatmap:
+        plot = hv.HeatMap(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+                    show_legend=True, height=500, xlabel='position',
+                    xrotation=40, cmap=colormap, tools=['hover'])
+    else:
+        plot = hv.Bars(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
                     show_legend=False, height=500, xlabel='position',
                     xrotation=40, stacked=True, cmap=colormap, tools=['hover'])
     return plot
