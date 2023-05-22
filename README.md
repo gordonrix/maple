@@ -1,6 +1,6 @@
 # Maple: Mutation Analysis for Parallel Evolution
 
-![logo](images/pipeline_overview.png?raw=true)
+![logo](images/maple_logo.png?raw=true)
 
 Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline for analysis of
 mutation-rich next generation sequencing data from highly parallelized targeted evolution experiments, with a
