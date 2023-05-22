@@ -1,5 +1,7 @@
 # Maple: Mutation Analysis for Parallel Evolution
 
+![logo](images/pipeline_overview.png?raw=true)
+
 Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline for analysis of
 mutation-rich next generation sequencing data from highly parallelized targeted evolution experiments, with a
 special focus on Oxford Nanopore Technology (ONT) data. It provides consensus sequence generation using both concatemer-
@@ -20,6 +22,9 @@ Additionally, some concepts and code are borrowed from the snakemake pipeline [N
 as a starting point for Maple
 
 Note that documentation is still under construction
+
+Below you'll see an overview of the steps involved in the pipeline. Note that many of these steps are optional, and which ones
+run will depend on what information is provided in the config file (see 'Usage')
 
 ![An overview of the pipeline steps](images/pipeline_overview.png?raw=true)
 
