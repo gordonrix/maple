@@ -497,7 +497,7 @@ for tag in config['runs']:
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
             else:
-                no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc]['noSplit'] == True]
+                no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
                 # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
                 if len(no_split_bcs) == 1:
                     config['do_enrichment_analysis'][tag] = True
