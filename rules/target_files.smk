@@ -42,6 +42,8 @@ def targets_input(wildcards):
                 tag = config['timepointsInfo'][timepointSample]['tag']
                 timepointSample_NTorAA.extend(expand('{TS}_{NTorAA}', TS=timepointSample, NTorAA= ['NT','AA'] if config['do_AA_mutation_analysis'][ tag ] else ['NT']))
             out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=['mutation', 'hamming-distance'] if config['diversity_plot_all'] else ['mutation']))
+        if config['do_enrichment_analysis'].get(tag, False):
+            out.append(f'plots/{tag}_enrichment-scores.html')
             
 
         # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover

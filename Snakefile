@@ -472,6 +472,7 @@ if config.get('background', False):
 #       - a row only uses tags from the same sequencing run or, if it uses different sequencing runs, that a 'background'
 #           barcode group is provided in the config file. This is important because background subtraction is necessary
 #           for accurate rate calculations, and sequencing error can of course differ from run to run.
+config['do_enrichment_analysis'] = {}
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
         if not config['do_NT_mutation_analysis'][tag]:
@@ -496,6 +497,10 @@ for tag in config['runs']:
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
             else:
+                no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc]['noSplit'] == True]
+                # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
+                if len(no_split_bcs) == 1:
+                    config['do_enrichment_analysis'][tag] = True
                 rowIndex = 3    # start at 3 because first two rows are ignored with pd.read_csv call, and errors/warnings will use 1-indexing
                 uniqueSamples = list(timepointsCSV.index.unique())
                 replicates = False

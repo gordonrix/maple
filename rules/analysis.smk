@@ -174,6 +174,20 @@ rule plot_demux:
     script:
         'utils/plot_demux.py'
 
+rule enrichment_scores:
+    input:
+        CSV = 'demux-stats.csv',
+        timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
+    output:
+        CSV = 'enrichment/{tag}_enrichment-scores.csv',
+        plots = 'plots/{tag}_enrichment-scores.html'
+    params:
+        screen_no_group = lambda wildcards: config['demux_screen_no_group'],
+        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
+        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {})
+    script:
+        'utils/enrichment.py'
+
 # Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output,
 #   so instead we create a separate rule for which correct input files are only given when AA analysis is not being performed, and give this rule priority. It's not pretty but it works.
 ruleorder: mutation_analysis_NTonly > mutation_analysis
