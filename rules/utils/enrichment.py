@@ -15,13 +15,13 @@ Usage: python enrichment.py input_file.csv output_file.csv
 import pandas as pd
 import numpy as np
 import holoviews as hv
+from holoviews.operation import histogram
 hv.extension('bokeh')
 import scipy
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from collections import Counter
 import argparse
-import snakemake
 import itertools
 
 def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, output_csv='', screen_no_group=True):
@@ -43,7 +43,7 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
     demux_stats_DF = pd.read_csv(demux_stats,index_col=False)
 
     barcode_types = list(barcode_info.keys())
-    grouped_barcode_types = barcode_groups[barcode_groups.keys()[0]].keys()[0]
+    grouped_barcode_types = list(barcode_groups[list(barcode_groups.keys())[0]].keys())
 
     ungrouped_barcode_types = [bc_type for bc_type in barcode_types if bc_type not in grouped_barcode_types]
     if len(ungrouped_barcode_types) != 1:
@@ -57,6 +57,8 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
         drop_idx.extend(demux_stats_DF[(demux_stats_DF[bc_type] == 'fail')].index.tolist())
     if screen_no_group:
         # remove any sequences that were not assigned a barcode group
+        demux_stats_DF['named_by_group'] = demux_stats_DF.apply(lambda row:
+            False if row['output_file_barcodes'] not in barcode_groups.keys() else True, axis=1)
         drop_idx.extend(demux_stats_DF[(demux_stats_DF['named_by_group'] == False)].index.tolist())
     demux_stats_DF.drop(drop_idx, inplace=True)
     ### END QC ###
@@ -74,16 +76,24 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
     counts_pivot_norm = counts_pivot_norm.reset_index().rename(columns={'index':enrichment_bc})
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
-    timepoints_DF = pd.read_csv(timepoints, index_col=False)
+    timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
+
+    # get time unit and sample label
+    top_row = [x for x in pd.read_csv(timepoints).columns if 'Unnamed: ' not in x]
+    if len(top_row) > 0:
+        time_unit = top_row[0]
+    else:
+        time_unit = 'unit time'    # default label for time unit if none is provided in the first row of timepoints CSV
+    sample_label = timepoints_DF.columns[0]
 
     # add a column to the timepoints DF that gives the replicate number for each sample
     replicateCol = []
-    sampleCount = Counter()
+    sample_count = Counter()
     for _, row in timepoints_DF.iterrows():
-        sampleCount[row['sample']] += 1
-        replicateCol.append(sampleCount[row['sample']])
+        sample_count[row[sample_label]] += 1
+        replicateCol.append(sample_count[row[sample_label]])
     timepoints_DF['replicate'] = replicateCol
-    timepoints_DF.set_index(['sample', 'replicate'], inplace=True)
+    timepoints_DF.set_index([sample_label, 'replicate'], inplace=True)
 
     # loop through each sample of the timepoints DF and use the columns to slice the enrichment DF
     #   such that we get a DF with (n=samples per timepoint * replicates) rows per enrichment barcode, and one column per timepoint
@@ -97,85 +107,88 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
                 print(f'[WARNING] No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0')
                 counts_pivot_norm = counts_pivot_norm.assign(**{col:0})
         sample_df = counts_pivot_norm[[enrichment_bc] + slice_cols]
-        sample_cols = {'sample':index[0], 'replicate':index[1]}
-        rename_dict = {old:new for old:new in zip(slice_cols, timepoints_DF.columns.to_list())}
+        sample_cols = {sample_label:index[0], 'replicate':index[1]}
+        rename_dict = {old:new for old, new in zip(slice_cols, timepoints_DF.columns.to_list())}
         sample_df = sample_df.assign(**sample_cols).rename(columns=rename_dict)
-        sample_df = sample_df[['sample', 'replicate', enrichment_bc] + tp_cols]
+        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + tp_cols]
         sample_df_list.append(sample_df)
     enrichment_df = pd.concat(sample_df_list)
 
     # calculate the enrichment score for each barcode / sample combination using linear regression on log transformed data
     x_time = np.array([float(x) for x in tp_cols]).reshape(-1,1)
-    proportions = enrichment_df[tp_cols].to_numpy().transpose()
+    proportions = enrichment_df[tp_cols].to_numpy()
 
     # add a psuedocount to avoid log(0) errors
     y_proportions_relative =  proportions + 10**-10
 
     # get proportions relative to first timepoint, take log of this
-    y_proportions_relative = np.log2( y_proportions_relative / y_proportions_relative[0,:] )
+    y_proportions_relative = np.log2( y_proportions_relative / y_proportions_relative[:,0].reshape(-1,1) )
 
     # linear regression on log transformed data
     #   0 values for any timepoint should exclude all subsequent timepoints from the regression for that sample
     #   to do this without looping through each sample, we can apply the regression for 2, 3, ..., n timepoints separately,
     #   but parallelized across all samples. We then assign the fits to samples depending on when the first 0 count timepoint appears
-    n_timepoints, n_samples = y_proportions_relative.shape
+    n_samples, n_timepoints = y_proportions_relative.shape
     slopes = np.full((n_samples, n_timepoints), np.nan)
-    for n in range(1, n_timepoints+1):
-        fit = LinearRegression(fit_intercept=False).fit(x_time[:n], y_proportions_relative[:, :n])
-        slopes[:, n] = fit.coef_
+    for n in range(1, n_timepoints):
+        fit = LinearRegression(fit_intercept=False).fit(x_time[:n+1], y_proportions_relative[:, :n+1].transpose())
+        slopes[:, n] = fit.coef_.reshape(-1)
     
     # assign slopes based on where the first 0 appears. If the first 0 appears at timepoint 2, then the slope is the fit for timepoints 1 and 2, etc
-    first_zero_timepoint = np.argmax(proportions == 0, axis=1)
+    slope_idx = np.argmax(proportions == 0, axis=1)
 
-    # For those samples where a zero never occurs, we'll set their index to -1 
+    # For those samples where a zero never occurs, we'll set their index
     #   so that they always take the last calculated slope
-    first_zero_timepoint[np.all(proportions != 0, axis=1)] = n_timepoints - 1
-    slopes_selected = slopes[np.arange(n_samples), first_zero_timepoint]
+    slope_idx[np.all(proportions != 0, axis=1)] = n_timepoints - 1
+    slopes_selected = slopes[np.arange(n_samples), slope_idx]
 
-    enrichment_df[[col + '_relative_enrichment' for col in tp_cols]] = y_proportions_relative.transpose()
+    enrichment_df[[col + '_relative_enrichment' for col in tp_cols]] = y_proportions_relative
     enrichment_df['enrichment_score'] = slopes_selected
 
     if output_csv:
         enrichment_df.to_csv(output_csv, index=False)
     return enrichment_df
 
-def plot_enrichment(enrichment_df, plots):
-    samples = enrichment_df['sample'].unique()
-    enrichment_bc = enrichment_df.columns[2]
+def plot_enrichment(enrichment_df, plots_out):
+    sample_label, _, enrichment_bc = enrichment_df.columns[:3]
+    samples = enrichment_df[sample_label].unique()
     plots = {}
 
     for sample in samples:
-        sample_df = enrichment_df[enrichment_df['sample'] == sample]
+        sample_df = enrichment_df[enrichment_df[sample_label] == sample]
         replicates = sample_df['replicate'].unique()
         sample_plots = []
 
         for replicate1, replicate2 in itertools.combinations(replicates, 2):
 
-            # filter for the two replicates, pivot to get both replicates in the same row
-            pivot_df = sample_df[sample_df['replicate'].isin([replicate1, replicate2])].pivot(index=enrichment_bc, columns='replicate', values='enrichment_score')
+            # filter for the two replicates, pivot to get both replicates in the same row, remove rows with NaNs
+            pivot_df = sample_df[sample_df['replicate'].isin([replicate1, replicate2])].pivot(index=enrichment_bc, columns='replicate', values='enrichment_score').dropna()
 
             # plot points
             kdims = ["replicate " + str(replicate1), "replicate " + str(replicate2)]
             points = hv.Points((pivot_df[replicate1], pivot_df[replicate2]), kdims=kdims)
-            points.opts(title=f'{sample}, Replicate {replicate1} vs Replicate {replicate2}')
+            points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400, tools=['hover'],
+                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=3, color='black')
 
             # add x=y line and R² fit
             min_value = np.min([pivot_df[replicate1].min(), pivot_df[replicate2].min()])
             max_value = np.max([pivot_df[replicate1].max(), pivot_df[replicate2].max()])
-            trendline = hv.Curve(([min_value, max_value], [min_value, max_value])).opts(color="grey", line_dash='dashed')
+            top_quartile_y = pivot_df[replicate2].quantile(0.75)
+            trendline = hv.Curve(([min_value, max_value], [min_value, max_value])).opts(
+                xlabel=kdims[0], ylabel=kdims[1], color="lightgrey", line_dash='dashed')
             r2 = r2_score(pivot_df[replicate1], pivot_df[replicate2])
-            r2_label = hv.Text(max_value, max_value, f'R² = {r2:.2f}', halign='right', valign='top').opts(color='black')
+            r2_label = hv.Text(max_value, top_quartile_y, f'R² = {r2:.2f}', halign='right', valign='top').opts(color='black')
 
             # distributions
-            x_dist, y_dist = (hv.Distribution(points, kdims=k) for k in kdims)
+            x_hist, y_hist = (histogram(points, dimension=k).opts(fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}) for k in kdims)
 
-            sample_plots.append((points * trendline * r2_label) << y_dist << x_dist)
+            sample_plots.append((trendline * points * r2_label) << y_hist.opts(width=125, color='grey', tools=['hover']) << x_hist.opts(height=125, color='grey', tools=['hover']))
         
         plots[sample] = hv.Layout(sample_plots).cols(1)
     
     final_layout = hv.Layout(plots.values()).cols(len(samples))
 
-    hv.save(final_layout, plots, backend='bokeh')
+    hv.save(final_layout, plots_out, backend='bokeh')
 
 
 

@@ -69,7 +69,7 @@ def main():
     if len(topRow) > 0:
         timeUnit = topRow[0]
     else:
-        timeUnit = 'generations'    # default label for time unit if none is provided in the first row of timepoints CSV
+        timeUnit = 'unit time'    # default label for time unit if none is provided in the first row of timepoints CSV
     backgroundBCgroup = config.get('background',False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()

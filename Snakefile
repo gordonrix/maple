@@ -475,14 +475,19 @@ if config.get('background', False):
 config['do_enrichment_analysis'] = {}
 for tag in config['runs']:
     if 'timepoints' in config['runs'][tag]:
-        if not config['do_NT_mutation_analysis'][tag]:
-            print_(f"[ERROR] Timepoints .CSV file provided for run tag `{tag}`, but no mutation analysis is applied to this tag. Provide at least a nucleotide analysis sequence or remove the timepoints input for this tag.\n", file=sys.stderr)
         CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
         if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
             config['timepoints'] = {}
             config['timepointsInfo'] = {}
         if CSVpath not in config['timepoints'].values():
             config['timepoints'][tag] = CSVpath
+
+        # decide whether to do barcode enrichment analysis
+        no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
+        # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
+        if len(no_split_bcs) == 1:
+            config['do_enrichment_analysis'][tag] = True
+
         if os.path.isfile(CSVpath):
             timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
             topRow = [x for x in pd.read_csv(CSVpath).columns if 'Unnamed: ' not in x]
@@ -497,10 +502,6 @@ for tag in config['runs']:
             if len(timepointsCSV.columns) <= 1:
                 print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
             else:
-                no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
-                # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
-                if len(no_split_bcs) == 1:
-                    config['do_enrichment_analysis'][tag] = True
                 rowIndex = 3    # start at 3 because first two rows are ignored with pd.read_csv call, and errors/warnings will use 1-indexing
                 uniqueSamples = list(timepointsCSV.index.unique())
                 replicates = False
@@ -531,7 +532,8 @@ for tag in config['runs']:
                         firstTag = str(row[firstTP]).split('_')[0]
                         if firstTag in config['runs']:
                             firstTagRefFasta = config['runs'][firstTag]['reference']
-                            config['timepointsInfo'][sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
+                            if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
+                                config['timepointsInfo'][sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
                             firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
                             firstTagRunname = config['runs'][firstTag]['runname']
                         else:
@@ -548,7 +550,8 @@ for tag in config['runs']:
                                     tagRunname = config['runs'][tag]['runname']
                                     if tagRunname != firstTagRunname and 'background' not in config:
                                         print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
-                                config['timepointsInfo'][sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
+                                if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
+                                    config['timepointsInfo'][sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
                             else:
                                 errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
                      
