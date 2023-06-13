@@ -34,14 +34,14 @@ def targets_input(wildcards):
         if config['nanoplot'] == True:
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
-        if 'timepoints' in config:
+        if config.get('timepoints', {}).get(tag, False) and config['do_NT_mutation_analysis'][tag] == True:
             out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
             out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=config['timepointsInfo'], plot_type=['genotypes2D', 'mutation-distribution-violin']))    # each of these outputs includes data for a single row in the timepoints file
             timepointSample_NTorAA = []
+            out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=['mutation', 'hamming-distance'] if config['diversity_plot_all'] else ['mutation']))
             for timepointSample in config['timepointsInfo']:
                 tag = config['timepointsInfo'][timepointSample]['tag']
                 timepointSample_NTorAA.extend(expand('{TS}_{NTorAA}', TS=timepointSample, NTorAA= ['NT','AA'] if config['do_AA_mutation_analysis'][ tag ] else ['NT']))
-            out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=['mutation', 'hamming-distance'] if config['diversity_plot_all'] else ['mutation']))
         if config['do_enrichment_analysis'].get(tag, False):
             out.append(f'plots/{tag}_enrichment-scores.html')
             

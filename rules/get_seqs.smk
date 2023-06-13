@@ -9,7 +9,7 @@
 
 import os
 
-def retrieve_fastqs(rootFolder, folderList, subfolderString):
+def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
     """
     Search for a uniquely named folder within the root folder, and retrieve the file names ending in '.fastq.gz' for all files within a list of subfolders.
     
@@ -19,13 +19,15 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
                                     Each one must appear only once within the root folder
         subfolderNames (str):   A string of comma separated subfolder names to search for within the uniquely named folder.
                                     At least one must be present, but all don't need to be
+        select (str):           An optional string to select a specific file name within the subfolders. If not specified, all files ending in '.fastq.gz' will be retrieved.
     
     Returns:
-        List[str]: A list of the full file paths, including the root folder, for all files ending in '.fastq.gz' within all of the subfolders found within the folders.
+        List[str]: A list of the full file paths, including the root folder, for all files ending in '.fastq.gz' or 'fq.gz' within all of the subfolders found within the folders.
         If the folder or any of the subfolders were not found, or if the folder was found more than once, or if none of the subfolders were found within the folder, returns an empty list.
     """
     subfolders = subfolderString.replace(' ','').split(',')
     filePaths = []
+    select_matches = 0
 
     for folder in folderList:
         folders_with_seqs = []
@@ -43,10 +45,15 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
                             subfolderPath = os.path.join(folderPath, subfolder)
                             for _, _, files in os.walk(subfolderPath):
                                 for file in files:
-                                    if file.endswith('.fastq.gz'):
+                                    if file.endswith('.fastq.gz') or file.endswith('.fq.gz'):
                                         if os.path.join(root,folder) not in folders_with_seqs:
                                             folders_with_seqs.append(os.path.join(root,folder))
                                         subfolderCount += 1 # only care about folders / subfolders that contain the sequences in the right place
+                                        if select: # only grab the file if it matches provided select argument
+                                            if file == select:
+                                                select_matches += 1
+                                            else:
+                                                continue
                                         folderFilePaths.append(os.path.join(root, folder, subfolder, file))
 
                 if subfolderCount == 0:
@@ -62,33 +69,17 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString):
             print(f'[WARNING] No .fastq.gz files found within subfolders {subfolderString} within folder "{folder}" within root folder "{rootFolder}".')
 
         filePaths.extend(folderFilePaths)
-
-    return filePaths
-
-rule import_paired_end: # retrieves one specific paired end fastq file and moves it to the paired folder
-    input:
-        lambda wildcards: retrieve_fastqs(config['sequences_dir'], [wildcards.runname], config['fastq_dir'])
-    output:
-        temp('sequences/paired/{runname}/{fastq}')
-    run:
-        import os
-        import shutil
-        files = []
-        for seq_file in input:
-            if os.path.basename(seq_file) == wildcards.fastq:
-                files.append(seq_file)
-
-        if len(files) == 1:
-            parent_dir = os.path.abspath(os.path.dirname(str(output)))
-            os.makedirs(parent_dir, exist_ok=True)
-            shutil.copy2(seq_file, str(output))
-        else:
+    if select:
+        if select_matches == 0:
             print('[ERROR] More than one fastq file found that matches user input:\n'+''.join([f'{file}\n' for file in input]))
+        elif select_matches > 1:
+            print(f'[WARNING] More than one file found that matches user input "{select}":\n'+''.join([f'{file}\n' for file in folderFilePaths]))
+    return filePaths
 
 rule merge_paired_end:
     input:
-        fwd = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['runname'][0], config['runs'][wildcards.tag]['fwdReads']),
-        rvs = lambda wildcards: os.path.join('sequences', 'paired', config['runs'][wildcards.tag]['runname'][0], config['runs'][wildcards.tag]['rvsReads'])
+        fwd = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag]['runname'][0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['fwdReads'])[0],
+        rvs = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag]['runname'][0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['rvsReads'])[0]
     output:
         merged = temp("sequences/paired/{tag, [^\/_]*}.fastq.gz"),
         log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",

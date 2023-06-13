@@ -97,7 +97,7 @@ threads_demux: 4
 
 # paired end read merging with NGmerge. To view available flags and other documentation for this tool, use 'NGmerge --help'
 merge_paired_end: False            # set to True if merging of paired end reads is needed, and paired end read filenames are provided for all run tags
-NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read
+NGmerge_flags: '-m 10'             # command line flags to add to NGmerge command. -m X sets the minimum allowable overlap of paired end reads to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read. If you see 'Error! Quality scores outside of set range', then including the flags '-u 41 -g' may help
 
 # NanoPlot. To view available flags and other documentation for this tool, use 'NanoPlot --help'
 nanoplot: False
