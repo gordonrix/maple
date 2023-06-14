@@ -70,10 +70,14 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
         row['tag'] + '_' + row['output_file_barcodes'], axis=1)
     
     # pivot the counts to give one row per enrichment barcode, with columns for counts of that enrichment barcode
-    #   per each barcode group, then normalize to average counts per sample/timepoint
-    counts_pivot_norm = demux_stats_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count').fillna(0)
-    counts_pivot_norm = counts_pivot_norm.divide(counts_pivot_norm.mean(axis=0), axis=1)
-    counts_pivot_norm = counts_pivot_norm.reset_index().rename(columns={'index':enrichment_bc})
+    #   per each barcode group, then convert to fraction of counts for sample/timepoint
+    counts_pivot = demux_stats_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count').fillna(0)
+    counts_pivot = counts_pivot.reset_index().rename(columns={'index':enrichment_bc})
+    # sample_total_counts = counts_pivot.sum(axis=0)
+    # # get relative counts for each barcode in each sample to use for weights
+    # sample_counts_relative = sample_total_counts / sample_total_counts.mean()
+    # count_fractions_pivot = counts_pivot.divide(sample_total_counts, axis=1)
+    # count_fractions_pivot = count_fractions_pivot.reset_index().rename(columns={'index':enrichment_bc})
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
     timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
@@ -96,54 +100,78 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
     timepoints_DF.set_index([sample_label, 'replicate'], inplace=True)
 
     # loop through each sample of the timepoints DF and use the columns to slice the enrichment DF
-    #   such that we get a DF with (n=samples per timepoint * replicates) rows per enrichment barcode, and one column per timepoint
-    #   with the normalized counts for that barcode as values, then concatenate
+    #   such that we get a DF with (n= (samples per timepoint * replicates) ) rows per enrichment barcode, and one column per timepoint
+    #   with the count fraction for that barcode as values, then concatenate to get a single dataframe
     sample_df_list = []
     tp_cols = timepoints_DF.columns.to_list()
+    tp_vals = [int(x) for x in tp_cols]
     for index, row in timepoints_DF.iterrows():
         slice_cols = row.to_list()
         for col in slice_cols:
-            if col not in counts_pivot_norm.columns:
+            if col not in counts_pivot.columns:
                 print(f'[WARNING] No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0')
-                counts_pivot_norm = counts_pivot_norm.assign(**{col:0})
-        sample_df = counts_pivot_norm[[enrichment_bc] + slice_cols]
+                counts_pivot = counts_pivot.assign(**{col:0})
+        sample_df = counts_pivot[[enrichment_bc] + slice_cols]
+        # remove rows with 0 at first timepoint
+        # sample_df = sample_df[sample_df[slice_cols[0]] > 0]
+        sample_df = sample_df[(sample_df[slice_cols] > 0).all(axis=1)]
+        # filter out rows in the bottom 25% of counts at the first timepoint
+        sample_df = sample_df[sample_df[slice_cols[0]] > sample_df[slice_cols[0]].quantile(0.25)]
+        # get the total counts for only barcodes that appear in all timepoints
+        survivors_sum = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
+        # ln(count+0.5/survivors_sum+0.5)
+        y_normalized = np.log( (sample_df[slice_cols].to_numpy()+0.5) / (survivors_sum+0.5) )
+
+        # time is normalized to the maximum timepoint
+        x_normalized = np.array([float(x) for x in tp_cols])
+        x_normalized = (x_normalized / max(x_normalized)).reshape(-1,1)
+
+        # perform weighted linear regression for each barcode / sample combination
+        fit = LinearRegression().fit(x_normalized, y_normalized.transpose(), sample_weight=survivors_sum)
+        
+        # add normalized values and fit values to the sample_df
+        new_cols = [f'{x}_normalized' for x in tp_cols]
+        sample_df[new_cols] = y_normalized
+        sample_df['enrichment_score'] = fit.coef_
+
         sample_cols = {sample_label:index[0], 'replicate':index[1]}
         rename_dict = {old:new for old, new in zip(slice_cols, timepoints_DF.columns.to_list())}
         sample_df = sample_df.assign(**sample_cols).rename(columns=rename_dict)
-        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + tp_cols]
+        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + tp_cols + new_cols + ['enrichment_score']]
         sample_df_list.append(sample_df)
+
     enrichment_df = pd.concat(sample_df_list)
 
-    # calculate the enrichment score for each barcode / sample combination using linear regression on log transformed data
-    x_time = np.array([float(x) for x in tp_cols]).reshape(-1,1)
-    proportions = enrichment_df[tp_cols].to_numpy()
+    # # calculate the enrichment score for each barcode / sample combination using linear regression on log transformed data
+    # x_time = np.array([float(x) for x in tp_cols]).reshape(-1,1)
+    # proportions = enrichment_df[tp_cols].to_numpy()
 
-    # add a psuedocount to avoid log(0) errors
-    y_proportions_relative =  proportions + 10**-10
+    # # add a psuedocount to avoid log(0) errors
+    # y_proportions_relative =  proportions + 10**-10
 
-    # get proportions relative to first timepoint, take log of this
-    y_proportions_relative = np.log2( y_proportions_relative / y_proportions_relative[:,0].reshape(-1,1) )
+    # # get proportions relative to first timepoint, take log of this
+    # y_proportions_relative = np.log2( y_proportions_relative / y_proportions_relative[:,0].reshape(-1,1) )
 
-    # linear regression on log transformed data
-    #   0 values for any timepoint should exclude all subsequent timepoints from the regression for that sample
-    #   to do this without looping through each sample, we can apply the regression for 2, 3, ..., n timepoints separately,
-    #   but parallelized across all samples. We then assign the fits to samples depending on when the first 0 count timepoint appears
-    n_samples, n_timepoints = y_proportions_relative.shape
-    slopes = np.full((n_samples, n_timepoints), np.nan)
-    for n in range(1, n_timepoints):
-        fit = LinearRegression(fit_intercept=False).fit(x_time[:n+1], y_proportions_relative[:, :n+1].transpose())
-        slopes[:, n] = fit.coef_.reshape(-1)
+    # # linear regression on log transformed data
+    # #   0 values for any timepoint should exclude all subsequent timepoints from the regression for that sample
+    # #   to do this without looping through each sample, we can apply the regression for 2, 3, ..., n timepoints separately,
+    # #   but parallelized across all samples. We then assign the fits to samples depending on when the first 0 count timepoint appears
+    # n_samples, n_timepoints = y_proportions_relative.shape
+    # slopes = np.full((n_samples, n_timepoints), np.nan)
+    # for n in range(1, n_timepoints):
+    #     fit = LinearRegression(fit_intercept=False).fit(x_time[:n+1], y_proportions_relative[:, :n+1].transpose())
+    #     slopes[:, n] = fit.coef_.reshape(-1)
     
-    # assign slopes based on where the first 0 appears. If the first 0 appears at timepoint 2, then the slope is the fit for timepoints 1 and 2, etc
-    slope_idx = np.argmax(proportions == 0, axis=1)
+    # # assign slopes based on where the first 0 appears. If the first 0 appears at timepoint 2, then the slope is the fit for timepoints 1 and 2, etc
+    # slope_idx = np.argmax(proportions == 0, axis=1)
 
-    # For those samples where a zero never occurs, we'll set their index
-    #   so that they always take the last calculated slope
-    slope_idx[np.all(proportions != 0, axis=1)] = n_timepoints - 1
-    slopes_selected = slopes[np.arange(n_samples), slope_idx]
+    # # For those samples where a zero never occurs, we'll set their index
+    # #   so that they always take the last calculated slope
+    # slope_idx[np.all(proportions != 0, axis=1)] = n_timepoints - 1
+    # slopes_selected = slopes[np.arange(n_samples), slope_idx]
 
-    enrichment_df[[col + '_relative_enrichment' for col in tp_cols]] = y_proportions_relative
-    enrichment_df['enrichment_score'] = slopes_selected
+    # enrichment_df[[col + '_relative_enrichment' for col in tp_cols]] = y_proportions_relative
+    # enrichment_df['enrichment_score'] = slopes_selected
 
     if output_csv:
         enrichment_df.to_csv(output_csv, index=False)
@@ -167,8 +195,8 @@ def plot_enrichment(enrichment_df, plots_out):
             # plot points
             kdims = ["replicate " + str(replicate1), "replicate " + str(replicate2)]
             points = hv.Points((pivot_df[replicate1], pivot_df[replicate2]), kdims=kdims)
-            points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400, tools=['hover'],
-                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=3, color='black')
+            points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400,
+                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=2, color='black', alpha=0.1)
 
             # add x=y line and R² fit
             min_value = np.min([pivot_df[replicate1].min(), pivot_df[replicate2].min()])

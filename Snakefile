@@ -407,8 +407,11 @@ for tag in config['runs']:
         c = config['runs'][tag]['barcodeInfo'][barcodeType].get('context', False)
         if c: contexts.append(c)
         config['runs'][tag]['barcodeInfo'][barcodeType]['context'] = config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()
-        if str(alignmentSeq.seq).upper().find(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()) == -1:
+        occurences = str(alignmentSeq.seq).upper().count(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper())
+        if occurences == 0:
             print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
+        elif occurences > 1:
+            print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` found more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
         bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
         config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
         if os.path.isfile(bcFasta):
@@ -431,7 +434,7 @@ for tag in config['runs']:
                             print_(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{bcGroup}`. Demultiplexing will fail.\n", file=sys.stderr)
                 elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
                     if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][bcGroup][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
-                        print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{bcGroup}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][bcType]['fasta']}` set for this tag.\n", file=sys.stderr)
+                        print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{bcGroup}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` set for this tag.\n", file=sys.stderr)
         if 'generate' in config['runs'][tag]['barcodeInfo'][barcodeType]:
             numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
             if (numToGenerate != 'all') and type(numToGenerate) != int:
@@ -534,7 +537,7 @@ for tag in config['runs']:
                             firstTagRefFasta = config['runs'][firstTag]['reference']
                             if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
                                 config['timepointsInfo'][sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
-                            firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[1].seq).upper()
+                            firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[0].seq).upper()
                             firstTagRunname = config['runs'][firstTag]['runname']
                         else:
                             errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
@@ -544,7 +547,7 @@ for tag in config['runs']:
                             tag, barcodeGroup = row[tp].split('_')
                             if tag in config['runs']:
                                 if firstTag in config['runs']:
-                                    tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[1].seq).upper()
+                                    tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
                                     if tagRefSeq != firstTagRefSeq:
                                         print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.\n", file=sys.stderr)
                                     tagRunname = config['runs'][tag]['runname']
