@@ -526,7 +526,7 @@ rule merge_tag_genotypes:
 rule genotype_enrichment_scores:
     input:
         genotypes = 'mutation_data/{tag}/{tag}_genotypes.csv',
-        enrichment = 'enrichment/{tag}_enrichment-scores-mean.csv'
+        enrichment = lambda wildcards: expand('enrichment/{tag}_enrichment-scores-mean.csv', tag=config['runs'][wildcards.tag]['enrichment'] )
     output:
         genotypes_enrichment = 'mutation_data/{tag}/{tag}_genotypes-enrichment.csv'
     run:
