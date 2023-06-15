@@ -32,7 +32,6 @@ from colorcet import palette
 
 from common import dist_to_DF, conspicuous_mutations, colormaps, export_svg_plots
 from SequenceAnalyzer import SequenceAnalyzer
-from dimension_reduction_genotypes import seq_array_from_genotypes
 from plot_distribution import plot_dist
 
 from Bio import SeqIO
@@ -137,24 +136,31 @@ downsampled_MOI = downsampled.apply(add_muts_of_interest_columns,
 
 ## define some widgets for filtering and apply filters
 
-filter_by_select = pn.widgets.Select(name='substitutions count filter', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
+# filter by any numeric columns
+numerical_columns = list(all_data.genotypes.select_dtypes(include=['number']).columns)
+filter_by_select = pn.widgets.Select(name='substitutions count filter', options=numerical_columns, value='NT_substitutions_count')
 
-filter_range_slider = pn.widgets.IntRangeSlider(name='NT mutations range',
+filter_range_slider = pn.widgets.RangeSlider(name='NT mutations range',
                                     start=round(all_data.genotypes['NT_substitutions_count'].min()),
                                     end=round(all_data.genotypes['NT_substitutions_count'].max()),
                                     step=1,
                                     value=( round(all_data.genotypes['NT_substitutions_count'].min()),round(all_data.genotypes['NT_substitutions_count'].max()) ))
 
 # update the range of the filter based on which column is selected
-def range_widget_callback(IntRangeSlider, event):
+def range_widget_callback(RangeSlider, event):
     column = event.new
-    NTorAA = column[:2]
-    minVal = round(all_data.genotypes[column].min())
-    maxVal = round(all_data.genotypes[column].max())
-    IntRangeSlider.name  = f"{NTorAA} substitutions range"
-    IntRangeSlider.start = minVal
-    IntRangeSlider.end   = maxVal
-    IntRangeSlider.value = (minVal, maxVal)
+    col_dtype = all_data.genotypes[column].dtype
+    if np.issubdtype(col_dtype, np.integer):
+        step = 1
+    elif np.issubdtype(col_dtype, np.floating):
+        step = 0.1
+    minVal = all_data.genotypes[column].min()
+    maxVal = all_data.genotypes[column].max()
+    RangeSlider.name  = column + ' range'
+    RangeSlider.start = minVal
+    RangeSlider.end   = maxVal
+    RangeSlider.value = (minVal, maxVal)
+    RangeSlider.step  = step
     
 filter_by_select.link(filter_range_slider, callbacks={'value':range_widget_callback})
 
@@ -196,7 +202,7 @@ filtered = downsampled_MOI.apply(filter_dataset,
 #   will just show grey empty circles which will remain when a subset are selected. selected points will then
 #   be used to further filter the data via a selection stream, and this selected data will be used by other plots
 
-color_options = ['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count', 'NT_muts_of_interest', choice_col]
+color_options = ['NT_substitutions_count', 'NT_muts_of_interest', choice_col] + [col for col in numerical_columns if col != 'NT_substitutions_count']
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
 embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
@@ -385,8 +391,8 @@ def colorbar_bind(colorby, cmap, do_datashade):
 
             label = Label(
                 text=colorby,
-                x=20,
-                y=120,
+                x=10,
+                y=200,
                 x_units="screen",
                 y_units="screen",
                 angle=0.5 * np.pi,

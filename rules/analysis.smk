@@ -525,15 +525,15 @@ rule merge_tag_genotypes:
 # merge enrichment scores with genotypes
 rule genotype_enrichment_scores:
     input:
-        genotypes = 'mutation_data/{tag}/{tag}_genotypes.csv',
-        enrichment = lambda wildcards: expand('enrichment/{tag}_enrichment-scores-mean.csv', tag=config['runs'][wildcards.tag].get('enrichment', wildcards.tag) )
+        genotypes = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv',
+        enrichment = lambda wildcards: expand('enrichment/{tag}_enrichment-scores-mean.csv', tag=config['runs'][wildcards.tag].get('enrichment', wildcards.tag))[0]
     output:
-        genotypes_enrichment = 'mutation_data/{tag}/{tag}_genotypes-enrichment.csv'
+        genotypes_enrichment = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions-enrichment.csv'
     run:
         import pandas as pd
 
         genotypes = pd.read_csv(input.genotypes, index_col=False)
-        mean_enrichment = pd.read_csv(input.enrichment[0], index_col=False)
+        mean_enrichment = pd.read_csv(input.enrichment, index_col=False)
         sample_label, barcode = list(mean_enrichment.columns)[:2]
         mean_enrichment = mean_enrichment.pivot(index=barcode, columns=sample_label, values='mean_enrichment_score')
         mean_enrichment.columns = ['mean_enrichment_score_' + str(col) for col in mean_enrichment.columns]
@@ -610,8 +610,10 @@ def dashboard_input(wildcards):
     if not sample:
         sample = config['runs'].values()[0]
     if sample in config['runs']:
-        inputDict = {'genotypes': f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv',
-                'refFasta': config['runs'][sample]['reference']}
+        genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
+        if 'enrichment' in config['runs'][sample]:
+            genotypes = genotypes[:-4] + '-enrichment.csv'
+        inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
     elif sample in config['timepointsInfo']:
         inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
                     'refFasta': config['timepointsInfo'][sample]['reference']}
