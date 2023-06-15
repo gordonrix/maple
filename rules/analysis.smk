@@ -543,7 +543,7 @@ rule genotype_enrichment_scores:
         
         # merge genotypes and mean_enrichment
         genotypes_enrichment = pd.merge(genotypes, mean_enrichment, on='barcode(s)', how='left')
-        genotypes_enrichment.to_csv(output[0], index=False)
+        genotypes_enrichment.to_csv(output.genotypes_enrichment, index=False)
 
 rule plot_genotypes2D_bcGroup:
     input:
