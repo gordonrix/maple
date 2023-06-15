@@ -24,7 +24,7 @@ from collections import Counter
 import argparse
 import itertools
 
-def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, output_csv='', screen_no_group=True):
+def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, scores_csv='', mean_scores_csv='', screen_no_group=True):
     """
     Calculate enrichment scores from counts of barcodes.
 
@@ -48,7 +48,7 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
     ungrouped_barcode_types = [bc_type for bc_type in barcode_types if bc_type not in grouped_barcode_types]
     if len(ungrouped_barcode_types) != 1:
         raise ValueError('Enrichment currently requires exactly one barcode type not used for barcode groups.')
-    enrichment_bc = ungrouped_barcode_types[0]
+    enrichment_bc = '_'.join(ungrouped_barcode_types)
 
     ### QC ###
     # remove any barcode_type columns that are 'fail'
@@ -173,11 +173,24 @@ def calculate_enrichment(demux_stats, timepoints, barcode_info, barcode_groups, 
     # enrichment_df[[col + '_relative_enrichment' for col in tp_cols]] = y_proportions_relative
     # enrichment_df['enrichment_score'] = slopes_selected
 
-    if output_csv:
-        enrichment_df.to_csv(output_csv, index=False)
+    if scores_csv:
+        enrichment_df.to_csv(scores_csv, index=False)
+    if mean_scores_csv:
+        mean_enrichment_df = enrichment_df.pivot(index=[sample_label, enrichment_bc], columns='replicate', values='enrichment_score').reset_index()
+        mean_enrichment_df['mean_enrichment_score'] = mean_enrichment_df[mean_enrichment_df.columns[2:]].mean(axis=1)
+        mean_enrichment_df.to_csv(mean_scores_csv, index=False)
     return enrichment_df
 
 def plot_enrichment(enrichment_df, plots_out):
+    """
+    Plot enrichment scores for each sample and save to file
+
+    Args:
+        enrichment_df (pd.DataFrame): DataFrame with enrichment scores for each sample
+        plots_out (str): path to save plots
+    """
+
+
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     samples = enrichment_df[sample_label].unique()
     plots = {}
@@ -222,7 +235,7 @@ def plot_enrichment(enrichment_df, plots_out):
 
 def main():
 
-    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.input.timepoints, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups, output_csv=snakemake.output.CSV, screen_no_group=snakemake.params.screen_no_group)
+    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.input.timepoints, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups, scores_csv=snakemake.output.scores, mean_scores_csv=snakemake.output.mean, screen_no_group=snakemake.params.screen_no_group)
     plot_enrichment(enrichment_df, snakemake.output.plots)
 
 if __name__ == '__main__':

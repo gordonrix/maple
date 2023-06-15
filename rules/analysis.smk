@@ -179,7 +179,8 @@ rule enrichment_scores:
         CSV = 'demux-stats.csv',
         timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
     output:
-        CSV = 'enrichment/{tag}_enrichment-scores.csv',
+        scores = 'enrichment/{tag}_enrichment-scores.csv',
+        mean = 'enrichment/{tag}_enrichment-scores-mean.csv',
         plots = 'plots/{tag}_enrichment-scores.html'
     params:
         screen_no_group = lambda wildcards: config['demux_screen_no_group'],
@@ -520,6 +521,29 @@ rule merge_tag_genotypes:
             df['barcode_group'] = barcode_group
             DFs.append(df)
         pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
+
+# merge enrichment scores with genotypes
+rule genotype_enrichment_scores:
+    input:
+        genotypes = 'mutation_data/{tag}/{tag}_genotypes.csv',
+        enrichment = 'enrichment/{tag}_enrichment-scores-mean.csv'
+    output:
+        genotypes_enrichment = 'mutation_data/{tag}/{tag}_genotypes-enrichment.csv'
+    run:
+        import pandas as pd
+
+        genotypes = pd.read_csv(input.genotypes, index_col=False)
+        mean_enrichment = pd.read_csv(input.enrichment, index_col=False)
+        sample_label, barcode = list(mean_enrichment.columns)[:2]
+        mean_enrichment = mean_enrichment.pivot(index=barcode, columns=sample_label, values='mean_enrichment_score')
+        mean_enrichment.columns = ['mean_enrichment_score_' + str(col) for col in mean_enrichment.columns]
+        mean_enrichment.reset_index(inplace=True)
+        # rename barcode column to match genotypes barcode column
+        mean_enrichment.rename(columns={barcode: 'barcode(s)'}, inplace=True)
+        
+        # merge genotypes and mean_enrichment
+        genotypes_enrichment = pd.merge(genotypes, mean_enrichment, on='barcode(s)', how='left')
+        genotypes_enrichment.to_csv(output[0], index=False)
 
 rule plot_genotypes2D_bcGroup:
     input:
