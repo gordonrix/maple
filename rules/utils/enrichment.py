@@ -185,7 +185,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
             if col not in counts_pivot.columns:
                 print(f'[WARNING] No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0')
                 counts_pivot = counts_pivot.assign(**{col:0})
-        sample_df = counts_pivot[[enrichment_bc] + slice_cols]
+        sample_df = counts_pivot.loc[:,[enrichment_bc] + slice_cols]
         
         # get the total counts for only barcodes that appear in all timepoints, used as a standard
         survivors_sum = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
@@ -210,7 +210,8 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
         sample_cols = {sample_label:index[0], 'replicate':index[1]}
         rename_dict = {old:new for old, new in zip(slice_cols, cols_dict['count'])}
         sample_df = sample_df.assign(**sample_cols).rename(columns=rename_dict)
-        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + list(rename_dict.values()) + cols_dict['count'] + cols_dict['normalized'] + cols_dict['weight'] + cols_dict['standard']]
+        sample_df = sample_df.astype({count_col:'int64' for count_col in cols_dict['count']})
+        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + cols_dict['count'] + cols_dict['normalized'] + cols_dict['weight'] + cols_dict['standard']]
         sample_df_list.append(sample_df)
 
     enrichment_df = pd.concat(sample_df_list)
