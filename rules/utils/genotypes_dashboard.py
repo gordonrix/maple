@@ -30,7 +30,7 @@ from bokeh.plotting import figure
 import matplotlib
 from colorcet import palette
 
-from common import dist_to_DF, conspicuous_mutations, colormaps, export_svg_plots
+from common import conspicuous_mutations, colormaps, export_svg_plots
 from SequenceAnalyzer import SequenceAnalyzer
 from plot_distribution import plot_dist
 
@@ -138,7 +138,7 @@ downsampled_MOI = downsampled.apply(add_muts_of_interest_columns,
 
 # filter by any numeric columns
 numerical_columns = list(all_data.genotypes.select_dtypes(include=['number']).columns)
-filter_by_select = pn.widgets.Select(name='substitutions count filter', options=numerical_columns, value='NT_substitutions_count')
+filter_by_select = pn.widgets.Select(name='filter column', options=numerical_columns, value='NT_substitutions_count')
 
 filter_range_slider = pn.widgets.RangeSlider(name='NT mutations range',
                                     start=round(all_data.genotypes['NT_substitutions_count'].min()),

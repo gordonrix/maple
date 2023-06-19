@@ -135,6 +135,9 @@ demux_screen_no_group: True   # set to True if demuxed sequences that are not as
 demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. If demux_screen_no_group is set to True, this option will not change any results
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
+# enrichment   # note: to prevent repeated enrichment score calculation, filtering is not applied to the enrichment-scores output itself.
+enrichment_SE_quantile_filter: 0.9   # quantile of standard errors to filter out. e.g. if set to 0.9, only the scores with the lowest 9% of standard errors will be used. Setting to 0 or 1 will disable this filter 
+
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted
 sequence_length_threshold: 0.1              # Proportion of sequence length to be used as threshold for discarding sequences that are of abberant length. Ex. if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed

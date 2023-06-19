@@ -179,15 +179,30 @@ rule enrichment_scores:
         CSV = 'demux-stats.csv',
         timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
     output:
-        scores = 'enrichment/{tag}_enrichment-scores.csv',
-        mean = 'enrichment/{tag}_enrichment-scores-mean.csv',
-        plots = 'plots/{tag}_enrichment-scores.html'
+        scores = 'enrichment/{tag, [^\/]*}_enrichment-scores.csv'
     params:
         screen_no_group = lambda wildcards: config['demux_screen_no_group'],
         barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
         barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {})
+    threads: max(workflow.cores-1,1)
     script:
         'utils/enrichment.py'
+
+# filter enrichment scores, compute means, and plot
+rule plot_enrichment:
+    input:
+        scores = 'enrichment/{tag}_enrichment-scores.csv'
+    output:
+        mean = 'enrichment/{tag, [^\/]*}_enrichment-scores-mean.csv',
+        plot = 'plots/{tag, [^\/]*}_enrichment-scores.html'
+    params:
+        se_filter = lambda wildcards: config.get('enrichment_SE_quantile_filter', 0),
+    run:
+        from utils.enrichment import enrichment_mean_filter, plot_enrichment
+        scores_df = pd.read_csv(input.scores, index_col=False)
+        filtered, _ = enrichment_mean_filter(scores_df, params.se_filter, mean_csv=output.mean)
+        plot_enrichment(filtered, output.plot)
+
 
 # Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output,
 #   so instead we create a separate rule for which correct input files are only given when AA analysis is not being performed, and give this rule priority. It's not pretty but it works.
@@ -381,15 +396,21 @@ rule plot_mutations_frequencies_tag:
 
 rule hamming_distance:
     input:
-        'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
+        genotypesCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
+        ref_fasta = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
     output:
         # HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv', # not currently using and takes up a lot of disk space
         HDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
     params:
         downsample = lambda wildcards: config.get('hamming_distance_distribution_downsample', False),
-        refSeqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
-    script:
-        'utils/hamming_distance.py'
+        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True)
+    run:
+        from utils.common import dist_to_DF
+        from utils.SequenceAnalyzer import SequenceAnalyzer
+        data = SequenceAnalyzer(reference_fasta=input.ref_fasta, genotypesCSV=input.genotypesCSV, exclude_indels=(not params.analyze_seqs_with_indels))
+        matrixDF, HDdistDF = data.HD_matrix_and_dist(NTorAA=wildcards.NTorAA, downsample=params.downsample)
+        HD_dist_DF = dist_to_DF(HDdistDF, f'{wildcards.NTorAA} hamming distance', 'sequence pairs')
+        HD_dist_DF.to_csv(output.HDdistCSV, index=False)
 
 def plot_mutations_distribution_input(wildcards):
     if config['do_demux'][wildcards.tag]:

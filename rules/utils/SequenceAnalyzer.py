@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pacmap as pm
 import pathlib
+import sklearn
 from Bio import SeqIO
 from Bio.Seq import Seq
 
@@ -181,6 +182,73 @@ class SequenceAnalyzer:
         for key in self.selected_data:
             selected_dict['df'][key] = self.selected_data[key]
         return selected_dict
+    
+    def downsample(self, size):
+        """
+        downsamples the dataset to a given size by randomly selecting a subset of the data
+
+        args:
+            size:   int, number of sequences to sample from the dataset
+        """
+        if size > self.integer_matrix.shape[0]:
+            raise ValueError('size must be less than or equal to the number of sequences in the dataset')
+        idx = np.random.choice(np.arange(self.integer_matrix.shape[0]), size=size, replace=False)
+        self.select(idx=idx)
+
+    @staticmethod
+    def pairwise_hamming_distance_matrix(seqArray):
+        """
+        Given an array of shape (N,L) containing N integer-encoded sequences of length L,
+        computes the pairwise hamming distance of all pairs of sequences and outputs these as
+        a matrix of shape (N,N) containing all pairwise hamming distances
+        """
+        # sklearn pairwise distances returns distances as a fraction of the maximum distance,
+        #   so multiplying by the maximum distance, then rounding, and converting to int
+        return np.rint(sklearn.metrics.pairwise_distances(seqArray,metric='hamming')*seqArray.shape[1]).astype(int)
+
+    @staticmethod
+    def bincount_2D(matrix):
+        """
+        matrix:     2d array
+
+        given a matrix (2d array) of positive integer values of shape (M,N),
+            returns bincounts for the matrix as a 2d array of shape
+            (M, matrix.max()+1). Essentially a vectorized version of
+            np.bincount applied to each element along the 0th dimension of a 2d array
+
+        taken from https://stackoverflow.com/questions/40591754/vectorizing-numpy-bincount
+        """
+        M = matrix.shape[0]
+        maxVal = matrix.max()+1
+        matrix = matrix.transpose()
+
+        arr = matrix + (maxVal*np.arange(M))
+        return np.bincount(arr.ravel(), minlength=M*maxVal).reshape(M,-1)
+
+
+    def HD_matrix_and_dist(self, NTorAA, downsample=False):
+        """
+        NTorAA:         string, 'NT' or 'AA', determines whether to calculate
+                            NT hamming distance or AA hamming distance
+        downsample:     False or int, if int, after removal of genotypes with insertions or deletions,
+                            the number of sequences will be reduced down to this number
+        """
+
+        if downsample:
+            self.downsample(downsample)
+
+        HD_matrix = self.pairwise_hamming_distance_matrix(self.get_selection()['integer'][NTorAA])
+
+        triangle = np.tril(HD_matrix)            # matrix is symmetric along diagonal, so zero out hamming distances from upper triangle
+        HD_bincount = self.bincount_2D(triangle)
+        HD_bincount[:,0] = np.subtract(HD_bincount[:,0], np.arange(HD_bincount.shape[0],0,-1))     # remove 0 counts resulting from zeroing out the upper triangle
+        counts = self.get_selection()['df']['count'].to_numpy().reshape(len(self.get_selection()['df']),1)
+        HD_bincount = np.multiply(HD_bincount, counts)                                            # multiply hamming distance bincounts for each sequence by the counts for each sequence
+        same_pairs = np.multiply(counts, (counts-1)) / 2
+        HD_bincount[:,0] = np.add(HD_bincount[:,0], same_pairs[:,0])                                                            # add appropriate amount of 0 counts for sequences with count>1 according to the formula pairs=count*(count-1)/2
+        HD_dist = HD_bincount.sum(0)
+        
+        return HD_matrix, HD_dist
     
     def write_fasta(self, filename, NTorAA, idx=None, unique_only=True):
         """

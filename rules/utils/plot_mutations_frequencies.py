@@ -7,7 +7,6 @@ hv.extension("bokeh")
 
 
 def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wildcards):
-
     number_of_positions = 20    # number of positions to include for most and least frequent
 
     mutStatsDF = pd.read_csv(stats_input, dtype={'tag':str,'barcode_group':str})
@@ -46,6 +45,7 @@ def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wild
         mutsDF_all = pd.concat([mutsDF_all, mutsDF])
 
     # determine the most and least frequently mutated positions across all sample groups
+    mutsDF_all = mutsDF_all.astype({'total_count':int, 'proportion_of_seqs':float})
     group_DF = mutsDF_all.groupby(['wt', 'position'], as_index=False).sum().sort_values(['total_count'], ascending=True).reset_index().drop(columns='index')
     group_DF['wt_position'] = group_DF['wt'] + group_DF['position'].astype(str)
     least_frequent_positions = group_DF.iloc[:number_of_positions]['wt_position'].to_list()

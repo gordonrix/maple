@@ -34,6 +34,7 @@ dependencies:
   - blat
   - mappy
   - scikit-learn
+  - statsmodels
   - pip
   - pip:
     - pyabpoa==1.4.0
