@@ -249,9 +249,11 @@ def filter_by_proportions(group, column_proportion_upper):
     for column, quantile, take_upper in column_proportion_upper:
         if take_upper: # convert to lower quantile if take_upper is True
             quantile = 1-quantile
+        print(quantile)
         threshold = group[column].quantile(quantile)
         column_threshold_upper.append((column, threshold, take_upper))
     for column, threshold, take_upper in column_threshold_upper:
+        print(column, threshold, take_upper)
         if take_upper:
             group = group[group[column] >= threshold]
         else:
@@ -277,8 +279,10 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv
     if 0 < SE_filter < 1: # filter by SE
         filter_list.append(('standard_error', SE_filter, False))
     if 0 < t0_filter < 1: # filter by t0
-        first_count = enrichment_df.columns[4]
+        print(t0_filter)
+        first_count = enrichment_df.columns[3]
         filter_list.append((first_count, t0_filter, True))
+    print(SE_filter, t0_filter)
     
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     if filter_list:
