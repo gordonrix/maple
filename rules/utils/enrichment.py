@@ -279,10 +279,11 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv
     if 0 < t0_filter < 1: # filter by t0
         first_count = enrichment_df.columns[4]
         filter_list.append((first_count, t0_filter, True))
-    if filter_list:
-        enrichment_df = enrichment_df.groupby(['sample_label', 'replicate']).apply(filter_by_proportions, filter_list).reset_index(drop=True)
-
+    
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
+    if filter_list:
+        enrichment_df = enrichment_df.groupby([sample_label, 'replicate']).apply(filter_by_proportions, filter_list).reset_index(drop=True)
+
     mean_enrichment_df = enrichment_df.pivot(index=[sample_label, enrichment_bc], columns='replicate', values='enrichment_score')
     mean_enrichment_df.columns = [f'replicate_{rep}' for rep in mean_enrichment_df.columns]
     count_col = mean_enrichment_df.count(axis=1)
