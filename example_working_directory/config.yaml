@@ -115,7 +115,7 @@ medaka_model: 'r104_e81_sup_variant_g610'   # Model for medaka to use. Use `meda
 medaka_flags: '--quiet'                     # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added. 
 
 # UMI clustering and consensus
-UMI_mismatches: 4               # maximum allowable number of mismatches that UMIs can contain and still be grouped together. If set to 2, UMI grouping may consume on the order of 100 gb of memory. Setting to 1 may consume on the order of 1 gb of memory.
+UMI_mismatches: 4               # maximum allowable number of mismatches that UMIs can contain and still be grouped together.
 UMI_consensus_minimum: 1       # inclusive minimum number of subreads that will be used to generate a UMI consensus read
 UMI_consensus_maximum: 1       # inclusive maximum number of subreads that will be used to generate a UMI consensus read. UMI groups with more subreads than this value 'n' will be downsampled to 'n' subreads. Note that this behavior differs slightly from that of RCA_consensus_maximum
 UMI_medaka_batches: 1          # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
@@ -135,8 +135,10 @@ demux_screen_no_group: True   # set to True if demuxed sequences that are not as
 demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. If demux_screen_no_group is set to True, this option will not change any results
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
-# enrichment   # note: to prevent repeated enrichment score calculation, filtering is not applied to the enrichment-scores output itself.
-enrichment_SE_quantile_filter: 0.9   # quantile of standard errors to filter out. e.g. if set to 0.9, only the scores with the lowest 9% of standard errors will be used. Setting to 0 or 1 will disable this filter 
+# enrichment   # note: to prevent repeated enrichment score calculation, filtering is not applied to the enrichment-scores output itself but is instead applied to subsequent analysis steps.
+enrichment_SE_filter: 0.1           # proportion of standard errors to filter out. e.g. if set to 0.1, scores with standard errors in the highest 10% within each sample will be removed. Setting to 0 or 1 will disable this filter
+enrichment_t0_filter: 0.1        # proportion of timepoint counts to filter out. e.g. if set to 0.1, scores derived from the lowest 10% of counts at the first timepoint will be removed. Setting to 0 or 1 will disable this filter
+enrichment_missing_replicates_filter: True     # set to True to filter out scores that are missing replicates at any timepoint. Setting to False will allow "mean" scores to be calculated even when replicates are missing. This filter has no effect for data without replicates
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted

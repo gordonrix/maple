@@ -78,7 +78,7 @@ def regression_worker(df_chunk, x, timepoints, weighted=False):
     worker function for parallelizing the regression apply function
     """
     slopes, ses = zip(*df_chunk.apply(apply_regression, args=[x, timepoints, weighted], axis=1))
-    return pd.DataFrame({"enrichment_score": slopes, "se": ses}, index=df_chunk.index)
+    return pd.DataFrame({"enrichment_score": slopes, "standard_error": ses}, index=df_chunk.index)
 
 def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
     """
@@ -228,20 +228,59 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
 
     return enrichment_df
 
-def enrichment_mean_filter(enrichment_df, SE_filter=1, filtered_csv='', mean_csv=''):
+def filter_by_proportions(group, column_proportion_upper):
+    """
+    Filter a groupby dataframe by one or more columns' quantiles so that each group and each column is filtered to the same extent.
+        e.g. if column_proportion_upper = [('count', 0.1, True), ('standard_error', 0.15, False)], then rows with 'count' values in
+        the bottom 10% and 'standard_error' values in the top 15% will be removed, but only a total of 15% of rows will be removed
+        from each group and each column.
+
+    Args:
+        df (pd.DataFrame): DataFrame to filter
+        column_proportion_upper list(tuple(str, float, bool): list of tuples of column names (str), proportion (float),
+            and whether to keep the upper (True) or lower (False) fraction of columns (bool)
+        take_upper (bool): if True, filter out the bottom proportion, if False, filter out the top proportion
+    
+    Returns:
+        pd.DataFrame: filtered DataFrame
+    """
+    # need to convert the proportion to a specific threshold for each column
+    column_threshold_upper = []
+    for column, quantile, take_upper in column_proportion_upper:
+        if take_upper: # convert to lower quantile if take_upper is True
+            quantile = 1-quantile
+        threshold = group[column].quantile(quantile)
+        column_threshold_upper.append((column, threshold, take_upper))
+    for column, threshold, take_upper in column_threshold_upper:
+        if take_upper:
+            group = group[group[column] >= threshold]
+        else:
+            group = group[group[column] <= threshold]
+    return group
+
+def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv='', mean_csv=''):
     """
     Filter enrichment scores by standard error then pivot and calculate average across replicates, then save to csv
 
     Args:
         enrichment_df (pd.DataFrame): DataFrame with enrichment scores for each sample
-        SE_filter (float): quantile of standard error to filter by. 0.25 will filter out the bottom 25% of standard errors
+        SE_filter (float): proportion of standard error to filter out.
+            rows with standard error in the top SE_filter proportion will be filtered out
+        t0_filter (float): proportion of t0 counts to filter out.
+            rows with t0 counts in the bottom t0_filter proportion will be filtered out
         csv_out (str): path to save csv    
     
     Returns:
         tuple(pd.DataFrame, pd.DataFrame): tuple of (filtered enrichment_df, mean_enrichment_df)
     """
+    filter_list = []
     if 0 < SE_filter < 1: # filter by SE
-        enrichment_df = enrichment_df[enrichment_df['se'] <= enrichment_df['se'].quantile(SE_filter)]
+        filter_list.append(('standard_error', SE_filter, False))
+    if 0 < t0_filter < 1: # filter by t0
+        first_count = enrichment_df.columns[4]
+        filter_list.append((first_count, t0_filter, True))
+    if filter_list:
+        enrichment_df = enrichment_df.groupby(['sample_label', 'replicate']).apply(filter_by_proportions, filter_list).reset_index(drop=True)
 
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     mean_enrichment_df = enrichment_df.pivot(index=[sample_label, enrichment_bc], columns='replicate', values='enrichment_score')
