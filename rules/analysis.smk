@@ -196,12 +196,12 @@ rule plot_enrichment:
         mean = 'enrichment/{tag, [^\/]*}_enrichment-scores-mean.csv',
         plot = 'plots/{tag, [^\/]*}_enrichment-scores.html'
     params:
-        se_filter = lambda wildcards: config.get('enrichment_SE_quantile_filter', 0),
+        SE_filter = lambda wildcards: config.get('enrichment_SE_filter', 0),
         t0_filter = lambda wildcards: config.get('enrichment_t0_filter', 0),
     run:
         from utils.enrichment import enrichment_mean_filter, plot_enrichment
         scores_df = pd.read_csv(input.scores, index_col=False)
-        filtered, _ = enrichment_mean_filter(scores_df, params.se_filter, mean_csv=output.mean)
+        filtered, _ = enrichment_mean_filter(scores_df, SE_filter=params.SE_filter, t0_filter=params.t0_filter, mean_csv=output.mean)
         plot_enrichment(filtered, output.plot)
 
 
