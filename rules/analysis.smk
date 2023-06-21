@@ -200,11 +200,11 @@ rule plot_enrichment:
     params:
         SE_filter = lambda wildcards: config.get('enrichment_SE_filter', 0),
         t0_filter = lambda wildcards: config.get('enrichment_t0_filter', 0),
-        t1_filter = lambda wildcards: config.get('enrichment_t1_filter', 0)
+        score_filter = lambda wildcards: config.get('enrichment_score_filter', False)
     run:
         from utils.enrichment import enrichment_mean_filter, plot_enrichment
         scores_df = pd.read_csv(input.scores, index_col=False)
-        filtered, _ = enrichment_mean_filter(scores_df, SE_filter=params.SE_filter, t0_filter=params.t0_filter, t1_filter=params.t1_filter, mean_csv=output.mean)
+        filtered, _ = enrichment_mean_filter(scores_df, SE_filter=params.SE_filter, t0_filter=params.t0_filter, score_filter=params.score_filter, mean_csv=output.mean)
         plot_enrichment(filtered, output.plot)
 
 

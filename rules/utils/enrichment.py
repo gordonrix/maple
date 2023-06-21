@@ -177,7 +177,6 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
             print(f"[NOTICE] enrichment.py: Using the most abundant barcode, {reference_bc}, as the enrichment reference.\n")
         else:
             print("[NOTICE] enrichment.py: No barcodes found in all samples. Using the total count of all barcodes found in each set of timepoints as the reference.\n")
-    print(reference_bc)
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
     timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
@@ -221,7 +220,8 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
             reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
         counts = sample_df[slice_cols].to_numpy()
 
-        # set counts folowing 0 counts to nan then calculate normalized log transformed y values
+
+        # set counts following 0 counts to nan then calculate normalized log transformed y values
         counts_pruned = counts.copy()
         mask = (np.cumsum(counts_pruned == 0, axis=1) > 1)
         counts_pruned[mask] = np.nan
@@ -293,7 +293,7 @@ def filter_by_proportions(group, column_proportion_upper):
             group = group[group[column] <= threshold]
     return group
 
-def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, t1_filter=0, filtered_csv='', mean_csv=''):
+def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter=False, filtered_csv='', mean_csv=''):
     """
     Filter enrichment scores by standard error then pivot and calculate average across replicates, then save to csv
 
@@ -314,13 +314,13 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, t1_filter=0,
     if 0 < t0_filter < 1: # filter by t0
         first_count = enrichment_df.columns[3]
         filter_list.append((first_count, t0_filter, True))
-    if 0 < t1_filter < 1: # filter by t1
-        second_count = enrichment_df.columns[4]
-        filter_list.append((second_count, t1_filter, True))
     
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     if filter_list:
         enrichment_df = enrichment_df.groupby([sample_label, 'replicate']).apply(filter_by_proportions, filter_list).reset_index(drop=True)
+
+    if score_filter: # filter by enrichment score
+        enrichment_df = enrichment_df[enrichment_df['enrichment_score'] >= score_filter]
 
     mean_enrichment_df = enrichment_df.pivot(index=[sample_label, enrichment_bc], columns='replicate', values='enrichment_score')
     mean_enrichment_df.columns = [f'replicate_{rep}' for rep in mean_enrichment_df.columns]
