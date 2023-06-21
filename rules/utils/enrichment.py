@@ -25,6 +25,13 @@ import argparse
 import itertools
 from  concurrent.futures import ProcessPoolExecutor
 
+def print_(string):
+    """
+    print function that writes to a file
+    """
+    with open("enrichment_log.txt", "a") as f:
+        f.write(string + "\n")
+
 def apply_regression(row, x, timepoints, weighted=False):
     """
     pandas apply function for linear regression using statsmodels.
@@ -155,7 +162,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
     counts_pivot_no_na = counts_pivot.dropna()
     counts_pivot = counts_pivot.fillna(0)
     counts_pivot = counts_pivot.reset_index().rename(columns={'index':enrichment_bc})
-
+    print(reference_bc)
     # identify the barcode that should be used as a reference
     if reference_bc:
         if reference_bc in counts_pivot_no_na.index:
@@ -170,6 +177,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
             print(f"[NOTICE] enrichment.py: Using the most abundant barcode, {reference_bc}, as the enrichment reference.\n")
         else:
             print("[NOTICE] enrichment.py: No barcodes found in all samples. Using the total count of all barcodes found in each set of timepoints as the reference.\n")
+    print(reference_bc)
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
     timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
@@ -246,7 +254,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
 
     if reference_bc: # bring the reference to the top of the dataframe
         ref_df = enrichment_df[enrichment_df[enrichment_bc] == reference_bc]
-        no_ref_df = enrichment_df[enrichment_df[enrichment_bc]] != reference_bc
+        no_ref_df = enrichment_df[enrichment_df[enrichment_bc] != reference_bc]
         enrichment_df = pd.concat([ref_df, no_ref_df])
 
 
@@ -285,7 +293,7 @@ def filter_by_proportions(group, column_proportion_upper):
             group = group[group[column] <= threshold]
     return group
 
-def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv='', mean_csv=''):
+def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, t1_filter=0, filtered_csv='', mean_csv=''):
     """
     Filter enrichment scores by standard error then pivot and calculate average across replicates, then save to csv
 
@@ -306,6 +314,9 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv
     if 0 < t0_filter < 1: # filter by t0
         first_count = enrichment_df.columns[3]
         filter_list.append((first_count, t0_filter, True))
+    if 0 < t1_filter < 1: # filter by t1
+        second_count = enrichment_df.columns[4]
+        filter_list.append((second_count, t1_filter, True))
     
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     if filter_list:
