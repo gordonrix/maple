@@ -183,8 +183,7 @@ rule enrichment_scores:
     params:
         screen_no_group = lambda wildcards: config['demux_screen_no_group'],
         barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
-        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {}),
-        reference_bc = lambda wildcards: config['runs'][wildcards.tag].get('enrichment_reference_bc', ''),
+        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {})
     threads: max(workflow.cores-1,1)
     script:
         'utils/enrichment.py'
@@ -198,7 +197,7 @@ rule plot_enrichment:
         plot = 'plots/{tag, [^\/]*}_enrichment-scores.html'
     params:
         SE_filter = lambda wildcards: config.get('enrichment_SE_filter', 0),
-        t0_filter = lambda wildcards: config.get('enrichment_t0_filter', 0),
+        t0_filter = lambda wildcards: config.get('enrichment_t0_filter', 0)
     run:
         from utils.enrichment import enrichment_mean_filter, plot_enrichment
         scores_df = pd.read_csv(input.scores, index_col=False)

@@ -368,6 +368,18 @@ if any([config['do_RCA_consensus'][tag] for tag in config['runs']]):
 
 config['consensusCopyDict'] = consensusCopyDict
 
+# check that any global config options that use dictionaries contain all tags as keys
+def validate_params(potential_param_dicts):
+    param_dicts = [param for param in potential_param_dicts if type(config[param])==dict]
+    for tag in config['runs']:
+        for param in param_dicts:
+            if tag not in config[param].keys():
+                print(f"[WARNING] Dict used for parameter {param}, but run tag {tag} not found as a key in this dict.\n")
+    return
+
+potential_param_dicts = ['alignment_minimap2_flags']
+validate_params(potential_param_dicts)
+
 # Demultiplexing checks
 config['do_demux'] = {}
 for tag in config['runs']:
