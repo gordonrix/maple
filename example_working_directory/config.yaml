@@ -139,6 +139,7 @@ demux_threshold: 0.01          # threshold for carrying through to subsequent ru
 enrichment_SE_filter: 0.1           # proportion of standard errors to filter out. e.g. if set to 0.1, scores with standard errors in the highest 10% within each sample will be removed. Setting to 0 or 1 will disable this filter
 enrichment_t0_filter: 0.1        # proportion of timepoint counts to filter out. e.g. if set to 0.1, scores derived from the lowest 10% of counts at the first timepoint will be removed. Setting to 0 or 1 will disable this filter
 enrichment_missing_replicates_filter: True     # set to True to filter out scores that are missing replicates at any timepoint. Setting to False will allow "mean" scores to be calculated even when replicates are missing. This filter has no effect for data without replicates
+enrichment_reference_bc: ''     # name of the barcode to use as a reference for calculating enrichment scores. If not set, a barcode that is abundant within all samples will be chosen as the reference. If no such barcode exists, the first barcode in the list will be used as the reference
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted

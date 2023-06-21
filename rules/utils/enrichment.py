@@ -55,12 +55,12 @@ def apply_regression(row, x, timepoints, weighted=False):
         slope, se = np.nan, np.nan
     elif not_nan_count == 2:
         count_cols = [f"{tp}_count" for tp in timepoints]
-        standard_cols = [f"{tp}_standard" for tp in timepoints]
+        reference_cols = [f"{tp}_reference" for tp in timepoints]
         y = y[not_nan_idx]
         slope = y[1] - y[0]
         counts = row[count_cols].astype(int).to_numpy().transpose()[not_nan_idx]
-        standard_counts = row[standard_cols].astype(int).to_numpy().transpose()[not_nan_idx]
-        se = np.sqrt( (1/ (standard_counts[0]+0.5) ) + (1/ (standard_counts[1]+0.5) ) + (1/ (counts[0]+0.5) ) + (1/ (counts[1]+0.5) ) )
+        reference_counts = row[reference_cols].astype(int).to_numpy().transpose()[not_nan_idx]
+        se = np.sqrt( (1/ (reference_counts[0]+0.5) ) + (1/ (reference_counts[1]+0.5) ) + (1/ (counts[0]+0.5) ) + (1/ (counts[1]+0.5) ) )
     else:
         x = sm.add_constant(x)
         w = 1
@@ -105,7 +105,7 @@ def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
     return df
 
 
-def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barcode_groups, scores_csv='', screen_no_group=True):
+def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barcode_groups, reference_bc='', scores_csv='', screen_no_group=True):
     """
     Calculate enrichment scores from counts of barcodes.
 
@@ -148,10 +148,28 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
     demux_stats_DF['tag_bcGroup'] = demux_stats_DF.apply(lambda row:
         row['tag'] + '_' + row['output_file_barcodes'], axis=1)
     
+
     # pivot the counts to give one row per enrichment barcode, with columns for counts of that enrichment barcode
     #   per each barcode group, then convert to fraction of counts for sample/timepoint
-    counts_pivot = demux_stats_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count').fillna(0)
+    counts_pivot = demux_stats_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count')
+    counts_pivot_no_na = counts_pivot.dropna()
+    counts_pivot = counts_pivot.fillna(0)
     counts_pivot = counts_pivot.reset_index().rename(columns={'index':enrichment_bc})
+
+    # identify the barcode that should be used as a reference
+    if reference_bc:
+        if reference_bc in counts_pivot_no_na.index:
+            print(f"[NOTICE] enrichment.py: Provided enrichment reference_bc {reference_bc} found in all samples. Using this barcode as the enrichment reference.\n")
+        else:
+            print(f"[WARNING] enrichment.py: Provided enrichment reference_bc {reference_bc} not found in all samples.\n")
+            reference_bc = ''
+    if reference_bc == '':
+        # if pivot no na isnt empty, use the most abundant barcode as the reference
+        if counts_pivot_no_na.shape[0] > 0:
+            reference_bc = counts_pivot_no_na.divide( counts_pivot_no_na.mean(axis=0) ).sum(axis=1).sort_values(ascending=False).idxmax()
+            print(f"[NOTICE] enrichment.py: Using the most abundant barcode, {reference_bc}, as the enrichment reference.\n")
+        else:
+            print("[NOTICE] enrichment.py: No barcodes found in all samples. Using the total count of all barcodes found in each set of timepoints as the reference.\n")
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
     timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
@@ -178,40 +196,43 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
     #   and three columns per timepoint (count, normalized and log transformed count, and weights)
     sample_df_list = []
     tp_cols = timepoints_DF.columns.to_list()
-    cols_dict = {tp_type:[f'{x}_{tp_type}' for x in tp_cols] for tp_type in ['count', 'normalized', 'weight', 'standard']}
+    cols_dict = {tp_type:[f'{x}_{tp_type}' for x in tp_cols] for tp_type in ['count', 'normalized', 'weight', 'reference']}
     for index, row in timepoints_DF.iterrows():
         slice_cols = row.to_list()
         for col in slice_cols:
             if col not in counts_pivot.columns:
-                print(f'[WARNING] No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0')
+                print(f'[WARNING] enrichment.py: No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0\n')
                 counts_pivot = counts_pivot.assign(**{col:0})
         sample_df = counts_pivot.loc[:,[enrichment_bc] + slice_cols]
         
-        # get the total counts for only barcodes that appear in all timepoints, used as a standard
-        survivors_sum = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
-        # ln(count+0.5/survivors_sum+0.5)
+        if reference_bc:
+            # get the total counts for the reference barcode
+            reference_counts = sample_df[sample_df[enrichment_bc] == reference_bc][slice_cols].sum(axis=0).to_numpy()
+        else:
+            # get the total counts for only barcodes that appear in all timepoints, used as a reference
+            reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
         counts = sample_df[slice_cols].to_numpy()
 
         # set counts folowing 0 counts to nan then calculate normalized log transformed y values
         counts_pruned = counts.copy()
         mask = (np.cumsum(counts_pruned == 0, axis=1) > 1)
         counts_pruned[mask] = np.nan
-        y_normalized = np.log( (counts_pruned+0.5) / (survivors_sum+0.5) )
+        y_normalized = np.log( (counts_pruned+0.5) / (reference_counts+0.5) )
 
         # calculate weights as 1/ 1/count+0.5 + 1/surivors_sum+0.5)
         #   weight from survivor sum needs to be broadcasted to the same shape as counts
-        weights = 1 / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (survivors_sum + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
+        weights = 1 / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (reference_counts + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
         
-        # add normalized values, weights, standard count to the sample_df. standard will be removed before output
+        # add normalized values, weights, reference count to the sample_df. reference will be removed before output
         sample_df[cols_dict['normalized']] = y_normalized
         sample_df[cols_dict['weight']] = weights
-        sample_df[cols_dict['standard']] = np.repeat(survivors_sum[np.newaxis,], counts.shape[0], axis=0)
+        sample_df[cols_dict['reference']] = np.repeat(reference_counts[np.newaxis,], counts.shape[0], axis=0)
 
         sample_cols = {sample_label:index[0], 'replicate':index[1]}
         rename_dict = {old:new for old, new in zip(slice_cols, cols_dict['count'])}
         sample_df = sample_df.assign(**sample_cols).rename(columns=rename_dict)
         sample_df = sample_df.astype({count_col:'int64' for count_col in cols_dict['count']})
-        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + cols_dict['count'] + cols_dict['normalized'] + cols_dict['weight'] + cols_dict['standard']]
+        sample_df = sample_df[[sample_label, 'replicate', enrichment_bc] + cols_dict['count'] + cols_dict['normalized'] + cols_dict['weight'] + cols_dict['reference']]
         sample_df_list.append(sample_df)
 
     enrichment_df = pd.concat(sample_df_list)
@@ -221,7 +242,13 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
     x_normalized = [float(x)/float(max(tp_vals)) for x in tp_vals]
 
     enrichment_df = regression_parallelize(n_threads, enrichment_df, x_normalized, tp_cols, weighted=True)
-    enrichment_df = enrichment_df.drop(columns=cols_dict['standard'])
+    enrichment_df = enrichment_df.drop(columns=cols_dict['reference'])
+
+    if reference_bc: # bring the reference to the top of the dataframe
+        ref_df = enrichment_df[enrichment_df[enrichment_bc] == reference_bc]
+        no_ref_df = enrichment_df[enrichment_df[enrichment_bc]] != reference_bc
+        enrichment_df = pd.concat([ref_df, no_ref_df])
+
 
     if scores_csv:
         enrichment_df.to_csv(scores_csv, index=False)
@@ -249,11 +276,9 @@ def filter_by_proportions(group, column_proportion_upper):
     for column, quantile, take_upper in column_proportion_upper:
         if take_upper: # convert to lower quantile if take_upper is True
             quantile = 1-quantile
-        print(quantile)
         threshold = group[column].quantile(quantile)
         column_threshold_upper.append((column, threshold, take_upper))
     for column, threshold, take_upper in column_threshold_upper:
-        print(column, threshold, take_upper)
         if take_upper:
             group = group[group[column] >= threshold]
         else:
@@ -279,10 +304,8 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, filtered_csv
     if 0 < SE_filter < 1: # filter by SE
         filter_list.append(('standard_error', SE_filter, False))
     if 0 < t0_filter < 1: # filter by t0
-        print(t0_filter)
         first_count = enrichment_df.columns[3]
         filter_list.append((first_count, t0_filter, True))
-    print(SE_filter, t0_filter)
     
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
     if filter_list:
@@ -353,4 +376,4 @@ def plot_enrichment(enrichment_df, plots_out):
 
 
 if __name__ == '__main__':
-    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.threads, snakemake.input.timepoints, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups, scores_csv=snakemake.output.scores, screen_no_group=snakemake.params.screen_no_group)
+    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.threads, snakemake.input.timepoints, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups, reference_bc=snakemake.params.reference_bc, scores_csv=snakemake.output.scores, screen_no_group=snakemake.params.screen_no_group)
