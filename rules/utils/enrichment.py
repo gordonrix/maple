@@ -56,10 +56,10 @@ def apply_regression(row, x, timepoints, weighted=False):
     not_nan_count = np.count_nonzero(not_nan)
     not_nan_idx = np.where(not_nan)[0]
 
-    # if there's only two timepoints, then return slope as normalized log ratio of final / first timepoint counts
-    #   if more than 2, use weighted linear regression
     if not_nan_count < 2:
         slope, se = np.nan, np.nan
+    # if there's only two timepoints, then return slope as normalized log ratio of final / first timepoint counts
+    #   if more than 2, use weighted linear regression
     elif not_nan_count == 2:
         count_cols = [f"{tp}_count" for tp in timepoints]
         reference_cols = [f"{tp}_reference" for tp in timepoints]
@@ -163,7 +163,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
     counts_pivot_no_na = counts_pivot.dropna()
     counts_pivot = counts_pivot.fillna(0)
     counts_pivot = counts_pivot.reset_index().rename(columns={'index':enrichment_bc})
-    print(reference_bc)
+
     # identify the barcode that should be used as a reference
     if reference_bc:
         if reference_bc in counts_pivot_no_na.index:
@@ -349,12 +349,14 @@ def plot_enrichment(enrichment_df, plots_out):
     """
 
     sample_label, _, enrichment_bc = enrichment_df.columns[:3]
-    samples = enrichment_df[sample_label].unique()
+    samples = list(enrichment_df[sample_label].unique())
+    samples.sort()
     plots = {}
 
     for sample in samples:
         sample_df = enrichment_df[enrichment_df[sample_label] == sample]
-        replicates = sample_df['replicate'].unique()
+        replicates = list(sample_df['replicate'].unique())
+        replicates.sort()
         sample_plots = []
 
         for replicate1, replicate2 in itertools.combinations(replicates, 2):
