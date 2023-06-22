@@ -285,7 +285,7 @@ def filter_by_proportions(group, column_proportion_upper):
     # need to convert the proportion to a specific threshold for each column
     column_threshold_upper = []
     for column, quantile, take_upper in column_proportion_upper:
-        if take_upper: # convert to lower quantile if take_upper is True
+        if not take_upper: # convert to opposite quantile if take_upper is False
             quantile = 1-quantile
         threshold = group[column].quantile(quantile)
         column_threshold_upper.append((column, threshold, take_upper))
@@ -352,6 +352,9 @@ def plot_enrichment(enrichment_df, plots_out):
     samples = list(enrichment_df[sample_label].unique())
     samples.sort()
     plots = {}
+    # use same min/max values for fit lines and label location
+    min_value = enrichment_df['enrichment_score'].quantile(0.01)
+    max_value = enrichment_df['enrichment_score'].quantile(0.99)
 
     for sample in samples:
         sample_df = enrichment_df[enrichment_df[sample_label] == sample]
@@ -370,14 +373,21 @@ def plot_enrichment(enrichment_df, plots_out):
             points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400,
                         fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=2, color='black', alpha=0.1)
 
-            # add x=y line and R² fit
-            min_value = np.min([pivot_df[replicate1].min(), pivot_df[replicate2].min()])
-            max_value = np.max([pivot_df[replicate1].max(), pivot_df[replicate2].max()])
-            trendline = hv.Curve(([min_value, max_value], [min_value, max_value])).opts(
+            # use statsmodels OLS to calculate R² between the two replicates
+            y = pivot_df[replicate2].to_numpy()
+            x = sm.add_constant(pivot_df[replicate1].to_numpy())
+            fit = sm.OLS(y,x).fit()
+            fit_r2 = fit.rsquared
+            intercept = fit.params[0]
+            slope = fit.params[1]
+
+            # use hv.Curve to show the fit line
+            trendline = hv.Curve(([min_value, max_value], [min_value * slope + intercept, max_value * slope + intercept])).opts(
                 xlabel=kdims[0], ylabel=kdims[1], color="lightgrey", line_dash='dashed')
+
+            # also calculate the R² for fit to x=y line
             r2 = r2_score(pivot_df[replicate1], pivot_df[replicate2])
-            x_median = pivot_df[replicate1].quantile(0.5)
-            r2_label = hv.Text(x_median, max_value, f'R² = {r2:.2f}', halign='center', valign='center').opts(color='black')
+            r2_label = hv.Text(min_value, max_value, f' slope 1, R² = {r2:.2f}\n slope {slope:.2f}, R² = {fit_r2:.2f}', halign='left', valign='top').opts(color='black')
 
             # distributions
             x_hist, y_hist = (histogram(points, dimension=k).opts(fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}) for k in kdims)
