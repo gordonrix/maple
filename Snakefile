@@ -550,7 +550,7 @@ for tag in config['runs']:
                             if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
                                 config['timepointsInfo'][sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
                             firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[0].seq).upper()
-                            firstTagRunname = config['runs'][firstTag]['runname']
+                            firstTagRunname = config['runs'][firstTag].get('runname', '')
                         else:
                             errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
                         for tp in timepointsCSV.columns:
@@ -562,7 +562,7 @@ for tag in config['runs']:
                                     tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
                                     if tagRefSeq != firstTagRefSeq:
                                         print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.\n", file=sys.stderr)
-                                    tagRunname = config['runs'][tag]['runname']
+                                    tagRunname = config['runs'][tag].get('runname', '')
                                     if tagRunname != firstTagRunname and 'background' not in config:
                                         print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
                                 if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run

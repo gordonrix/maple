@@ -30,6 +30,7 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
     select_matches = 0
 
     for folder in folderList:
+
         folders_with_seqs = []
         folderFilePaths = []
         # Search for the uniquely named folder within the root folder
@@ -74,12 +75,16 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
             print('[ERROR] More than one fastq file found that matches user input:\n'+''.join([f'{file}\n' for file in input]))
         elif select_matches > 1:
             print(f'[WARNING] More than one file found that matches user input "{select}":\n'+''.join([f'{file}\n' for file in folderFilePaths]))
+
+    if len(filePaths) == 0:
+        print('[NOTICE] Did not find any sequences to import. This is likely because no runname for a tag was specified. If sequence import is necessary then you may have change that.')
+
     return filePaths
 
 rule merge_paired_end:
     input:
-        fwd = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag]['runname'][0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['fwdReads'])[0],
-        rvs = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag]['runname'][0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['rvsReads'])[0]
+        fwd = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag].get('runname','')[0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['fwdReads'])[0],
+        rvs = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag].get('runname','')[0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['rvsReads'])[0]
     output:
         merged = temp("sequences/paired/{tag, [^\/_]*}.fastq.gz"),
         log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
@@ -95,7 +100,7 @@ rule merge_paired_end:
 
 rule basecaller_combine_tag: # combine batches of basecalled reads into a single file
     input:
-        lambda wildcards: retrieve_fastqs(config['sequences_dir'], config['runs'][wildcards.tag]['runname'], config['fastq_dir'])
+        lambda wildcards: retrieve_fastqs(config['sequences_dir'], config['runs'][wildcards.tag].get('runname',''), config['fastq_dir'])
     output:
         temp("sequences/{tag, [^\/_]*}_combined.fastq.gz")
     run:

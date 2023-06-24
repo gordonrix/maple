@@ -59,6 +59,26 @@ def trim_normalize_row(mutStatsRow, refSeq, mutTypes):
 
     return outList
 
+def horizontal_lines(start, end):
+    """
+    Generates a holoviews overlay of horizontal lines at powers of 10 in the provided range
+        (10^n where n = range(start,end)
+
+    Args:
+        start:      start of range of exponents for horizontal lines
+        end:        end of range of exponents for horizontal lines
+
+    Returns:
+        holoviews overlay plot
+    
+    """
+    # Ensure we have a range function for numpy
+    exponent_range = [10**n for n in range(start,end)]
+    lines = []
+    for y in exponent_range:
+        lines.append( hv.HLine(y=y).opts(color="lightgrey", line_dash="dashed") )
+    return hv.Overlay(lines)
+
 def main():
     ### Asign variables from config file and inputs
     config = snakemake.config
@@ -198,14 +218,17 @@ def main():
                     ylim=(0.00000001, 0.0005), ylabel=f'{mut_type} substitution rate')
         points = hv.Points(mtType_rate_DF[['sample_label', 'rate']]).opts(
                     logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
-        mutType_grouped_plot_list.append(boxPlot*points)
+        # 10^n markers
+        h_lines = horizontal_lines(-11, -1)
+
+        mutType_grouped_plot_list.append(boxPlot*points*h_lines)
         
     # plots that show individual rates, grouped together by sample (# of plots == # of samples)
     sample_grouped_plot_list = []
     heatmap_list = []
     for sample in uniqueSamples:
 
-        # boxplot only because points can't do multi category x axis
+        # no points plot because points can't do multi category x axis
         sample_rate_DF = allRatesDF[allRatesDF['sample_label']==sample]
         boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
                     logy=True, ylim=(0.00000001, 0.0005),
@@ -213,7 +236,9 @@ def main():
                     width=650, ylabel=f'per base substitutions per {timeUnit}')
         # points = hv.Points(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
         #             logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
-        sample_grouped_plot_list.append(boxPlot)
+        # 10^n markers
+        h_lines = horizontal_lines(-11, -1)
+        sample_grouped_plot_list.append(boxPlot*h_lines)
 
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis

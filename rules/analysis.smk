@@ -563,7 +563,7 @@ rule genotype_enrichment_scores:
             input_list = [input.enrichment]
         else:
             input_list = input.enrichment
-        print(input_list)
+            
         genotypes = pd.read_csv(input.genotypes, index_col=False)
         # pivot mean enrichment scores from each tag and relabel them so that they can be merged with the genotypes dataframe sequentially
         for mean_csv in input_list:
