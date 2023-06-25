@@ -15,6 +15,8 @@ from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from bokeh import palettes
+from colorcet import palette
+from natsort import natsorted
 
 # define colormaps
 colormaps = {'NT':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
@@ -43,6 +45,79 @@ for AAs,colorDict in zip(AAs_by_group,colorDictList):
 amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
 
 colormaps.update({'AA':amino_acid_colormap})
+
+def sort_barcodes(bcList, bcGroupsDict):
+    """
+    bcList:         list of strings, barcode groups
+    bcGroupsList:   dict, barcode groups dictionary for a specific tag from the config file,
+                        or an empty dictionary
+
+    returns the same list of barcode sorted first according to user provided barcode groups,
+        then by natural sorting (see natsort package)
+    """
+    defined = [bc for bc in bcGroupsDict.keys() if bc in bcList]
+    undefined = natsorted([bc for bc in bcList if bc not in bcGroupsDict.keys()])
+    return defined+undefined
+
+def cmap_dict():
+    """
+    basically just a wrapper for the colorcet palette function that returns a dictionary
+    (allowing for key retrieval) with a limited number of color palettes that includes reversed color palettes
+    """
+
+    cmaps_fwd = ['kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4']
+
+    # need a dict to map color names to lists of hex color values
+    colormap_dict = {}
+
+    # add reversed colormaps to cmap dict
+    for cmap in cmaps_fwd:
+        cmap_rvs = cmap+'_r'
+        colors = palette[cmap]
+        colormap_dict[cmap] = colors
+        colormap_dict[cmap_rvs] = colors[::-1]
+
+    return colormap_dict
+
+def get_colors(labels, cmap, background=False):
+    """
+    retrieve a list of colors for each of the samples in the input list
+
+    args:
+        labels (list(str)):    list of labels, used to determine background sample index
+        cmap (str):           string that describes the colormap to use
+        background (str):     string for the background sample if it is being used,
+                                will assign grey to the same position in the list as in the labels, if it is present
+                                must only appear once in the list of labels
+
+    returns:
+        colors:         a list of colors, one for each of the samples in the input list
+    """
+    labels = labels.copy() # don't modify the input list
+
+    if background:
+        if background in labels: # set aside background sample while we determine colors
+            background_idx = labels.index(background)
+            labels.remove(background)
+        else:
+            background = False
+
+    colormap = cmap_dict()[cmap]
+    steps = len(labels)-1 # number of steps between colors
+    colors = []
+    for i in range(0,len(labels)):
+        if steps > 0:
+            color_idx = int(round(i * (len(colormap) - 1) / steps))
+        else:
+            color_idx = len(colormap)//2 # use a color in the middle of the colormap
+        colors.append(colormap[color_idx])
+        
+    # insert grey into list at position of the background sample
+    if background:
+        colors.insert(background_idx, 'grey')
+
+    return colors
+
 
 def dist_to_DF(dist, x, y):
     """given a np.bincount output, i.e. a distribution of values in which each value is

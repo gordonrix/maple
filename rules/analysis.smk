@@ -9,7 +9,7 @@
 
 # imports
 import os, sys, glob
-from natsort import natsorted
+from utils.common import sort_barcodes
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
@@ -279,19 +279,6 @@ rule merge_mut_stats:
         combined = pd.concat(dfs)
         combined.to_csv(output[0], index=False)
 
-def sort_barcodes(bcList, bcGroupsDict):
-    """
-    bcList:         list of strings, barcode groups
-    bcGroupsList:   dict, barcode groups dictionary for a specific tag from the config file,
-                        or an empty dictionary
-
-    returns the same list of barcode sorted first according to user provided barcode groups,
-        then by natural sorting (see natsort package)
-    """
-    defined = [bc for bc in bcGroupsDict.keys() if bc in bcList]
-    undefined = natsorted([bc for bc in bcList if bc not in bcGroupsDict.keys()])
-    return defined+undefined
-
 def get_demuxed_barcodes(tag, bcGroupsDict):
     """
     tag:            string, run tag
@@ -363,9 +350,10 @@ rule plot_mutation_rate:
         boxplot_plot_sample_grouped = 'plots/{tag, [^\/]*}_mutation-rates-sample-grouped.html',
         heatmap = 'plots/{tag, [^\/]*}_mutation-rates-heatmap.html',
         CSV_all_rates = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates.csv',
-        CSV_summary = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates-summary.csv'
+        CSV_summary = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates-summary.csv',
     params:
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        cmap = lambda wildcards: config.get('cmap', 'kbc_r')
     script:
         'utils/plot_mutation_rate.py'
 
@@ -436,7 +424,8 @@ rule plot_distribution:
         legend_label = False,
         background = False,
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_distribution.py'
 
@@ -455,7 +444,8 @@ rule plot_distribution_tag:
         legend_label = 'barcode group',
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_distribution.py'
 
@@ -473,7 +463,8 @@ rule plot_distribution_timepointGroup:
         legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_distribution.py'
 
@@ -485,7 +476,9 @@ rule plot_violin_distribution_tag:
     params:
         group_col = 'barcode_group',
         x_label = 'sample',
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        background = lambda wildcards: config.get('background', False)
     script:
         'utils/plot_mutation_violin_distribution.py'
 
@@ -497,7 +490,9 @@ rule plot_violin_distribution_timepoint:
     params:
         group_col = 'timepoint',
         x_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        background = False
     script:
         'utils/plot_mutation_violin_distribution.py'
 
@@ -586,8 +581,8 @@ rule plot_genotypes2D_bcGroup:
     input:
         genotypesReduced = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv'
     output:
-        genotypes2Dscatter = 'plots/{tag, [^\/_]*}/{tag}_genotypes2D.html',
-        genotypes2Dhexbins = 'plots/{tag, [^\/_]*}/{tag}_genotypes2Dhexbins.html'
+        genotypes2Dscatter = 'plots/{tag, [^\/_]*}_genotypes2D.html',
+        genotypes2Dhexbins = 'plots/{tag, [^\/_]*}_genotypes2Dhexbins.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
         plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
@@ -629,17 +624,24 @@ rule plot_genotypes2D_timepoints:
     script:
         'utils/plot_genotypes_2d.py'
 
-def all_diversity_plots_input(wildcards):
-    out = ( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {}))) )
-    NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][wildcards.tag] else ['NT']
-    out.extend( expand('plots/{tag}_{NTorAA}-hamming-distance-distribution.html', tag=wildcards.tag, NTorAA=NTorAA) )
+def plot_genotypes_2D_all_input(wildcards):
+    out = []
+    for tag in config['runs']:
+        if config['do_NT_mutation_analysis'][tag]:
+            if config['do_demux'][tag]:
+                BCs = get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}))
+            else:
+                BCs = ['all']
+
+            out.extend( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=tag, barcodes=BCs) )
+
     return out
 
-rule plot_mutation_diversity_all:
+rule plot_genotypes_2D_all:
     input:
-        all_diversity_plots_input
+        plot_genotypes_2D_all_input
     output:
-        touch('plots/.{tag}_allDiversityPlots.done')
+        touch('plots/.all_genotypes_2D.done')
 
 def dashboard_input(wildcards):
     sample = config.get('dashboard_input', False)

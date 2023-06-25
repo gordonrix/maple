@@ -10,22 +10,12 @@ import numpy as np
 import holoviews as hv
 import hvplot.pandas
 import colorcet as cc
-from common import export_svg_plots
+from common import export_svg_plots, get_colors
 hv.extension('bokeh')
 
-def main(input, output, labels, title, legendLabel, background, raw, export_svgs):
+def main(input, output, labels, title, legendLabel, background, raw, export_svgs, cmap):
 
-    colormap = cc.blues
-    colorConstant = (len(colormap)-1) / len(input)
-    colors = []
-
-    for i, CSV in enumerate(input):
-        _, barcodes, _ = CSV.split('/')[-1].split('_')
-        color = colormap[int(i*colorConstant)]
-        if background:
-            if barcodes == background:
-                color = 'grey'
-        colors.append(color)
+    colors = get_colors(labels, cmap, background)
 
     inputDFs = [pd.read_csv(CSV, index_col=False) for CSV in input]
     plots = [ plot_cumsum(inputDFs, labels, colors, title, legendLabel) ] + [
@@ -101,4 +91,4 @@ def plot_dist(df, color='grey', title='', raw=False):
     return plot
 
 if __name__ == '__main__':
-    main(snakemake.input, snakemake.output.plot, snakemake.params.labels, snakemake.params.title, snakemake.params.legend_label, snakemake.params.background, snakemake.params.raw, snakemake.params.export_SVG)
+    main(snakemake.input, snakemake.output.plot, snakemake.params.labels, snakemake.params.title, snakemake.params.legend_label, snakemake.params.background, snakemake.params.raw, snakemake.params.export_SVG, snakemake.params.colormap)

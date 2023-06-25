@@ -22,6 +22,7 @@ import holoviews as hv
 import hvplot.pandas #noqa
 from holoviews import opts
 from scipy import stats
+from common import cmap_dict
 hv.extension('bokeh')
 
 def nt_normal_dict(sequence):
@@ -93,6 +94,7 @@ def main():
     backgroundBCgroup = config.get('background',False)
     refSeqfasta = config['runs'][tag]['reference']
     refSeq = str(list(SeqIO.parse(refSeqfasta, 'fasta'))[1].seq).upper()
+    cmap = cmap_dict()[snakemake.params.cmap]
     ###
 
     ### Make paths for outputs
@@ -245,7 +247,7 @@ def main():
         mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean'].clip(lower=10**-8))
         mean_rates_individual.loc[mean_rates_individual['rate_mean'] == -8, 'rate_mean'] = np.nan
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
-                                                        flip_yaxis=True, width=480, title=f'sample: {sample}',
+                                                        flip_yaxis=True, width=480, title=f'sample: {sample}', cmap=cmap,
                                                         xlabel='wild type nucleotide', ylabel='mutation nucleotide'
                                                         ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'}, axiswise=True)
         heatmap_list.append(heatmap)

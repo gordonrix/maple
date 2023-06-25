@@ -30,7 +30,7 @@ from bokeh.plotting import figure
 import matplotlib
 from colorcet import palette
 
-from common import conspicuous_mutations, colormaps, export_svg_plots
+from common import conspicuous_mutations, colormaps, export_svg_plots, cmap_dict
 from SequenceAnalyzer import SequenceAnalyzer
 from plot_distribution import plot_dist
 
@@ -57,8 +57,6 @@ if 'NT_muts_of_interest' not in all_data.genotypes.columns:
 if do_AA_analysis:
     if 'AA_muts_of_interest' not in all_data.genotypes.columns:
         all_data.genotypes['AA_muts_of_interest'] = 'none'
-
-embedding_options = [col.split('_')[0] for col in list(all_data.genotypes.columns) if col.endswith('_PaCMAP1')]
 
 ## Convert into a hv.Dataset, then use some widgets to downsample data and add a column for the size of points
 
@@ -136,8 +134,8 @@ downsampled_MOI = downsampled.apply(add_muts_of_interest_columns,
 
 ## define some widgets for filtering and apply filters
 
-# filter by any numeric columns
-numerical_columns = list(all_data.genotypes.select_dtypes(include=['number']).columns)
+# filter by any numeric columns (muts of interest are classified as numeric sometimes, not sure why)
+numerical_columns = [x for x in list(all_data.genotypes.select_dtypes(include=['number']).columns) if 'muts_of_interest' not in x]
 filter_by_select = pn.widgets.Select(name='filter column', options=numerical_columns, value='NT_substitutions_count')
 
 filter_range_slider = pn.widgets.RangeSlider(name='NT mutations range',
@@ -205,23 +203,26 @@ filtered = downsampled_MOI.apply(filter_dataset,
 color_options = ['NT_substitutions_count', 'NT_muts_of_interest', choice_col] + [col for col in numerical_columns if col != 'NT_substitutions_count']
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
-embedding_select = pn.widgets.Select(name='sequence embedding', options=embedding_options, value=embedding_options[0])
+
+embedding_options = [col.split('_')[0] for col in list(all_data.genotypes.columns) if col.endswith('_PaCMAP1')]
+points_x_select = pn.widgets.Select(name='column for x axis', options=numerical_columns, value=embedding_options[0] + '_PaCMAP1')
+points_y_select = pn.widgets.Select(name='column for y axis', options=numerical_columns, value=embedding_options[0] + '_PaCMAP2')
 
 #TODO: add toggle switch for hover
 # hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
 #                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
 tools = ['box_select', 'lasso_select']
 
-def points(dataset, embedding, tools, link=None):
-    dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
+def points(dataset, x_column, y_column, tools, link=None):
+    # dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
 
     # ticks outside range to hide them
-    plot = dataset.data.hvplot(kind='points', x=dim1, y=dim2, hover_cols=color_options ).opts(
-        xlabel=dim1, ylabel=dim2, tools=tools, height=600, width=770)
+    plot = dataset.data.hvplot(kind='points', x=x_column, y=y_column, hover_cols=color_options ).opts(
+        xlabel=x_column, ylabel=y_column, tools=tools, height=600, width=770)
     
     return plot
 
-downsampled_points = downsampled_MOI.apply(points, embedding=embedding_select, tools=tools)
+downsampled_points = downsampled_MOI.apply(points, x_column=points_x_select, y_column=points_y_select, tools=tools)
 
 ls = link_selections.instance()
 
@@ -245,23 +246,8 @@ sample_size_slider = pn.widgets.IntSlider(name='table sample size', start=5, ste
 ## define widgets for the filtered points plot, then use pn.bind to combine this with the unfiltered points plot
 
 color_by_select = pn.widgets.Select(name='color by', options=color_options, value=color_options[0])
-
-cmaps_fwd = ['kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4']
-
-# need a dict to map color names to lists of hex color values to feed to datashader
-colormap_dict = {cmap:palette[cmap] for cmap in cmaps_fwd}
-
-cmaps_rvs = []
-# add reversed colormaps to cmap dict
-for cmap in cmaps_fwd:
-    cmap_rvs = cmap+'_r'
-    cmaps_rvs.append(cmap_rvs)
-    colors = palette[cmap]
-    colormap_dict[cmap] = colors
-    colormap_dict[cmap_rvs] = colors[::-1]
-
-cmaps_all = cmaps_rvs + cmaps_fwd
-cmap_selector = pn.widgets.Select(name='colormap', options=cmaps_all)
+colormap_dict = cmap_dict()
+cmap_selector = pn.widgets.Select(name='colormap', options=list(colormap_dict.keys()), value='kbc_r')
 
 # manual cmap for datashading
 def get_color_key(categories, cmap):
@@ -311,7 +297,7 @@ unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity'
 
 
 # I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
-def points_bind(link, embedding, filtered_dataset, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha, do_datashade, NT_muts, AA_muts, max_muts):
+def points_bind(link, x_col, y_col, filtered_dataset, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha, do_datashade, NT_muts, AA_muts, max_muts):
     # widgets that aren't used in this function are just there to trigger the callback
 
     if do_datashade:
@@ -336,14 +322,22 @@ def points_bind(link, embedding, filtered_dataset, points_unfiltered, colorby, c
             clims = all_data.genotypes[colorby].min(), all_data.genotypes[colorby].max()
             cnorm = 'linear'
 
-        points_filtered = filtered_dataset.apply(points, embedding=embedding, tools=[])
-        points_filtered = datashade(points_filtered, aggregator=agg, cmap=cmap, color_key=color_key, cnorm=cnorm, clims=clims, min_alpha=min_alpha).opts(xticks=[100],yticks=[100]) 
+        points_filtered = filtered_dataset.apply(points, x_column=x_col, y_column=y_col, tools=[])
+        points_filtered = datashade(points_filtered, aggregator=agg, cmap=cmap, color_key=color_key, cnorm=cnorm, clims=clims, min_alpha=min_alpha)
+        if '_PaCMAP' in x_col:
+            points_filtered = points_filtered.opts(xticks=[100])
+        if '_PaCMAP' in y_col:
+            points_filtered = points_filtered.opts(yticks=[100])
         points_filtered = dynspread(points_filtered, threshold=1, max_px=2).opts(height=600, width=600)
         plot = points_unfiltered * points_filtered
 
     else:
         points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
-        points_filtered = filtered_dataset.apply(points, embedding=embedding, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby}, xticks=[100], yticks=[100])
+        points_filtered = filtered_dataset.apply(points, x_column=x_col, y_column=y_col, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
+        if '_PaCMAP' in x_col:
+            points_filtered = points_filtered.opts(xticks=[100])
+        if '_PaCMAP' in y_col:
+            points_filtered = points_filtered.opts(yticks=[100])
         plot = points_unfiltered * points_filtered
     
     if unselected_alpha == 0: # if unselected points are invisible, don't plot them to save compute. to maintain selections, link_selections is applied to the filtered points
@@ -354,7 +348,8 @@ def points_bind(link, embedding, filtered_dataset, points_unfiltered, colorby, c
 
 dynamic_points = pn.bind(points_bind,
                                 link=ls,
-                                embedding=embedding_select,
+                                x_col=points_x_select,
+                                y_col=points_y_select,
                                 points_unfiltered=downsampled_points,
                                 filtered_dataset=selected,
                                 colorby=color_by_select,
@@ -415,7 +410,7 @@ colorbar = pn.bind(colorbar_bind, colorby=color_by_select, cmap=cmap_selector, d
 ## histogram for a column chosen by a widget. selection will be highlighted by combining a low opacity histogram
 #   of the pre-filter dataset with a high opacity histogram of the selected dataset
 
-hist_col_selector = pn.widgets.Select(name='histogram column', options=['count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count'], value='NT_substitutions_count')
+hist_col_selector = pn.widgets.Select(name='histogram column', options=numerical_columns, value='NT_substitutions_count')
 hist_bins_slider = pn.widgets.IntSlider(name='histogram bins', start=1, step=1,
                                         end=round(all_data.genotypes['NT_substitutions_count'].max()),
                                         value=round(all_data.genotypes['NT_substitutions_count'].max()))
@@ -423,16 +418,25 @@ hist_bins_slider = pn.widgets.IntSlider(name='histogram bins', start=1, step=1,
 # update the range of bins based on the maximum value of the column
 def bins_widget_callback(IntSlider, event):
     column = event.new
-    maxVal = round(all_data.genotypes[column].max())
-    IntSlider.end = maxVal
-    IntSlider.value = maxVal
+    if all_data.genotypes[column].dtype == 'int64':
+        maxVal = round(all_data.genotypes[column].max())
+        IntSlider.end = maxVal
+        IntSlider.value = maxVal
+    elif all_data.genotypes[column].dtype == 'float64':
+        IntSlider.end = 30
+        IntSlider.value = 10
     
 hist_col_selector.link(hist_bins_slider, callbacks={'value':bins_widget_callback})
 
 def histogram(dataset, histCol, num_bins):
-    # calculate bin range based on maximum value, 1:1 bin:mutations ratio
-    max_x_val = all_data.genotypes[histCol].max()
-    bins = np.linspace(-0.5, max_x_val-0.5, num_bins+1)
+    # calculate bin range based on maximum value, allowing for bins=max value for integer columns
+    if all_data.genotypes[histCol].dtype == 'int64':
+        max_x_val = all_data.genotypes[histCol].max()
+        min_x_val = 0
+    elif all_data.genotypes[histCol].dtype == 'float64':
+        max_x_val = all_data.genotypes[histCol].max()
+        min_x_val = all_data.genotypes[histCol].min()
+    bins = np.linspace(min_x_val-0.5, max_x_val-0.5, num_bins+1)
     return dataset.data.hvplot(y=histCol, kind='hist', width=500,height=500, bins=bins, xlabel=histCol, ylabel='total sequences', color='grey')
 
 dynamic_hist = selected.apply(histogram, histCol=hist_col_selector, num_bins=hist_bins_slider).opts(alpha=1)
@@ -593,7 +597,7 @@ def export_AA_consensus(event):
 AA_consensus_button.on_click(export_AA_consensus)
 
 # make a button to reset all the widgets to their default values
-widgets = [ds_checkbox, size_column_select, size_range_slider, downsample_slider, NT_muts_text, AA_muts_text, max_mut_combos_slider, filter_by_select, filter_range_slider, count_range_slider, group_choice, embedding_select, selected_alpha_slider, unselected_alpha_slider, color_by_select, cmap_selector, NTorAA_radio, agg_plot_type_selector, sample_size_slider, agg_muts_width_slider]
+widgets = [ds_checkbox, size_column_select, size_range_slider, downsample_slider, NT_muts_text, AA_muts_text, max_mut_combos_slider, filter_by_select, filter_range_slider, count_range_slider, group_choice, points_x_select, points_y_select, selected_alpha_slider, unselected_alpha_slider, color_by_select, cmap_selector, NTorAA_radio, agg_plot_type_selector, sample_size_slider, agg_muts_width_slider]
 widgets_default_values = {widget:widget.value for widget in widgets}
 reset_button = pn.widgets.Button(name='reset all widgets', button_type='primary')
 def reset(event):
@@ -610,7 +614,7 @@ layout = pn.Column(
         pn.Row(downsample_slider, ds_checkbox),
         pn.Row(selected_alpha_slider,unselected_alpha_slider),
         pn.Row(size_column_select,size_range_slider),
-        pn.Row(pn.Column(embedding_select,count_range_slider),group_choice),
+        pn.Row(pn.Column(points_x_select,points_y_select,count_range_slider),group_choice),
         pn.Row(filter_by_select,filter_range_slider),
         pn.Row(color_by_select,cmap_selector),
         pn.Row(NT_muts_text,AA_muts_text),

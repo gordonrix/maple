@@ -182,7 +182,7 @@ else:
 errors = []
 
 # list of required options. Will be added to if certain tools are used
-required = ['sequences_dir', 'fastq_dir', 'references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'unique_genotypes_count_threshold', 'NT_distribution_plot_x_max', 'AA_distribution_plot_x_max', 'runs']
+required = ['sequences_dir', 'fastq_dir', 'references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'unique_genotypes_count_threshold', 'runs']
 if ('minknowDir' in config) and ('sequences_dir' not in config):
     print('[WARNING] "sequences_dir" is a new required config variable that replaces "minknowDir", please replaced "minknowDir" with "sequences_dir" in your config file"')
 
