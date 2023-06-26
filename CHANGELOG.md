@@ -1,6 +1,18 @@
 ## v0.10.2
+# Major
+   - Implemented enrichment scores for noSplit barcodes. A plot comparing replicates will be automatically
+      generated, and qhen NT or AA analysis are performed,
+      scores are appended to the genotypes CSV and become viewable within the dashboard
 # Minor
    - Updated README
+   - Enabled usage without sequence import (sequences must be named the same as the tags and in the sequences folder)
+   - Custom colormaps using config input
+   - Dashboard:
+      - can now color and filter by any numerical columns
+      - histogram now works for any numerical column
+      - points plot axes can now be any numerical column
+      - enrichment scores are now integrated into the dashboard
+         if they are calculated for the sample being used for the dashboard
 
 ## v0.10.1
 # Minor
