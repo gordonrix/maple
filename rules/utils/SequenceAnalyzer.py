@@ -185,15 +185,20 @@ class SequenceAnalyzer:
     
     def downsample(self, size):
         """
-        downsamples the dataset to a given size by randomly selecting a subset of the data
+        downsamples the dataset to a given size by randomly selecting a subset of the data,
+            then returns the selected data via the select method. If the requested size is
+            larger than the dataset, returns the entire dataset via the select method.
 
         args:
             size:   int, number of sequences to sample from the dataset
         """
-        if size > self.integer_matrix.shape[0]:
-            raise ValueError('size must be less than or equal to the number of sequences in the dataset')
-        idx = np.random.choice(np.arange(self.integer_matrix.shape[0]), size=size, replace=False)
-        self.select(idx=idx)
+        key = list(self.integer_matrix.keys())[0]
+        if size > self.integer_matrix[key].shape[0]:
+            idx = np.arange(self.integer_matrix[key].shape[0])
+        else:
+            idx = np.sort(np.random.choice(np.arange(self.integer_matrix[key].shape[0]), size=size, replace=False))
+            
+        return self.select(idx=idx)
 
     @staticmethod
     def pairwise_hamming_distance_matrix(seqArray):
