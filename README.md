@@ -6,7 +6,7 @@ Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pi
 mutation-rich next generation sequencing data from highly parallelized laboratory evolution experiments.
 It provides consensus sequence generation using both concatemer- and unique molecular identifiers (UMI)-based
 consensus, easy-to-use and versatile demultiplexing, and a suite of analyses and plotting scripts that are all
-executed automatically after providing some information about the data and executing a single command.
+executed automatically after the user provides some information about the data and executes a single command.
 
 Analysis is primarily performed by a mix of custom python scripts and several external tools:
  - [medaka](https://github.com/nanoporetech/medaka)

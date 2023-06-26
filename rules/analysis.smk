@@ -523,7 +523,8 @@ rule plot_genotypes2D:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count'),
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -588,7 +589,8 @@ rule plot_genotypes2D_bcGroup:
         plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
-        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'barcode_group')
+        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'barcode_group'),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -620,7 +622,8 @@ rule plot_genotypes2D_timepoints:
         plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.timepointsGroup]['tag'] ] else False,
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
-        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint')
+        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint'),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -632,11 +635,10 @@ def plot_genotypes_2D_all_input(wildcards):
                 BCs = get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}))
             else:
                 BCs = ['all']
-
-            out.extend( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=tag, barcodes=BCs) )
-
+            out.extend( expand('plots/{tag}/{barcodes}/{tag}_{barcodes}_genotypes2D.html', tag=tag, barcodes=BCs) ) 
     return out
 
+# plot genotypes 2D for each sample individually
 rule plot_genotypes_2D_all:
     input:
         plot_genotypes_2D_all_input

@@ -10,9 +10,8 @@ import holoviews as hv
 import pandas as pd
 import numpy as np
 import colorcet as cc
-from bokeh.models import HoverTool
 from pandas.api.types import is_numeric_dtype
-from common import export_svg_plots
+from common import export_svg_plots, cmap_dict
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
 
@@ -52,19 +51,14 @@ else:
 colorDict = {} # dictionary of value:color key:value pairs to map color_column variables to specific colors
 if is_numeric_dtype(data[color_column]):                            # color by value for numerical column
     legendBool = False
-    colormap = 'blues'
 else:                                                               # random colors for non-numerical column
     legendBool = True
-    colormap = 'bmy'
 
+colormap = cmap_dict()[snakemake.params.cmap]
 
-hover = HoverTool(tooltips=[('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
-                            ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
-tools = ['box_select', 'lasso_select',hover]
-
-scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel='color_column', hover_cols=[color_column, 'count', 'NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'NT_substitutions', 'AA_substitutions_nonsynonymous'],
+scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel=color_column,
     cmap=colormap, legend=legendBool, xticks=[100], yticks=[100]).opts(
-    xlabel=dim1, ylabel=dim2, height=800, width=905)  # slightly wider to account for colorbar so that plot dimensions match hexbins
+    tools=[], xlabel=dim1, ylabel=dim2, height=800, width=905)  # slightly wider to account for colorbar so that plot dimensions match hexbins
 
 hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
     cmap='dimgray', xticks=[100], yticks=[100]).opts(
