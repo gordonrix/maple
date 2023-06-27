@@ -64,7 +64,7 @@ hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
     cmap='dimgray', xticks=[100], yticks=[100]).opts(
     xlabel=dim1, ylabel=dim2, height=800, width=800)
 
-if snakemake.params.export_svg:
+if snakemake.params.export_SVG:
     try:
         export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dscatter, labels=['scatter','hexbins'])
     except:
