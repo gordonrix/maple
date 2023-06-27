@@ -138,7 +138,10 @@ checkpoint demultiplex:
         stats = 'demux/{tag, [^\/_]*}_demux-stats.csv'
     params:
         barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
-        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', False)
+        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', False),
+        screen_no_group = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_no_group', False),
+        screen_failures = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_failures', False),
+        threshold = lambda wildcards: config['runs'][wildcards.tag].get('threshold', False)
     script:
         'utils/demux.py'
 
@@ -511,23 +514,6 @@ rule reduce_genotypes_dimensions:
             sequences.assign_dimension_reduction('AA')
         sequences.genotypes.to_csv(output.reduced, index=False)
 
-rule plot_genotypes2D:
-    input:
-        genotypesReduced = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv'
-    output:
-        genotypes2Dscatter = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2D.html',
-        genotypes2Dhexbins = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2Dhexbins.html'
-    params:
-        downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
-        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
-        size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
-        size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
-        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count'),
-        export_SVG = lambda wildcards: config.get('export_SVG', False),
-        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
-    script:
-        'utils/plot_genotypes_2d.py'
-
 rule merge_tag_genotypes:
     input:
         genotypeCSVs = lambda wildcards: expand( 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})) ),
@@ -578,6 +564,24 @@ rule genotype_enrichment_scores:
             genotypes = pd.merge(genotypes, mean_enrichment, on='barcode(s)', how='left')
         genotypes.to_csv(output.genotypes_enrichment, index=False)
 
+rule plot_genotypes2D:
+    input:
+        genotypesReduced = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv'
+    output:
+        genotypes2Dscatter = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2D.html',
+        genotypes2Dhexbins = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_genotypes2Dhexbins.html'
+    params:
+        downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
+        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][wildcards.tag] else False,
+        size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
+        size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
+        color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
+    script:
+        'utils/plot_genotypes_2d.py'
+
 rule plot_genotypes2D_bcGroup:
     input:
         genotypesReduced = 'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv'
@@ -590,7 +594,8 @@ rule plot_genotypes2D_bcGroup:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'barcode_group'),
-        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_genotypes_2d.py'
 
@@ -627,7 +632,8 @@ rule plot_genotypes2D_timepoints:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint'),
-        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_genotypes_2d.py'
 
