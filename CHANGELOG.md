@@ -1,3 +1,8 @@
+## v0.10.3
+# Minor
+   - Changed how timepoint files are requested to prevent a bug
+   - Fixed a bug in SequenceAnalyzer.downsample()
+
 ## v0.10.2
 # Major
    - Implemented enrichment scores for noSplit barcodes. A plot comparing replicates will be automatically

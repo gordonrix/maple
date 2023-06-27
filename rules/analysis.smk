@@ -603,13 +603,17 @@ rule merge_timepoint_genotypes:
         tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
     run:
         import pandas as pd
-        timepoints = list(params.tpInfo.values())   # timepoint values are an amount of time like X generations
+        timepoints = list(params.tpInfo.values())   # timepoint values are an amount of some unit of time like X generations
         DFs = []
-        for i, csv in enumerate(input.genotypeCSVs):
-            df = pd.read_csv(csv)
-            df['timepoint'] = timepoints[i]
-            DFs.append(df)
-        pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
+        if len(input.genotypeCSVs) > 0:
+            for i, csv in enumerate(input.genotypeCSVs):
+                df = pd.read_csv(csv)
+                df['timepoint'] = timepoints[i]
+                DFs.append(df)
+            out_df = pd.concat(DFs)
+        else:
+            raise InputException('No genotypes found for timepoints group: ' + wildcards.timepointsGroup)
+        out_df.to_csv(output.mergedGenotypes, index=False)
 
 rule plot_genotypes2D_timepoints:
     input:
