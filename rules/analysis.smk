@@ -459,7 +459,7 @@ rule plot_distribution:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
-        'utils/plot_distribution.py'
+        'utils/all_timepoints.py'
 
 rule plot_distribution_tag:
     input:
