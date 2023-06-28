@@ -442,7 +442,7 @@ rule plot_distribution_tag:
     output:
         plot = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
     params:
-        labels = lambda wildcards: get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
+        labels = lambda wildcards: [in_file.split('/')[-2] for in_file in input],
         title = lambda wildcards: wildcards.tag,
         legend_label = 'barcode group',
         background = lambda wildcards: config.get('background', False),
