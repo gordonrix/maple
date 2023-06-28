@@ -345,7 +345,7 @@ rule timepoint_plots_all:
     input:
         get_timepoint_plots_all_input
     output:
-        'plots/.all_genotypes_2D.done'
+        'plots/.all_timepoints.done'
     shell:
         'touch {output}'
     
@@ -459,7 +459,7 @@ rule plot_distribution:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
-        'utils/all_timepoints.py'
+        'utils/plot_distribution.py'
 
 rule plot_distribution_tag:
     input:
