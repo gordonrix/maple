@@ -319,6 +319,35 @@ def get_demuxed_barcodes_timepoint(tag_bcs):
         else:
             print(f'[NOTICE] tag_bc combination "{tag}_{bc}" was not demultiplexed. Not including in timepoint outputs')
     return out
+
+def get_timepoint_plots_all_input(wildcards):
+    out = []
+    if not config.get('timepoints', {}):
+        print('[WARNING] All timepoints rule invoked but timepoints not specified in config file. No timepoint plots will be generated.')
+    else:
+        for tag in config['timepoints']:
+            if not config['do_NT_mutation_analysis'][tag]:
+                continue
+            out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
+
+            # other timepoints outputs are specific to each row in the timepoints file
+            timepoint_rows = [row for row in config['timepointsInfo'] if len(get_demuxed_barcodes_timepoint( config['timepointsInfo'][row]['tag_barcode_tp'].keys() )) > 0] # only include timepoints that have at least one demuxed barcode
+            print_flag = False
+            out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=['genotypes2D', 'mutation-distribution-violin']))    # each of these outputs includes data for a single row in the timepoints file
+            timepointSample_NTorAA = []
+            for timepointSample in timepoint_rows:
+                tag = config['timepointsInfo'][timepointSample]['tag']
+                timepointSample_NTorAA.extend(expand('{TS}_{NTorAA}', TS=timepointSample, NTorAA= ['NT','AA'] if config['do_AA_mutation_analysis'][ tag ] else ['NT']))
+            out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=['mutation', 'hamming-distance']))
+    return out
+
+rule timepoint_plots_all:
+    input:
+        get_timepoint_plots_all_input
+    output:
+        'plots/.all_genotypes_2D.done'
+    shell:
+        'touch {output}'
     
 
 def dms_view_input(wildcards):
@@ -442,7 +471,7 @@ rule plot_distribution_tag:
     output:
         plot = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-{distType, [^\/_]*}-distribution.html'
     params:
-        labels = lambda wildcards: [in_file.split('/')[-2] for in_file in input],
+        labels = lambda wildcards, input: [in_file.split('/')[-2] for in_file in input],
         title = lambda wildcards: wildcards.tag,
         legend_label = 'barcode group',
         background = lambda wildcards: config.get('background', False),

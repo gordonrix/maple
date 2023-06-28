@@ -170,7 +170,6 @@ uniques_only: False      # if set to True, only uses unique mutations to determi
 # hamming distance distribution
 hamming_distance_distribution_downsample: 1000                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False to use all genotypes
 hamming_distance_distribution_raw: False                     # bool, if True, y axis for individual hamming distance plots will show raw counts of sequence pairs instead of proprotion of total sequence pairs
-hamming_distance_distribution_plot_x_max: 40                 # maximum x value to show for all HD distribution plots
 
 # genotypes2D
 genotypes2D_plot_all: True                                     # set to True if 2D genotypes should be plotted for all samples individually. Otherwise only plots for groups of samples (eg tags, timepoints) will be generated
