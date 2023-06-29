@@ -121,7 +121,7 @@ rule C3POa:
         fi
         mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python3.9
         rm -r -f src/C3POa
-        pwd
+        
         # need custom peak finder settings so until this is fixed, use the one from the maple repo
         cd src
         if [ -d maple_alt ]; then
