@@ -8,10 +8,14 @@ channels:
 dependencies:
   - snakemake
   - python=3.9
+  - numba>=0.57 # pacmap installation is broken with numba 0.53
   - setuptools
   - wget
   - numpy
   - pandas
+  - scipy
+  - scikit-learn
+  - statsmodels
   - biopython
   - umi_tools
   - medaka
@@ -29,12 +33,9 @@ dependencies:
   - racon
   - wheel
   - cython
-  - scipy
   - tqdm
   - blat # for C3POa
   - mappy
-  - scikit-learn
-  - statsmodels
   - pip
   - pip:
     - pyabpoa==1.4.0

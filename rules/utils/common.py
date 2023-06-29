@@ -141,7 +141,7 @@ def dist_to_DF(dist, x, y):
 
     return df
 
-def export_svg_plots(plots, file_name, labels=[]):
+def export_svg_plots(plots, file_name, labels=[], export=True):
     """
     exports individual bokeh plots from a list of holoviews plots
     with the provided file name and the index of the plot in the list
@@ -150,7 +150,25 @@ def export_svg_plots(plots, file_name, labels=[]):
     file_name   file name being used to save the plots. must end in '.html'
     labels      list of strings to be appended to the end of the file name for 
                     each of the plots, which are exported as separate files
+    export:     bool or string. if True, export all plots. if False, export none.
+                    if string, export only plots that contain the string in the file name or label
     """
+
+    # unless labels are provided, name plots just using their order in the plot list
+    if not labels:
+        labels = [str(i) for i in range(0,len(plots))]
+    file_name_base = file_name[:-5] # remove '.html' from file name
+
+    pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
+
+    # Unless export is just True, only export plots that contain the export string in the file name or label
+    if type(export) == bool:
+        if not export:
+            return
+    elif type(export) == str:
+        if export not in file_name:
+            labels = [label for label in labels if export in label]
+            plots = [plots[i] for i,label in enumerate(labels) if export in label]
 
     options = wd.ChromeOptions()
     options.add_argument('--headless')
@@ -161,13 +179,6 @@ def export_svg_plots(plots, file_name, labels=[]):
 
     service = Service(ChromeDriverManager().install())
     webdriver = wd.Chrome(service=service, options=options)
-
-    # unless labels are provided, name plots just using their order in the plot list
-    if not labels:
-        labels = [i for i in range(0,len(plots))]
-    file_name_base = file_name[:-5]
-
-    pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
     
     for plot, label in zip(plots, labels):
         fName = f'{file_name_base}_{label}.svg'
@@ -176,6 +187,7 @@ def export_svg_plots(plots, file_name, labels=[]):
         export_svgs(p, 
             filename=fName,
             webdriver=webdriver)
+    return
         
 def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap=False):
     """

@@ -21,7 +21,7 @@ def main(input, output, labels, title, legendLabel, background, raw, export_svgs
     plots = [ plot_cumsum(inputDFs, labels, colors, title, legendLabel) ] + [
               plot_dist(df, title=f"{legendLabel}: {label}", raw=raw) for df, label in zip(inputDFs, labels) ]
     if export_svgs:
-        export_svg_plots(plots, output, labels=['cumulative']+labels)
+        export_svg_plots(plots, output, labels=['cumulative']+labels, export=export_svgs)
     plots = hv.Layout(plots).cols(1)
     hvplot.save(plots, output)
 

@@ -21,7 +21,7 @@ def main(input, output, group_col, x_label, export_svgs, cmap, background):
     plots = plot_violin(df, include_AA, group_col, x_label, cmap, background)
 
     if export_svgs:
-        export_svg_plots(plots, output)
+        export_svg_plots(plots, output, export=export_svgs)
     plots = hv.Layout(plots).cols(1)
     hvplot.save(plots, output)
 

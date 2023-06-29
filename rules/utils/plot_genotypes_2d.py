@@ -51,23 +51,23 @@ else:
 colorDict = {} # dictionary of value:color key:value pairs to map color_column variables to specific colors
 if is_numeric_dtype(data[color_column]):                            # color by value for numerical column
     legendBool = False
-    colormap = cmap_dict()[snakemake.params.cmap]
+    points_colormap = cmap_dict()[snakemake.params.cmap]
 else:                                                               
     legendBool = True
-    colormap = get_colors(list(data[color_column].unique()), snakemake.params.cmap, background=snakemake.params.background)
+    points_colormap = get_colors(list(data[color_column].unique()), snakemake.params.cmap, background=snakemake.params.background)
 
 
 scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel=color_column,
-    cmap=colormap, legend=legendBool, xticks=[100], yticks=[100]).opts(
+    cmap=points_colormap, legend=legendBool, xticks=[100], yticks=[100]).opts( # set x/y ticks to 100 to remove tickmarks
     tools=[], xlabel=dim1, ylabel=dim2, height=800, width=905)  # slightly wider to account for colorbar so that plot dimensions match hexbins
 
 hexbins = data.hvplot.hexbin(x=dim1, y=dim2, clabel='Count', color=color_column,
-    cmap='dimgray', xticks=[100], yticks=[100]).opts(
+    cmap=cmap_dict()[snakemake.params.cmap], xticks=[100], yticks=[100]).opts(
     xlabel=dim1, ylabel=dim2, height=800, width=800)
 
 if snakemake.params.export_SVG:
     try:
-        export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dscatter, labels=['scatter','hexbins'])
+        export_svg_plots([scatter, hexbins], snakemake.output.genotypes2Dscatter, labels=['scatter','hexbins'], export=snakemake.params.export_SVG)
     except:
         print(f"""[ERROR] SVG export for {snakemake.output.genotypes2Dscatter} failed. Pipeline continuing but the SVG version of this plot was not generated. 
                 Try again by deleting the associated .html file and rerunning snakemake.""")

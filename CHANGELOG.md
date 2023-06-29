@@ -2,6 +2,8 @@
 # Minor
    - Changed how timepoint files are requested to prevent a bug
    - Fixed a bug in SequenceAnalyzer.downsample()
+   - Updated to Python 3.9
+   - Added sample/file specificity to SVG export
 
 ## v0.10.2
 # Major
