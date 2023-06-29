@@ -17,8 +17,8 @@ sys.path.append(os.path.abspath(PATH))
 
 C3POaPath = '/'.join(os.path.realpath(__file__).split('/')[:-1]) + '/'
 abpoa=C3POaPath+'/abPOA-v1.4.1/bin/abpoa'
-racon=C3POaPath+'/racon/build/bin/racon'
-blat=C3POaPath+'/blat/blat'
+racon='racon'
+blat='blat'
 
 from preprocess import preprocess
 from call_peaks import call_peaks

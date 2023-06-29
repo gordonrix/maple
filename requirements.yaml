@@ -9,6 +9,7 @@ dependencies:
   - snakemake
   - python=3.9
   - minimap2
+  - abpoa # for C3POa
   - samtools
   - ngmerge
   - numba>=0.57 # pacmap installation is broken with numba 0.53
