@@ -20,9 +20,9 @@ rule default:
 
 rule all:
     input:
-        "bin/minimap2",
-        "bin/samtools",
-        "bin/NGmerge",
+        # "bin/minimap2",
+        # "bin/samtools",
+        # "bin/NGmerge",
         "lib/python3.9/C3POa.py",
         "lib/python3.9/site-packages/conk/conk.cpython-39-x86_64-linux-gnu.so",
         "lib/python3.9/site-packages/medaka/maple_smolecule.py"
@@ -103,7 +103,7 @@ rule C3POa:
         if [ -d C3POa ]; then
             rm -r -f C3POa
         fi
-        git clone -b peakFinderCustomSettings https://github.com/christopher-vollmers/C3POa.git
+        git clone https://github.com/christopher-vollmers/C3POa.git
 
         if [ -d conk ]; then
             rm -r -f conk

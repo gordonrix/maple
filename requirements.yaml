@@ -1,4 +1,4 @@
-name:   maple
+name:   maple_test
 channels:
   - conda
   - bioconda
@@ -8,6 +8,9 @@ channels:
 dependencies:
   - snakemake
   - python=3.9
+  - minimap2
+  - samtools
+  - ngmerge
   - numba>=0.57 # pacmap installation is broken with numba 0.53
   - setuptools
   - wget
