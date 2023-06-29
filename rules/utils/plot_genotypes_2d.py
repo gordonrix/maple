@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import colorcet as cc
 from pandas.api.types import is_numeric_dtype
-from common import export_svg_plots, cmap_dict
+from common import export_svg_plots, cmap_dict, get_colors
 
 data = pd.read_csv(snakemake.input.genotypesReduced)
 
@@ -51,10 +51,11 @@ else:
 colorDict = {} # dictionary of value:color key:value pairs to map color_column variables to specific colors
 if is_numeric_dtype(data[color_column]):                            # color by value for numerical column
     legendBool = False
-else:                                                               # random colors for non-numerical column
+    colormap = cmap_dict()[snakemake.params.cmap]
+else:                                                               
     legendBool = True
+    colormap = get_colors(list(data[color_column].unique()), snakemake.params.cmap, background=snakemake.params.background)
 
-colormap = cmap_dict()[snakemake.params.cmap]
 
 scatter = data.hvplot(kind='points', x=dim1, y=dim2, size='point_size', color=color_column, clabel=color_column,
     cmap=colormap, legend=legendBool, xticks=[100], yticks=[100]).opts(

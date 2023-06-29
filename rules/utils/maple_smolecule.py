@@ -1,4 +1,8 @@
-"""Creation of consensus sequences from repetitive reads."""
+"""Creation of consensus sequences from repetitive reads.
+Differs from smolecule.py from medaka in that it uses a reference sequence
+instead of generating reference sequences using poa. If smolecule.py has been
+updated since Aug 11, 2022, this may be out of date.
+"""
 from collections import namedtuple
 from concurrent.futures import ProcessPoolExecutor
 import functools

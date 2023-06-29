@@ -605,6 +605,7 @@ rule plot_genotypes2D:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'NT_substitutions_count'),
+        background = lambda wildcards: config.get('background', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
@@ -622,6 +623,7 @@ rule plot_genotypes2D_bcGroup:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'barcode_group'),
+        background = lambda wildcards: config.get('background', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
@@ -660,6 +662,7 @@ rule plot_genotypes2D_timepoints:
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint'),
+        background = lambda wildcards: config.get('background', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:

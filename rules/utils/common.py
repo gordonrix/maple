@@ -91,7 +91,7 @@ def get_colors(labels, cmap, background=False):
                                 must only appear once in the list of labels
 
     returns:
-        colors:         a list of colors, one for each of the samples in the input list
+        colors:         a list of hex color values of length = len(labels)
     """
     labels = labels.copy() # don't modify the input list
 
