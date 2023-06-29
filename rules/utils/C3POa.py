@@ -210,6 +210,7 @@ def main(args):
     previous=set()
     pool = mp.Pool(args.numThreads)
     consNumberTotal=0
+    file_list = []
     while iterate:
         fileTimes=[]
         fileStart=time.time()
