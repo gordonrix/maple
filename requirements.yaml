@@ -1,4 +1,4 @@
-name:   maple_test
+name:   maple
 channels:
   - conda
   - bioconda
