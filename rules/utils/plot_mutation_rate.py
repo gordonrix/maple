@@ -28,7 +28,7 @@ hv.extension('bokeh')
 def nt_normal_dict(sequence):
     """ given a reference sequence, returns a dictionary of nucleotide:normalization factor key:value
         pairs such that multiplying this factor by (total mutations of type / total bases analyzed) will
-        result in the mutation rate contributed by this type of mutation for a sequence with a 1:1:1:1 ratio
+        result in the mutations per base contributed by this type of mutation for a sequence with a 1:1:1:1 ratio
         of A:T:G:C
     """
     nt_normal_dict = {}
@@ -38,7 +38,7 @@ def nt_normal_dict(sequence):
 
 def trim_normalize_row(mutStatsRow, refSeq, mutTypes):
     """ given a row from mutation stats csv,
-        returns the same row but trimmed to only include mutations per base, both total and of each type
+        returns the same row but trimmed to only include mutations and insertions per base, both total and of each type
 
         Args:
             mutStatsRow:        row from mut stats dataframe to be analyzed
@@ -46,8 +46,17 @@ def trim_normalize_row(mutStatsRow, refSeq, mutTypes):
             mutTypes:           list of different types of mutations, used as column names
     """
     totalNTsAnalyzed = mutStatsRow['total_seqs'] * len(refSeq)
+
+    # deletions can't be normalized to the sequence being looked at so calculate average insertion length per base first
+    indel_list = []
+    for indel in ['total_insertion_length', 'total_deletion_length']:
+        if indel in mutTypes:
+            mutTypes.remove(indel)
+            indel_list.append(mutStatsRow[indel]/totalNTsAnalyzed)
+
     mutList = []
     normalDict = nt_normal_dict(refSeq)
+
     for mut in mutTypes:
         wtNT = mut[0]
         mutList.append(normalDict[wtNT] * (mutStatsRow[mut]/totalNTsAnalyzed))
@@ -56,7 +65,7 @@ def trim_normalize_row(mutStatsRow, refSeq, mutTypes):
     #   slightly from the rate as calculated by total mutations/total nts analyzed due to combination
     #   of mutation preference and A/T/G/C content of reference)
     outList = [sum(mutList)]
-    outList.extend(mutList)
+    outList.extend(mutList+indel_list)
 
     return outList
 
@@ -126,12 +135,11 @@ def main():
             rowTag = row['tag']
             rowRefSeqfasta = config['runs'][rowTag]['reference']
             rowRefSeq = str(list(SeqIO.parse(rowRefSeqfasta, 'fasta'))[1].seq).upper()
-            normTrimmedRow = trim_normalize_row(row, rowRefSeq, mutTypes)
+            normTrimmedRow = trim_normalize_row(row, rowRefSeq, mutTypes+['total_insertion_length', 'total_deletion_length'])
             backgroundRows[rowTag] = normTrimmedRow
 
-    allTimepointsDFrowList = [] # list to be populated with rows of mutations per sequence of each mutation type, one row for each timepoint
-    allTimepointsDFcolumns = ['sample_label', 'replicate', timeUnit, 'per_base_all'] + ['per_base_'+mt for mt in mutTypes]
-    allTimepointsDF = pd.DataFrame(allTimepointsDFrowList, columns=allTimepointsDFcolumns)
+    allTimepointsDFcolumns = ['sample_label', 'replicate', timeUnit, 'per_base_all'] + ['per_base_'+mt for mt in mutTypes] + ['per_base_insertion', 'per_base_deletion']
+    allTimepointsDF = pd.DataFrame([], columns=allTimepointsDFcolumns)
 
     allRatesDFrowList = [] # list to be populated with correlations between all types of mutations and timepoints, yielding a mutation rate as slope
     allRatesDFcolumns = ['sample_label', 'replicate', 'mut_type', 'wt_nt', 'mut_nt', 'rate', 'intercept', 'r_value', 'p_value', 'std_err']
@@ -173,7 +181,7 @@ def main():
                 timepointSeqsMutStatsRow = timepointSeqsMutStatsRow.iloc[0]
 
                 # calculate the substitutions per base analyzed for all types of substitutions individually and combined, normalized to # of sequences, and subtract sequencing background if given
-                normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes)
+                normTrimmedRow = trim_normalize_row(timepointSeqsMutStatsRow, timepointRefSeq, mutTypes+['total_insertion_length', 'total_deletion_length'])
                 if backgroundBCgroup:
                     normTrimmedRow = list(np.array(normTrimmedRow) - np.array(backgroundRows[timepointTag]))
                 sampleTimepointDFrowList.append([sampleLabel, replicateIndex, timepoint] + normTrimmedRow)
@@ -186,10 +194,10 @@ def main():
             sampleRatesDFrowList = []
 
             # calculate mutation rates for each type of mutation
-            for mut_type in ['all'] + mutTypes:
+            for mut_type in ['all'] + mutTypes + ['insertion', 'deletion']:
                 rate, intercept, r_value, p_value, std_err = scipy.stats.linregress(sampleTimepointDF[timeUnit].astype(float).values.tolist(), sampleTimepointDF['per_base_'+mut_type].astype(float).values.tolist())
-                if mut_type == 'all':
-                    wt, mut = 'all', 'all'
+                if mut_type not in mutTypes:
+                    wt, mut = mut_type[:3], mut_type[:3] # all, ins, del
                 else:
                     wt, mut = mut_type[0], mut_type[-1]
                 sampleRatesDFrowList.append([sampleLabel, replicateIndex, mut_type, wt, mut, rate, intercept, r_value, p_value, std_err])
@@ -211,19 +219,23 @@ def main():
     hv.opts.defaults(hv.opts.BoxWhisker(**{**defaults, **boxwhisker_defaults}), hv.opts.HeatMap(**defaults))
     mutType_grouped_plot_list = []
 
-    # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate == 13)
-    for mut_type in ['all'] + mutTypes:
+    # plot that shows individual mutation rates, grouped together by mutation type (# of plots == # of mutation types including overall rate and in/dels == 15)
+    for mut_type in ['all'] + mutTypes + ['insertion', 'deletion']:
         mtType_rate_DF = allRatesDF[allRatesDF['mut_type']==mut_type]
+        if mut_type in ['all']+mutTypes:
+            ylabel = f'per base {mut_type} substitution rate'
+        else:
+            ylabel = f'per base {mut_type} rate'
         boxPlot = hv.BoxWhisker(mtType_rate_DF, kdims='sample_label', vdims='rate').opts(
                     logy=True, xrotation=70, width=max(50*len(uniqueSamples), 150), # fails to render if too thin
                     xlabel='sample', outlier_alpha=0, # hide outliers because will show all points with Points
-                    ylim=(0.00000001, 0.0005), ylabel=f'{mut_type} substitution rate')
+                    ylim=(0.00000001, 0.0005), ylabel=ylabel)
         points = hv.Points(mtType_rate_DF[['sample_label', 'rate']]).opts(
                     logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
         # 10^n markers
         h_lines = horizontal_lines(-11, -1)
 
-        mutType_grouped_plot_list.append(boxPlot*points*h_lines)
+        mutType_grouped_plot_list.append(h_lines*boxPlot*points)
         
     # plots that show individual rates, grouped together by sample (# of plots == # of samples)
     sample_grouped_plot_list = []
@@ -240,9 +252,10 @@ def main():
         #             logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
         # 10^n markers
         h_lines = horizontal_lines(-11, -1)
-        sample_grouped_plot_list.append(boxPlot*h_lines)
+        sample_grouped_plot_list.append(h_lines*boxPlot)
 
-        mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (meanRatesDF['wt_nt']!='all')
+        # plot individual substitution rates as heatmap
+        mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (~meanRatesDF['wt_nt'].isin(['all','insertion','deletion']))
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
         mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean'].clip(lower=10**-8))
         mean_rates_individual.loc[mean_rates_individual['rate_mean'] == -8, 'rate_mean'] = np.nan

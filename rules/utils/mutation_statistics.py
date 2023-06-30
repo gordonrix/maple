@@ -20,7 +20,7 @@ def main():
     statsList = [] # list to be populated with one row of mutation data per tag/barcode combination
     fDict = inFileDict(inputList)
     cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
-        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions']
+        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions', 'total_insertion_length', 'total_deletion_length']
 
     for tag in fDict:
         datatypes = ['genotypes', 'failures', 'NT-mutation-frequencies', 'NT-mutation-distribution']
@@ -69,13 +69,15 @@ def main():
                     total_AA_mutations = round((DFdict['AA-mutation-frequencies'] * totalSeqs).values.sum())
                 unique_AA_mutations = DFdict['AA-mutation-frequencies'].where(DFdict['AA-mutation-frequencies'] == 0, 1).values.sum()
                 valuesList.extend([total_AA_mutations, unique_AA_mutations, compute_mean_from_dist(AAdist), compute_median_from_dist(AAdist)])
-            else:
+            else: # add N/A values
                 valuesList.extend((' N/A'*4).split(' ')[1:])
 
             mean_NT_muts_per_seq = compute_mean_from_dist(NTdist)
+            total_insertion_length = DFdict['genotypes']['NT_insertion_length'].sum()
+            total_deletion_length = DFdict['genotypes']['NT_deletion_length'].sum()
             valuesList.extend([total_NT_mutations,  unique_NT_mutations, mean_NT_muts_per_seq/referenceLength, mean_NT_muts_per_seq, compute_median_from_dist(NTdist),
                 NTmuts['transversions'].sum(), NTmuts['transitions'].sum(), NTmuts_unique['transversions'].sum(), NTmuts_unique['transitions'].sum()] + [allMutTypes[mutType].sum() for mutType in allMutTypes] + [allMutTypes_unique[mutType].sum() for mutType in allMutTypes_unique])
-            
+            valuesList.extend([total_insertion_length, total_deletion_length])
             statsList.append(valuesList)
 
     cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])

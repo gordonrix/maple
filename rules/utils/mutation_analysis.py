@@ -280,6 +280,13 @@ class MutationAnalysis:
         genotype.append(len(NTsubstitutions))
         genotype.append(insOutput)
         genotype.append(delOutput)
+        # ins_total = ''
+        # del_total = ''
+        # if insOutput:
+        ins_total = sum([len(i_ins.split('ins')[1]) for i_ins in insOutput.split(',')]) if insOutput else 0
+        del_total = sum([int(i_L.split('del')[1]) for i_L in delOutput.split(',')]) if delOutput else 0
+        genotype.append(ins_total)
+        genotype.append(del_total)
 
         if self.doAAanalysis:
             for subType in [AAnonsynonymous, AAsynonymous]:
@@ -301,7 +308,7 @@ class MutationAnalysis:
         failuresList = []                                                           # list of data for failed sequences that will be used to generate DataFrame
         failuresColumns = ['seq_ID', 'failure_reason', 'failure_index']             # columns for failures DataFrame
         genotypesList = []                                                          # list of genotypes to be converted into a DataFrame
-        genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions'] # columns for genotypes DataFrame
+        genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length'] # columns for genotypes DataFrame
         wildTypeCount = 0
         wildTypeRow = [wildTypeCount, 0, '', 0, '', '']
 
@@ -322,21 +329,22 @@ class MutationAnalysis:
             genotypesColumns.append('barcode(s)')
             wildTypeRow.append('')
 
-        # if there are any mutations of interest for this tag, add genotype columns for these
-        if self.config['runs'][tag].get('NT_muts_of_interest', False):
-            genotypesColumns.append('NT_muts_of_interest')
-            wildTypeRow.append('')
-            self.NT_muts_of_interest = self.config['runs'][tag]['NT_muts_of_interest'].split(', ')
-            for mut in self.NT_muts_of_interest:
-                genotypesColumns.append(mut)
-                wildTypeRow.append(0)
-        if self.doAAanalysis and self.config['runs'][tag].get('AA_muts_of_interest', False):
-            genotypesColumns.append('AA_muts_of_interest')
-            wildTypeRow.append('')
-            self.AA_muts_of_interest = self.config['runs'][tag]['AA_muts_of_interest'].split(', ')
-            for mut in self.AA_muts_of_interest:
-                genotypesColumns.append(mut)
-                wildTypeRow.append(0)
+        ## should use SequenceAnalyzer for this
+        # # if there are any mutations of interest for this tag, add genotype columns for these
+        # if self.config['runs'][tag].get('NT_muts_of_interest', False):
+        #     genotypesColumns.append('NT_muts_of_interest')
+        #     wildTypeRow.append('')
+        #     self.NT_muts_of_interest = self.config['runs'][tag]['NT_muts_of_interest'].split(', ')
+        #     for mut in self.NT_muts_of_interest:
+        #         genotypesColumns.append(mut)
+        #         wildTypeRow.append(0)
+        # if self.doAAanalysis and self.config['runs'][tag].get('AA_muts_of_interest', False):
+        #     genotypesColumns.append('AA_muts_of_interest')
+        #     wildTypeRow.append('')
+        #     self.AA_muts_of_interest = self.config['runs'][tag]['AA_muts_of_interest'].split(', ')
+        #     for mut in self.AA_muts_of_interest:
+        #         genotypesColumns.append(mut)
+        #         wildTypeRow.append(0)
 
         bamFile = pysam.AlignmentFile(self.BAMin, 'rb')
 
@@ -374,30 +382,6 @@ class MutationAnalysis:
 
             if self.barcodeColumn:
                 seqGenotype.append(bamEntry.get_tag('BC'))
-
-            if self.config['runs'][tag].get('NT_muts_of_interest', False):
-                mutStr = ''
-                mutOneHot = []
-                for mut in self.NT_muts_of_interest:
-                    if mut in seqGenotype[genotypesColumns.index('NT_substitutions')].split(', ') + seqGenotype[genotypesColumns.index('NT_insertions')].split(', ') + seqGenotype[genotypesColumns.index('NT_deletions')].split(', '):
-                        mutStr += mut
-                        mutOneHot.append(1)
-                    else:
-                        mutOneHot.append(0)
-                seqGenotype.append(mutStr)
-                seqGenotype.extend(mutOneHot)
-
-            if self.doAAanalysis and self.config['runs'][tag].get('AA_muts_of_interest', False):
-                mutStr = ''
-                mutOneHot = []
-                for mut in self.AA_muts_of_interest:
-                    if mut in seqGenotype[genotypesColumns.index('AA_substitutions_nonsynonymous')].split(', '):
-                        mutStr += mut
-                        mutOneHot.append(1)
-                    else:
-                        mutOneHot.append(0)
-                seqGenotype.append(mutStr)
-                seqGenotype.extend(mutOneHot)
             
             genotypesList.append(seqGenotype)
 
