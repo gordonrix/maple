@@ -103,7 +103,7 @@ rule C3POa:
         if [ -d C3POa ]; then
             rm -r -f C3POa
         fi
-        git clone https://github.com/christopher-vollmers/C3POa.git
+        git clone -b peakFinderCustomSettings https://github.com/gordonrix/C3POa.git
 
         if [ -d conk ]; then
             rm -r -f conk
@@ -112,7 +112,6 @@ rule C3POa:
         python setup.py sdist bdist_wheel
         python -m pip install dist/conk*whl --force-reinstall
         cd ../..
-        rm -r -f src/conk
         
         if [ -d lib/python3.9/bin ]; then
             mv src/C3POa/bin/* lib/python3.9/bin/
@@ -121,15 +120,6 @@ rule C3POa:
         fi
         mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python3.9
         rm -r -f src/C3POa
-        
-        # need custom peak finder settings so until this is fixed, use the one from the maple repo
-        cd src
-        if [ -d maple_alt ]; then
-            rm -r -f conk
-        fi
-        git clone https://github.com/gordonrix/maple.git maple_alt && cd ..
-        mv src/maple_alt/rules/utils/C3POa.py lib/python3.9
-        rm -r -f src/maple_alt
         """
 
 rule maple_medaka:

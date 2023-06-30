@@ -260,7 +260,7 @@ def main():
     if snakemake.params.export_SVG:
         export_svg_plots(mutType_grouped_plot_list, snakemake.output.boxplot_mut_grouped, labels=['all']+mutTypes, export=snakemake.params.export_SVG)
         export_svg_plots(sample_grouped_plot_list, snakemake.output.boxplot_plot_sample_grouped, labels=uniqueSamples, export=snakemake.params.export_SVG)
-        export_svg_plots(heatmap_list, snakemake.output.heatmap, labels=uniqueSamples, export=snakemake.params.export_SVG)
+        export_svg_plots(heatmap_list, snakemake.output.heatmap, labels=uniqueSamples, export=snakemake.params.export_SVG) # note: colorbars can't be exported to SVG
 
     allRatesDF.to_csv(snakemake.output.CSV_all_rates, index=False)
 

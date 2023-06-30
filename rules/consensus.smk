@@ -100,7 +100,7 @@ rule plot_RCA_consensus:
         data = pd.read_csv(input.log)[['subread_length','read_length ÷ subread_length','pass/fail']]
 
         plot = hv.Points(data, vdims=['pass/fail']).hist(dimension=['subread_length','read_length ÷ subread_length'], num_bins=50).opts(
-            hv.opts.Points(width=750,height=750,fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=5, alpha=0.3, color='pass/fail', cmap={'pass':'#3296FA','fail':'#FA3232'})).opts(
+            hv.opts.Points(width=500,height=500,fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=5, alpha=0.3, color='pass/fail', cmap={'pass':'#3296FA','fail':'#FA3232'})).opts(
             hv.opts.Histogram(tools=['hover'],fontsize={'title':16,'labels':14,'xticks':10,'yticks':10},color='grey'))
 
         hv.save(plot, output.plot, backend='bokeh')
