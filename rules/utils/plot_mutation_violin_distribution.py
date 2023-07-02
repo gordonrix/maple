@@ -54,15 +54,19 @@ def plot_violin(df, include_AA, group_col, x_label, cmap, background=False):
         both_plot = df.hvplot.violin(y='substitution_count', by=[group_col,'substitution_type'], c='substitution_type',
                         ylabel='substitutions per sequence', xlabel=x_label, legend=True, cmap=two_colors,
                         width=len(groups*100), height=500, title='substitutions distributions').opts(
-                                hooks=[set_order], backend='bokeh')
+                                hooks=[set_order], backend='bokeh', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
         AA_plot = df[df['substitution_type']=='AA'].hvplot.violin(y='substitution_count', by=group_col, c=group_col,
                         ylabel='substitutions per sequence', xlabel=x_label, colormap=colors,
-                        width=len(groups*50), height=500, legend=False, title='nonsynonymous AA substitutions distributions')
+                        width=len(groups*50), height=500, legend=False, title='nonsynonymous AA substitutions distributions',
+                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}).opts(xrotation=70)
+        
         plots.extend([both_plot,AA_plot])
 
     NT_plot = df[df['substitution_type']=='NT'].hvplot.violin(y='substitution_count', by=group_col, c=group_col,
                         ylabel='substitutions per sequence', xlabel=x_label, colormap=colors,
-                        width=len(groups*50), height=500, legend=False, title='NT substitutions distributions')
+                        width=len(groups*50), height=500, legend=False, title='NT substitutions distributions',
+                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}).opts(xrotation=70)
+    
     plots.append(NT_plot)
 
     return plots

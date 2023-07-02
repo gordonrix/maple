@@ -200,9 +200,10 @@ def main():
                     wt, mut = mut_type[:3], mut_type[:3] # all, ins, del
                 else:
                     wt, mut = mut_type[0], mut_type[-1]
-                sampleRatesDFrowList.append([sampleLabel, replicateIndex, mut_type, wt, mut, rate, intercept, r_value, p_value, std_err])
+                sampleRatesDFrowList.append([sampleLabel, replicateIndex, mut_type, wt, mut, rate, intercept, r_value, p_value, std_err] + sampleTimepointDF['per_base_'+mut_type].astype(float).values.tolist())
 
-            allRatesDF = pd.concat([allRatesDF, pd.DataFrame(sampleRatesDFrowList, columns=allRatesDFcolumns)]).reset_index(drop=True)
+            # make new DF that includes all normalized mutations per base
+            allRatesDF = pd.concat([allRatesDF, pd.DataFrame(sampleRatesDFrowList, columns=allRatesDFcolumns + sampleTimepointDF[timeUnit].astype(float).values.tolist())]).reset_index(drop=True)
             allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
 
     # compute mean rates for replicate samples then remove negatives
