@@ -255,7 +255,7 @@ def main():
         sample_grouped_plot_list.append(h_lines*boxPlot)
 
         # plot individual substitution rates as heatmap
-        mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (~meanRatesDF['wt_nt'].isin(['all','insertion','deletion']))
+        mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (~meanRatesDF['wt_nt'].isin(['all','ins','del']))
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
         mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean'].clip(lower=10**-8))
         mean_rates_individual.loc[mean_rates_individual['rate_mean'] == -8, 'rate_mean'] = np.nan
