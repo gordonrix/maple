@@ -19,9 +19,7 @@ inputList = snakemake.input
 def main():
     statsList = [] # list to be populated with one row of mutation data per tag/barcode combination
     fDict = inFileDict(inputList)
-    cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
-        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions', 'total_insertion_length', 'total_deletion_length']
-
+    
     for tag in fDict:
         datatypes = ['genotypes', 'failures', 'NT-mutation-frequencies', 'NT-mutation-distribution']
         if config['do_AA_mutation_analysis'][tag]:
@@ -76,10 +74,12 @@ def main():
             total_insertion_length = DFdict['genotypes']['NT_insertion_length'].sum()
             total_deletion_length = DFdict['genotypes']['NT_deletion_length'].sum()
             valuesList.extend([total_NT_mutations,  unique_NT_mutations, mean_NT_muts_per_seq/referenceLength, mean_NT_muts_per_seq, compute_median_from_dist(NTdist),
-                NTmuts['transversions'].sum(), NTmuts['transitions'].sum(), NTmuts_unique['transversions'].sum(), NTmuts_unique['transitions'].sum()] + [allMutTypes[mutType].sum() for mutType in allMutTypes] + [allMutTypes_unique[mutType].sum() for mutType in allMutTypes_unique])
-            valuesList.extend([total_insertion_length, total_deletion_length])
+                NTmuts['transversions'].sum(), NTmuts['transitions'].sum(), NTmuts_unique['transversions'].sum(), NTmuts_unique['transitions'].sum(), total_insertion_length, total_deletion_length])
+            valuesList.extend([allMutTypes[mutType].sum() for mutType in allMutTypes] + [allMutTypes_unique[mutType].sum() for mutType in allMutTypes_unique])
             statsList.append(valuesList)
 
+    cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
+        'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions', 'total_insertion_length', 'total_deletion_length']
     cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])
     statsDF = pd.DataFrame(statsList, columns=cols)
     statsDF.sort_values('barcode_group', inplace=True)

@@ -143,8 +143,9 @@ def dist_to_DF(dist, x, y):
 
 def export_svg_plots(plots, file_name, labels=[], export=True):
     """
-    exports individual bokeh plots from a list of holoviews plots
-    with the provided file name and the index of the plot in the list
+    attempts to export individual bokeh plots from a list of holoviews plots
+    with the provided file name and the index of the plot in the list.
+    If it fails, it will print a warning and return without exporting any plots or raising an error.
     
     plots:      list of holoviews bokeh plots
     file_name   file name being used to save the plots. must end in '.html'
@@ -154,39 +155,45 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
                     if string, export only plots that contain the string in the file name or label
     """
 
-    # unless labels are provided, name plots just using their order in the plot list
-    if not labels:
-        labels = [str(i) for i in range(0,len(plots))]
-    file_name_base = file_name[:-5] # remove '.html' from file name
+    try:
 
-    pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
+        # unless labels are provided, name plots just using their order in the plot list
+        if not labels:
+            labels = [str(i) for i in range(0,len(plots))]
+        file_name_base = file_name[:-5] # remove '.html' from file name
 
-    # Unless export is just True, only export plots that contain the export string in the file name or label
-    if type(export) == bool:
-        if not export:
-            return
-    elif type(export) == str:
-        if export not in file_name:
-            labels = [label for label in labels if export in label]
-            plots = [plots[i] for i,label in enumerate(labels) if export in label]
+        pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
 
-    options = wd.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--disable-gpu')
-    options.add_argument("--no-sandbox")
-    options.add_argument("--window-size=2000x2000")
-    options.add_argument('--disable-dev-shm-usage')
+        # Unless export is just True, only export plots that contain the export string in the file name or label
+        if type(export) == bool:
+            if not export:
+                return
+        elif type(export) == str:
+            if export not in file_name:
+                labels = [label for label in labels if export in label]
+                plots = [plots[i] for i,label in enumerate(labels) if export in label]
 
-    service = Service(ChromeDriverManager().install())
-    webdriver = wd.Chrome(service=service, options=options)
-    
-    for plot, label in zip(plots, labels):
-        fName = f'{file_name_base}_{label}.svg'
-        p = hv.render(plot,backend='bokeh')
-        p.output_backend='svg'
-        export_svgs(p, 
-            filename=fName,
-            webdriver=webdriver)
+        options = wd.ChromeOptions()
+        options.add_argument('--headless')
+        options.add_argument('--disable-gpu')
+        options.add_argument("--no-sandbox")
+        options.add_argument("--window-size=2000x2000")
+        options.add_argument('--disable-dev-shm-usage')
+
+        service = Service(ChromeDriverManager().install())
+        webdriver = wd.Chrome(service=service, options=options)
+        
+        for plot, label in zip(plots, labels):
+            fName = f'{file_name_base}_{label}.svg'
+            p = hv.render(plot,backend='bokeh')
+            p.output_backend='svg'
+            export_svgs(p, 
+                filename=fName,
+                webdriver=webdriver)
+            
+    except:
+        print(f"\n[ERROR] SVG export for {file_name} failed. Pipeline continuing but the SVG version of this plot was not generated. 
+                This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n")
     return
         
 def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap=False):
