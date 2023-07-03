@@ -192,8 +192,8 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
                 webdriver=webdriver)
             
     except:
-        print(f"\n[ERROR] SVG export for {file_name} failed. Pipeline continuing but the SVG version of this plot was not generated. 
-                This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n")
+        print(f"""\n[ERROR] SVG export for {file_name} failed. Pipeline continuing but the SVG version of this plot was not generated. 
+                This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n""")
     return
         
 def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap=False):
