@@ -602,7 +602,7 @@ class SequenceAnalyzer:
             matrix = matrix[:, different_values]
             
         # initializing the pacmap instance
-        embedding = pm.PaCMAP(n_components=dimensions, MN_ratio=0.5, FP_ratio=2.0)
+        embedding = pm.PaCMAP(n_components=dimensions, MN_ratio=0.5, FP_ratio=2.0, distance="hamming")
 
         # fit the data to provided number of dimensions then make into a dataframe with # of columns = dimensions
         reduced = embedding.fit_transform(matrix, init="pca")
