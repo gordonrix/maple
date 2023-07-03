@@ -209,7 +209,8 @@ def main():
     # compute mean rates for replicate samples then remove negatives
     meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
-    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=0) # convert negative values to 0
+    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10**-8) # convert means <= 10^-8 to nan bc they are not reliable
+    meanRatesDF.loc[meanRatesDF['rate_mean'] == 10**-8, 'rate_mean'] = np.nan
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=0)
 
     def hook(plot, element):
@@ -263,7 +264,7 @@ def main():
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}', cmap=cmap,
                                                         xlabel='wild type nucleotide', ylabel='mutation nucleotide'
-                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'}, axiswise=True)
+                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'}, axiswise=False)
         heatmap_list.append(heatmap)
 
     # export rate plots and data
