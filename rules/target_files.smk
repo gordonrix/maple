@@ -66,7 +66,8 @@ def targets_input(wildcards):
 
     if config.get('dashboard_input', False):
         db_input = dashboard_input(wildcards=None, config=config)
-        out.append(db_input['genotypes'])
+        if db_input:
+            out.append(db_input['genotypes'])
 
     return out
 
