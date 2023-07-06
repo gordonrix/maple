@@ -228,3 +228,36 @@ def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap
                     show_legend=False, height=500, xlabel='position',
                     xrotation=40, stacked=True, cmap=colormap, tools=['hover'])
     return plot
+
+def dashboard_input(wildcards, config):
+    """
+    returns the input files for the dashboard based on the sample name provided by the user
+    or the first run tag in the config file if no sample name is provided
+
+    args:
+        wildcards (snakemake object):   snakemake wildcards object, not used but required for unpacking in rule input
+        config (dict):                  dictionary of config file contents
+
+    returns:
+        inputDict (dict):               dictionary of input files for the dashboard, genotypes and refFasta
+    """
+    sample = config.get('dashboard_input', False)
+    # use the first run tag as the sample for the dashboard if no sample is provided by user
+    if not sample:
+        sample = config['runs'].values()[0]
+    if sample in config['runs']:
+        genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
+        if 'enrichment' in config['runs'][sample]:
+            genotypes = genotypes[:-4] + '-enrichment.csv'
+        inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
+    elif sample in config['timepointsInfo']:
+        inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
+                    'refFasta': config['timepointsInfo'][sample]['reference']}
+    elif '_' in sample: # assume a tag/barcode combo was given
+        tag, barcodes = sample.split('_')
+        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
+                    'refFasta': config['runs'][tag]['reference']}
+    else:
+        print(f'[WARNING] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
+        return None
+    return inputDict

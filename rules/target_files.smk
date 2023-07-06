@@ -7,6 +7,9 @@
 #  AUTHOR(S)     : Gordon Rix
 #
 
+from utils.common import dashboard_input
+
+
 def targets_input(wildcards):
     out = []
     if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
@@ -23,8 +26,10 @@ def targets_input(wildcards):
     for tag in config['runs']:
         if config['do_NT_mutation_analysis'][tag]:
             NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']
-            plot_type = ['genotypes2D', 'mutation-distribution-violin']
-            out.extend(expand('plots/{tag}_{plot_type}.html', tag=tag, plot_type=plot_type))
+            plot_types = ['mutation-distribution-violin']
+            if config.get('genotypes2D_plot_groups', False):
+                plot_type.append('genotypes2D')
+            out.extend(expand('plots/{tag}_{plot_type}.html', tag=tag, plot_type=plot_types))
             plot_type = ['mutation-distribution', 'mutation-frequencies', 'hamming-distance-distribution']
             out.extend(expand('plots/{tag}_{NTorAA}-{plot_type}.html', tag=tag, NTorAA=NTorAA, plot_type=plot_type))
             # out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
@@ -42,7 +47,7 @@ def targets_input(wildcards):
 
     # .done flag files are needed to separate the targets rule from rules that determine inputs from checkpoints (e.g. demux). A consequence of this is that
     #     simply deleting an input to one of these rules (what the user actually cares about) will not trigger the rule to be rerun. The user must delete
-    #     the .done file as well to trigger a rerun.
+    #     the .done file as well (or just change a relevant parameter in the config) to trigger a rerun.
     if config.get('timepoints', {}):
         out.append('plots/.all_timepoints.done')
 
@@ -58,6 +63,10 @@ def targets_input(wildcards):
             tag, bc = tag_bc.split('_')
             divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
             out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=plotType) )
+
+    if config.get('dashboard_input', False):
+        db_input = dashboard_input(wildcards=None, config=config)
+        out.append(db_input['genotypes'])
 
     return out
 

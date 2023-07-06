@@ -178,7 +178,8 @@ hamming_distance_distribution_downsample: 1000                             # int
 hamming_distance_distribution_raw: False                     # bool, if True, y axis for individual hamming distance plots will show raw counts of sequence pairs instead of proprotion of total sequence pairs
 
 # genotypes2D
-genotypes2D_plot_all: False                                     # set to True if 2D genotypes should be plotted for all samples individually. Otherwise only plots for groups of samples (eg tags, timepoints) will be generated
+genotypes2D_plot_all: False                                     # set to True if 2D genotypes should be plotted for all samples individually
+genotypes2D_plot_groups: False                                  # set to True if 2D genotypes should be plotted for groups of samples (eg tags, timepoints)
 genotypes2D_plot_downsample: 10000
 genotypes2D_plot_AA: True                                      # if set to true and a protein reference sequence is provided, will use the protein sequence for dimension reduction
 genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical
@@ -186,5 +187,5 @@ genotypes2D_plot_point_size_range: 30, 60                 # comma separated pair
 # genotypes2D_plot_point_color_col: NT_substitutions_count       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default depends on the genotypes.csv file being used. 
 
 # dashboard
-dashboard_input: TrpB                                # tag or timepoints name to use for the dashboard
+dashboard_input: TrpB                                # tag, timepoints name (first column value of a row in a timepoints.csv), or tag_barcodeGroup to use for the dashboard. Targets will attempt to run pacmap on this sample/group
 dashboard_port: 3366                                    # port to use for running the dashboard

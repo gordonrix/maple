@@ -9,7 +9,7 @@
 
 # imports
 import os, sys, glob
-from utils.common import sort_barcodes
+from utils.common import sort_barcodes, dashboard_input
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
@@ -333,7 +333,10 @@ def get_timepoint_plots_all_input(wildcards):
             # other timepoints outputs are specific to each row in the timepoints file
             timepoint_rows = [row for row in config['timepointsInfo'] if len(get_demuxed_barcodes_timepoint( config['timepointsInfo'][row]['tag_barcode_tp'].keys() )) > 0] # only include timepoints that have at least one demuxed barcode
             print_flag = False
-            out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=['genotypes2D', 'mutation-distribution-violin']))    # each of these outputs includes data for a single row in the timepoints file
+            plot_types = ['mutation-distribution-violin']
+            if config.get('genotypes2D_plot_groups', False):
+                plot_types.append('genotypes2D')
+            out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=plot_types))    # each of these outputs includes data for a single row in the timepoints file
             timepointSample_NTorAA = []
             for timepointSample in timepoint_rows:
                 tag = config['timepointsInfo'][timepointSample]['tag']
@@ -547,7 +550,7 @@ rule merge_tag_genotypes:
     input:
         genotypeCSVs = lambda wildcards: expand( 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv', tag=wildcards.tag, barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})) ),
     output:
-        mergedGenotypes = 'mutation_data/{tag}/{tag}_genotypes.csv'
+        mergedGenotypes = temp('mutation_data/{tag}/{tag}_genotypes.csv')
     run:
         import pandas as pd
         DFs = []
@@ -633,7 +636,7 @@ rule merge_timepoint_genotypes:
     input:
         genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )]),
     output:
-        mergedGenotypes = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv'
+        mergedGenotypes = temp('mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv')
     params:
         tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
     run:
@@ -686,28 +689,9 @@ rule plot_genotypes_2D_all:
     output:
         touch('plots/.all_genotypes_2D.done')
 
-def dashboard_input(wildcards):
-    sample = config.get('dashboard_input', False)
-    # use the first run tag as the sample for the dashboard if no sample is provided by user
-    if not sample:
-        sample = config['runs'].values()[0]
-    if sample in config['runs']:
-        genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
-        if 'enrichment' in config['runs'][sample]:
-            genotypes = genotypes[:-4] + '-enrichment.csv'
-        inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
-    elif sample in config['timepointsInfo']:
-        inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
-                    'refFasta': config['timepointsInfo'][sample]['reference']}
-    else: # assume a tag/barcode combo was given
-        tag, barcodes = sample.split('_')
-        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
-                    'refFasta': config['runs'][tag]['reference']}
-    return inputDict
-
 rule run_dashboard:
     input:
-        unpack(dashboard_input)
+        unpack(lambda wildcards: dashboard_input(wildcards=wildcards, config=config))
     params:
         port = config.get('dashboard_port', 3365),
         basedir = workflow.basedir,
