@@ -388,7 +388,7 @@ rule plot_mutation_rate:
         CSV_summary = 'mutation_data/{tag, [^\/]*}/{tag}_mutation-rates-summary.csv',
     params:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
-        cmap = lambda wildcards: config.get('cmap', 'kbc_r')
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_mutation_rate.py'
 

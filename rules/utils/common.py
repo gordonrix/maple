@@ -258,6 +258,6 @@ def dashboard_input(wildcards, config):
         inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
                     'refFasta': config['runs'][tag]['reference']}
     else:
-        print(f'[WARNING] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
+        print(f'[NOTICE] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
         return None
     return inputDict
