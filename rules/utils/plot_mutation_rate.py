@@ -259,12 +259,11 @@ def main():
         # plot individual substitution rates as heatmap
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (~meanRatesDF['wt_nt'].isin(['all','ins','del']))
                                             ].sort_values(['wt_nt','mut_nt'], ascending=[True,False]) # sort in opposite order then flip yaxis to get same order for x and y axis
-        mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean'].clip(lower=10**-8))
-        mean_rates_individual.loc[mean_rates_individual['rate_mean'] == -8, 'rate_mean'] = np.nan
+        mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean']) # log10 transform, but note that only the integer tick marks on the color bar will be valid now
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}', cmap=cmap,
                                                         xlabel='wild type nucleotide', ylabel='mutation nucleotide'
-                                                        ).opts(colorbar_opts={'title':f'substitutions per base per {timeUnit}'}, axiswise=False)
+                                                        ).opts(colorbar_opts={'title':f'log10(s.p.b per {timeUnit})'}, axiswise=False)
         heatmap_list.append(heatmap)
 
     # export rate plots and data
