@@ -13,19 +13,28 @@ import colorcet as cc
 from common import export_svg_plots, get_colors
 hv.extension('bokeh')
 
-def main(input, output, labels, title, legendLabel, background, raw, export_svgs, cmap):
+def main(input, output, labels, title, legendLabel, background, raw, export_svgs, cmap, x_range=False, y_range=False):
+    
+    if x_range: # convert to tuple
+        x_range = tuple(float(val) for val in x_range.split(','))
+    else:
+        x_range = (None, None)
+    if y_range:
+        y_range = tuple(float(val) for val in y_range.split(','))
+    else:
+        y_range = (None, None)
 
     colors = get_colors(labels, cmap, background)
 
     inputDFs = [pd.read_csv(CSV, index_col=False) for CSV in input]
-    plots = [ plot_cumsum(inputDFs, labels, colors, title, legendLabel) ] + [
-              plot_dist(df, title=f"{legendLabel}: {label}", raw=raw) for df, label in zip(inputDFs, labels) ]
+    plots = [ plot_cumsum(inputDFs, labels, colors, title, legendLabel, x_range=x_range, y_range=y_range) ] + [
+              plot_dist(df, title=f"{legendLabel}: {label}", raw=raw, x_range=x_range, y_range=y_range) for df, label in zip(inputDFs, labels) ]
     if export_svgs:
         export_svg_plots(plots, output, labels=['cumulative']+labels, export=export_svgs)
     plots = hv.Layout(plots).cols(1)
     hvplot.save(plots, output)
 
-def plot_cumsum(DFlist, labels, colors, title, legendLabel):
+def plot_cumsum(DFlist, labels, colors, title, legendLabel, x_range=False, y_range=False):
     """
     generates a distribution hv.Curve plot showing cumulative sums for all input files as hv.Curve on an hv.Overlay plot
     
@@ -34,6 +43,8 @@ def plot_cumsum(DFlist, labels, colors, title, legendLabel):
     colors:         list of strings, color values index matched to DFlist to be used to color each line
     title:          string, label for all samples to include in the title
     legendLabel:    string, label to add to the legend (only appears in hover)
+    x_max:          int, maximum value for x axis
+    y_max:          int, maximum value for y axis
     """
 
     plotList = []
@@ -51,13 +62,13 @@ def plot_cumsum(DFlist, labels, colors, title, legendLabel):
     plot = hv.Overlay(plotList).opts(show_legend=True, legend_position='right', width=800, height=600,
                             title=f"{x} among {y}, cumulative distribution\nsample: {title}",
                             # legend_title = legendLabel, # This doesn't work for some reason, but a legend title would be nice
-                            xlabel=x, ylabel='cumulative frequency', ylim=(-0.05, 1.05),
+                            xlabel=x, ylabel='cumulative frequency', ylim=y_range, xlim=x_range,
                             fontsize={'title':16,'labels':14,'xticks':12,'yticks':12})
 
     return plot
 
 
-def plot_dist(df, color='grey', title='', raw=False):
+def plot_dist(df, color='grey', title='', raw=False, x_range=None, y_range=None):
     """
     generates a histogram with bin size of 1 for a distribution input file
 
@@ -85,10 +96,10 @@ def plot_dist(df, color='grey', title='', raw=False):
     hvDF = hv.Dataset(df, kdims=[x], vdims=vdims)
     plot = hv.Histogram(hvDF).opts(hv.opts.Histogram(tools=['hover'], color=color, width=800, height=600,
                                     title=f"{x} among {y}\n{title}",
-                                    ylabel=ylabel,
+                                    ylabel=ylabel, ylim=y_range, xlim=x_range,
                                     fontsize={'title':16,'labels':14,'xticks':12,'yticks':12}))
 
     return plot
 
 if __name__ == '__main__':
-    main(snakemake.input, snakemake.output.plot, snakemake.params.labels, snakemake.params.title, snakemake.params.legend_label, snakemake.params.background, snakemake.params.raw, snakemake.params.export_SVG, snakemake.params.colormap)
+    main(snakemake.input, snakemake.output.plot, snakemake.params.labels, snakemake.params.title, snakemake.params.legend_label, snakemake.params.background, snakemake.params.raw, snakemake.params.export_SVG, snakemake.params.colormap, snakemake.params.x_max, snakemake.params.y_max)

@@ -460,7 +460,9 @@ rule plot_distribution:
         background = False,
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
-        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        x_max = lambda wildcards: config.get('distribution_x_range', False),
+        y_max = lambda wildcards: config.get('distribution_y_range', False)
     script:
         'utils/plot_distribution.py'
 
@@ -480,7 +482,9 @@ rule plot_distribution_tag:
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
-        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        x_max = lambda wildcards: config.get('distribution_x_range', False),
+        y_max = lambda wildcards: config.get('distribution_y_range', False)
     script:
         'utils/plot_distribution.py'
 
@@ -499,7 +503,9 @@ rule plot_distribution_timepointGroup:
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
-        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        x_max = lambda wildcards: config.get('distribution_x_range', False),
+        y_max = lambda wildcards: config.get('distribution_y_range', False)
     script:
         'utils/plot_distribution.py'
 

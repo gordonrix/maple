@@ -81,7 +81,9 @@ fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders wi
 
 # plotting
 colormap: 'kbc_r'              # colormap to use for plots that use a colormap. options are 'kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4', and each of these in the opposite direction using '_r' e.g. kbc_r. See colorcet.holoviz.org
-export_SVG: rates              # str or Bool. Controls export of plot outputs to SVG format in addition to .html.
+distribution_x_range: False       # comma separated pair of values to use for the x axis of all distribution plots. Best to leave as False unless you are exporting SVGs, whose axes are not adjustable
+distribution_y_range: False
+export_SVG: False              # str or Bool. Controls export of plot outputs to SVG format in addition to .html.
                                 #   If False, does not export SVGs. If True, exports all plots that can be exported as SVGs.
                                 #   If string, exports only plots from file names that contain this string or plots with a label
                                 #   (e.g. barcode group, timepoint) that contains this string. Requires a chrome installation on your
@@ -120,7 +122,7 @@ medaka_model: 'r104_e81_sup_variant_g610'   # Model for medaka to use. Use `meda
 medaka_flags: '--quiet'                     # flags to add to medaka smolecule command call. threads, chunk-len, and model flags are already added. 
 
 # UMI clustering and consensus
-UMI_mismatches: 4               # maximum allowable number of mismatches that UMIs can contain and still be grouped together.
+UMI_mismatches: 2               # maximum allowable number of mismatches that UMIs can contain and still be grouped together.
 UMI_consensus_minimum: 1       # inclusive minimum number of subreads that will be used to generate a UMI consensus read
 UMI_consensus_maximum: 1       # inclusive maximum number of subreads that will be used to generate a UMI consensus read. UMI groups with more subreads than this value 'n' will be downsampled to 'n' subreads. Note that this behavior differs slightly from that of RCA_consensus_maximum
 UMI_medaka_batches: 1          # number of files to split BAM file into prior to running medaka. Number can be raised if medaka throws an error. Unfortunately necessary workaround for a memory-related error in medaka stitch.                       
