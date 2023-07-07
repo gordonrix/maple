@@ -232,7 +232,9 @@ rule plot_distribution_UMI_group:
         background = False,
         raw = True,
         export_SVG = lambda wildcards: config.get('export_SVG', False),
-        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        x_max = lambda wildcards: config.get('distribution_x_range', False),
+        y_max = lambda wildcards: config.get('distribution_y_range', False)
     script:
         'utils/plot_distribution.py'
 
