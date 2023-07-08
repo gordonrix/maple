@@ -494,7 +494,9 @@ for tag in config['runs']:
         if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
             config['timepoints'] = {}
             config['timepointsInfo'] = {}
-        if CSVpath not in config['timepoints'].values():
+        if CSVpath in config['timepoints'].values():
+            print_(f"[NOTICE] Timepoints file `{CSVpath}` is used for multiple tags. Files will be named only using the first tag that uses this file.\n", file=sys.stderr)
+        else:
             config['timepoints'][tag] = CSVpath
 
         # decide whether to do barcode enrichment analysis
@@ -531,6 +533,9 @@ for tag in config['runs']:
                         errors.append(f"[ERROR] Timepoint sample name used for row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{sampleGroup}` is also used as a tag. This is forbidden.\n")
                     if '_' in sampleGroup:
                         errors.append(f"[ERROR] Underscore used in timepoint sample name `{sampleGroup}` in row {rowIndex} of timepoints .CSV file `{CSVpath}`. This is forbidden.\n")
+                    if (sampleGroup in config['timepointsInfo']) or (sampleGroup in [key.split('-rep')[0] for key in config['timepointsInfo']]):
+                        print_(f'[NOTICE] Sample name `{sampleGroup}` is used in timepoints file `{CSVpath}` as well as in another timepoints file. This is allowed, but note that plots in `plots/timepoints` will only be based on the first timepoints file that uses this sample name.\n', file=sys.stderr)
+                        continue
 
                     for _, row in timepointsCSV.loc[timepointsCSV.index==sampleGroup].iterrows():
                         replicateIndex += 1

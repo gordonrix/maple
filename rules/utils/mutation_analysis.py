@@ -444,9 +444,11 @@ class MutationAnalysis:
             txtOut.write('')
 
         # output to files
-        ntIDs = list(self.refTrimmedStr)
-        ntPositions = [f'{str(i)}' for i in range(0, len(self.refTrimmedStr))]
-        WTnts = [ID+ntPosi for ID,ntPosi in zip(ntIDs,ntPositions)]
+        if self.useReverseComplement:
+            ntIDs = list(str(Seq(self.refTrimmedStr).reverse_complement()))
+        else:
+            ntIDs = list(self.refTrimmedStr)
+        WTnts = [f'{ID}{i+1}' for i, ID in enumerate(ntIDs)]
         NTmutDF = pd.DataFrame(NTmutArray, columns=list(self.NTs))
         NTmutDF['wt_nucleotide'] = pd.Series(WTnts)
         NTmutDF.set_index('wt_nucleotide', inplace=True)
