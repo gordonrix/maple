@@ -541,6 +541,7 @@ class SequenceAnalyzer:
         consensus = ''.join(SequenceEncoder.convert_array(integer_encoded_consensus, self.ref_seq[NTorAA].decoder_dict))
 
         if write_to:
+            pathlib.Path(write_to).parent.absolute().mkdir(parents=True, exist_ok=True)
             total_seqs = self.get_count(idx=idx)
             write_mode = 'a+' if append else 'w'
             with open(write_to, write_mode, encoding="utf-8") as f:

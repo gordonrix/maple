@@ -250,10 +250,11 @@ def dashboard_input(wildcards, config):
         if 'enrichment' in config['runs'][sample]:
             genotypes = genotypes[:-4] + '-enrichment.csv'
         inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
-    elif sample in config['timepointsInfo']:
+    elif sample in config.get('timepointsInfo', ''):
         inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
                     'refFasta': config['timepointsInfo'][sample]['reference']}
-    elif '_' in sample: # assume a tag/barcode combo was given
+    elif '_' in sample and (sample.split('_')[0] in config['runs']):
+        print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
         tag, barcodes = sample.split('_')
         inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
                     'refFasta': config['runs'][tag]['reference']}

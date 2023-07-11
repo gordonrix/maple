@@ -206,12 +206,12 @@ def main():
             allRatesDF = pd.concat([allRatesDF, pd.DataFrame(sampleRatesDFrowList, columns=allRatesDFcolumns + sampleTimepointDF[timeUnit].astype(float).values.tolist())]).reset_index(drop=True)
             allTimepointsDF = pd.concat([allTimepointsDF, sampleTimepointDF]).reset_index(drop=True)
 
-    # compute mean rates for replicate samples then remove negatives
+    # remove negatives then compute mean rates for replicate samples 
+    allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10**-10)
     meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
     meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
     meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10**-8) # convert means <= 10^-8 to nan bc they are not reliable
     meanRatesDF.loc[meanRatesDF['rate_mean'] == 10**-8, 'rate_mean'] = np.nan
-    allRatesDF['rate'] = allRatesDF['rate'].clip(lower=0)
 
     def hook(plot, element):
         plot.output_backend = 'svg'
@@ -233,7 +233,7 @@ def main():
                     xlabel='sample', outlier_alpha=0, # hide outliers because will show all points with Points
                     ylim=(0.00000001, 0.0005), ylabel=ylabel)
         points = hv.Points(mtType_rate_DF[['sample_label', 'rate']]).opts(
-                    logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
+                    logy=True, color='black', alpha=0.7, jitter=0.2, size=6, tools=['hover'])
         # 10^n markers
         h_lines = horizontal_lines(-11, -1)
 
@@ -249,10 +249,10 @@ def main():
         boxPlot = hv.BoxWhisker(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
                     logy=True, ylim=(0.00000001, 0.0005),
                     title=f'sample: {sample}', xlabel='mutation nucleotide\nwild type nucleotide',
-                    width=650, ylabel=f'per base substitutions per {timeUnit}')
+                    width=650, ylabel=f'per base substitutions per {timeUnit}', tools=['hover'])
         # points = hv.Points(sample_rate_DF, kdims=['wt_nt','mut_nt'], vdims='rate').opts(
         #             logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
-        # 10^n markers
+        # 10^n markers (n=integer)
         h_lines = horizontal_lines(-11, -1)
         sample_grouped_plot_list.append(h_lines*boxPlot)
 
@@ -262,7 +262,7 @@ def main():
         mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean']) # log10 transform, but note that only the integer tick marks on the color bar will be valid now
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}', cmap=cmap,
-                                                        xlabel='wild type nucleotide', ylabel='mutation nucleotide'
+                                                        xlabel='wild type nucleotide', ylabel='mutation nucleotide', clim=(-8, np.log10(0.00015),
                                                         ).opts(colorbar_opts={'title':f'log10(s.p.b per {timeUnit})'}, axiswise=False)
         heatmap_list.append(heatmap)
 
