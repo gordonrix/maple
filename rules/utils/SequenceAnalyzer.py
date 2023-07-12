@@ -25,7 +25,7 @@ class SequenceAnalyzer:
         self.characters = {'NT':'ATGC-', 'AA':'ACDEFGHIKLMNPQRSTVWY*-'}
 
         # two different kinds of initialization, one for genotypes CSV input and one for MSA fasta input
-        if MSA_fasta is None:
+        if genotypesCSV:
             if reference_fasta is None:
                 raise ValueError("reference fasta file must be input if MSA fasta is not used for initialization")
             if genotypesCSV is None:
@@ -40,9 +40,46 @@ class SequenceAnalyzer:
             if self.do_AA_analysis:
                 self.integer_matrix['AA'] = self.seq_array_from_genotypes('AA')
         
-        # TODO: add MSA initialization
-        else:
+        #  MSA initialization
+        elif MSA_fasta:
+            if genotypesCSV is not None:
+                raise ValueError("genotypes CSV file must not be input if MSA fasta is used for initialization")
+            # use first sequence to determine if sequences are NT or AA
+            first_record = next(SeqIO.parse(MSA_fasta, 'fasta'), None)
+            if first_record is None:
+                raise ValueError(f"Provided fasta file {MSA_fasta} contains no sequences")
+            else:
+                first_seq = str(first_record.seq).upper()
+            is_NT = set(first_seq).issubset(set(self.characters['NT']))
+            is_AA = set(first_seq).issubset(set(self.characters['AA']))
+            if is_AA and not is_NT:
+                self.do_AA_analysis = True
+                MSA_type = 'AA'
+            elif is_NT:
+                self.do_AA_analysis = False
+                MSA_type = 'NT'
+            else:
+                not_NT_or_AA = set(first_seq).difference(set(self.characters['AA']))
+                raise ValueError(f"First sequence in MSA fasta file contains characters that are not NT ({self.characters['NT']}) or AA ({self.characters['AA']}): {not_NT_or_AA}")
+
+            if reference_fasta is None:
+                print("reference fasta file not input, will use first sequence in MSA fasta as reference")
+                self.ref_seq = {}
+                if self.do_AA_analysis:
+                    self.ref_seq['AA'] = SequenceEncoder(first_seq, self.characters['AA'])
+                else:
+                    self.ref_seq['NT'] = SequenceEncoder(first_seq, self.characters['NT'])
+            else:
+                self.assign_reference(reference_fasta, include_AA=self.do_AA_analysis)
+                if len(self.ref_seq[MSA_type]) != len(first_seq):
+                    raise ValueError(f"First sequence in MSA fasta file is not the same length as the reference sequence in the reference fasta file {reference_fasta}. All sequences in the MSA fasta file must be the same length as the reference sequence in the reference fasta file")
+            
+            integer_matrix, self.features_DF = self.seq_array_from_MSA(MSA_fasta, MSA_type)
+            self.integer_matrix = {MSA_type:integer_matrix}
             self.genotypes = None
+
+        else:
+            raise ValueError("Either genotypes CSV file or MSA fasta file must be input for SequenceAnalyzer initialization")
 
         # convert integer array(s) to onehot array(s)
         self.onehot_matrix = {}
@@ -111,6 +148,60 @@ class SequenceAnalyzer:
         integer_matrix = np.array(integer_list)
 
         return integer_matrix
+    
+    def seq_array_from_MSA(self, MSA_fasta, NTorAA, record_features=False):
+        """
+        parse a fasta file containing an MSA and return an array of integer-
+        encoded sequences of shape (N,L) where:
+                N = number of sequences in MSA
+                L = length of sequences in MSA
+
+        args:
+            MSA_fasta:          str, path to fasta file containing MSA
+            NTorAA:             string, either 'NT' or 'AA'
+            record_features:    bool, whether to record features of sequences as columns in a dataframe
+        
+        returns:
+            integer_matrix:     np.array, 2D matrix of integer-encoded sequences
+            data_DF:            pd.DataFrame, dataframe containing features of sequences
+        """
+        # characters to drop from sequences. If any sequences contain these characters at any positions,
+        # then all sequences will be given a gap '-' at that position and it will not be used for analysis.
+        # must not be present in any self.characters.values()
+        drop_chars = '.'
+        characters = self.characters[NTorAA]+drop_chars
+
+        MSA = list(SeqIO.parse(MSA_fasta, 'fasta'))
+        integer_list = []
+        data_list = []
+        for sequence in MSA:
+            seq = sequence.seq.upper()
+            ID = sequence.id
+            data_dict = {}
+            invalid_chars = set(seq).difference(set(characters))
+            if len(invalid_chars) > 0:
+                print(f"SequenceAnalyzer.py: [NOTICE] Sequence {ID} contains invalid characters {', '.join(invalid_chars)}. Not using this sequence.")
+                continue
+            if record_features:
+                raise NotImplementedError('record_features in seq_array_from_MSA not yet implemented')
+            data_dict['ID'] = ID
+            integer = SequenceEncoder(seq, characters).integer
+            integer_list.append(integer)
+            data_list.append(data_dict)
+        
+        integer_matrix = np.array(integer_list, dtype=np.int8)
+        data_DF = pd.DataFrame(data_list)
+
+        # replace columns with any drop characters in any sequence with gaps
+        for char in drop_chars:
+            drop_integer = characters.index(char)
+            gap_integer = characters.index('-')
+            # get axis 1 positions in which any axis 0 contains drop_integer
+            drop_positions = np.where(np.any(integer_matrix==drop_integer, axis=0))[0]
+            # replace drop_integer with gap_integer
+            integer_matrix[:,drop_positions] = gap_integer
+
+        return integer_matrix, data_DF
 
     @staticmethod
     def integer_to_onehot_matrix(integer_matrix, num_characters):
@@ -608,7 +699,11 @@ class SequenceAnalyzer:
         # fit the data to provided number of dimensions then make into a dataframe with # of columns = dimensions
         reduced = embedding.fit_transform(matrix, init="pca")
         columns = [f'{NTorAA}_PaCMAP{i}' for i in range(1,dimensions+1)]
-        reduced_DF = pd.DataFrame(reduced, columns=columns, index=self.genotypes.index)
+        if self.genotypes is not None:
+            index = self.genotypes.index
+        else:
+            index = idx
+        reduced_DF = pd.DataFrame(reduced, columns=columns, index=index)
         return reduced_DF
     
     def assign_dimension_reduction(self, NTorAA, onehot=True, encoding=None, dimensions=2):

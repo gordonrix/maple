@@ -262,7 +262,7 @@ def main():
         mean_rates_individual['rate_mean'] = np.log10(mean_rates_individual['rate_mean']) # log10 transform, but note that only the integer tick marks on the color bar will be valid now
         heatmap = mean_rates_individual.hvplot.heatmap(x='wt_nt', y='mut_nt', C='rate_mean', by='sample_label',
                                                         flip_yaxis=True, width=480, title=f'sample: {sample}', cmap=cmap,
-                                                        xlabel='wild type nucleotide', ylabel='mutation nucleotide', clim=(-8, np.log10(0.00015),
+                                                        xlabel='wild type nucleotide', ylabel='mutation nucleotide', clim=(-8, np.log10(0.00015)),
                                                         ).opts(colorbar_opts={'title':f'log10(s.p.b per {timeUnit})'}, axiswise=False)
         heatmap_list.append(heatmap)
 
