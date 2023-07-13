@@ -1,4 +1,4 @@
-"""part of nanopype-MACE pipeline, written by Gordon Rix
+"""part of maple pipeline, written by Gordon Rix
 UMI_extract.py
 identifies UMI barcodes in each sequence of a .bam file based on sequence context provided
 in config file, appends this sequence to the sequence name, and writes these to a new .bam file,

@@ -154,7 +154,6 @@ rule UMI_extract:
         index = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam.bai'),
         log = 'sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'
     params:
-        barcode_contexts = lambda wildcards: [config['runs'][wildcards.tag]['barcodeInfo'][barcodeType]['context'].upper() for barcodeType in config['runs'][wildcards.tag]['barcodeInfo']] if config['do_demux'][wildcards.tag] else None,
         reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
         UMI_contexts = lambda wildcards: config['runs'][wildcards.tag]['UMI_contexts']
     script:
