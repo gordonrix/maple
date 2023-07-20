@@ -500,7 +500,7 @@ def plot_mutations_aggregated(link, all_data, num_positions, NTorAA, plot_type, 
                                 NTorAA=NTorAA,
                                 idx=selected_idx)
 
-    plot = conspicuous_mutations(df, num_positions, total_seqs,
+    plot = conspicuous_mutations(df, total_seqs, num_positions=num_positions,
                                 colormap=cmap, most_common=most_common, heatmap=heatmap)
 
     return plot

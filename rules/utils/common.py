@@ -198,12 +198,13 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
                     This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n""")
     return
         
-def conspicuous_mutations(df, num_positions, total_seqs, colormap='kbc_r', most_common=True, heatmap=False):
+def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', most_common=True, heatmap=False):
     """
     produces a bar plot of the most or least frequent mutations
     
     parameters:
         df (pd.DataFrame):   dataframe of aggregated mutations output by aggregate_mutations
+        total_seqs (int):    total number of sequences in the sample, just used for labelling the plot
         num_positions (int): number of mutations to include in the bar plot output
         colormap (dict):     AA/NT letter : color hex code key:value pairs to use for the stacked bars plot output
                                 or a name of the colormap to use for the heatmap output
@@ -213,7 +214,9 @@ def conspicuous_mutations(df, num_positions, total_seqs, colormap='kbc_r', most_
         hv.Bars or hv.heatmap object showing the topN most frequently observed mutations
             in the aggregated mutations dataframe
     """
-    
+    if num_positions is None:
+        num_positions = len(df['position'].unique())
+
     df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
     df_grouped = df.groupby('position', as_index=False).sum().sort_values(['total_count','position'],ascending=[not most_common, True])
     positions = df_grouped['position'].iloc[:num_positions]

@@ -1,12 +1,12 @@
 import numpy as np
 import pandas as pd
 import holoviews as hv
-from common import conspicuous_mutations, colormaps
+from common import colormaps, export_svg_plots, conspicuous_mutations
 from snakemake.io import Namedlist
 hv.extension("bokeh")
 
 
-def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wildcards):
+def main(frequencies_input, stats_input, output, mutations_frequencies_raw, heatmap, colormap, export_SVG, wildcards):
     number_of_positions = 20    # number of positions to include for most and least frequent
 
     mutStatsDF = pd.read_csv(stats_input, dtype={'tag':str,'barcode_group':str})
@@ -19,13 +19,18 @@ def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wild
     else:
         value_label = 'proportion_of_seqs'
 
+    if not heatmap:
+        colormap = colormaps[wildcards.NTorAA]
+
     plots = []
     mutsDF_all = pd.DataFrame(columns=['group', 'wt', 'position', 'mutation', 'total_count'])
 
+    group_list = []
     for inFile in frequencies_input:
 
         # Get mutation data, convert to tidy format
         barcodeGroup = inFile.split('_')[-2]
+        group_list.append(barcodeGroup)
         plotTitle = f'{wildcards.tag}_{barcodeGroup}'
         mutsDF = pd.read_csv(inFile, index_col=False)
         mutsDF = mutsDF.rename(columns={mutsDF.columns[0]:'wt'})
@@ -41,7 +46,7 @@ def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wild
         else:
             mutsDF['total_count'] = mutsDF['proportion_of_seqs'] * total_seqs
 
-        plots.append( conspicuous_mutations(mutsDF, mutsDF['position'].max()-1, colormaps[wildcards.NTorAA], most_common=True).opts(title=plotTitle, xlabel='all mutated positions', ylabel=f"frequency (n={total_seqs})", width=1000) )
+        plots.append( conspicuous_mutations(mutsDF, total_seqs, colormap=colormap, heatmap=heatmap).opts(title=plotTitle, width=1000) )
         mutsDF_all = pd.concat([mutsDF_all, mutsDF])
 
     # determine the most and least frequently mutated positions across all sample groups
@@ -60,6 +65,9 @@ def main(frequencies_input, stats_input, output, mutations_frequencies_raw, wild
     hv.save( hv.Layout(plots_most_frequent).cols(1), output.most_frequent, backend='bokeh')
     hv.save( hv.Layout(plots).cols(1), output.all_muts, backend='bokeh')
 
+    if export_SVG:
+        export_svg_plots(plots, output.all_muts, labels=group_list, export=export_SVG)
+
 if __name__ == '__main__':
-    main(snakemake.input.genotypes, snakemake.input.mut_stats, snakemake.output, snakemake.params.mutations_frequencies_raw, snakemake.wildcards)
+    main(snakemake.input.genotypes, snakemake.input.mut_stats, snakemake.output, snakemake.params.mutations_frequencies_raw, snakemake.params.heatmap, snakemake.params.cmap, snakemake.params.export_SVG, snakemake.wildcards)
 
