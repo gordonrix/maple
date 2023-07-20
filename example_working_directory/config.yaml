@@ -157,6 +157,7 @@ genotype_ID_alignments: 0                # similar to above, but a comma separat
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_with_indels: True          # Set to True if sequences containing insertions or deletions should be analyzed. Defaults to True.
 mutations_frequencies_number_of_positions: 20              # number of mutations to include in the most/least frequent mutations plots
+mutations_frequencies_heatmap: False           # set to True if the frequencies plot should be a heatmap. will be a stacked bar otherwise
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count

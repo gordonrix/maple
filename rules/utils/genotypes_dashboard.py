@@ -448,50 +448,70 @@ static_hist = downsampled_MOI.apply(histogram, histCol=hist_col_selector, num_bi
 # Current options:
 #   - bar plot of most frequent mutations
 #   - bar plot of least frequent mutations
+#   - heatmap of most frequent mutations
+#   - heatmap of least frequent mutations
 agg_muts_width_slider = pn.widgets.IntSlider(name='plot width',
                                 start=160,
-                                end=1200,
+                                end=1600,
                                 step=10,
                                 value=500 )
 
-num_positions_slider = pn.widgets.IntSlider(name='number of positions',
-                                    start=5,
-                                    end=100,
-                                    step=1,
-                                    value=10 )
-
+max_positions = all_data.integer_matrix['NT'].shape[1]
 NTorAA_radio_options = ['nucleotide (NT)']
 if do_AA_analysis:
     NTorAA_radio_options.append('amino acid (AA)')
+    max_positions = all_data.integer_matrix['AA'].shape[1]
 NTorAA_radio = pn.widgets.RadioButtonGroup(
     name='bar plot mutation type', options=NTorAA_radio_options, value=NTorAA_radio_options[-1], disabled=(not do_AA_analysis), button_type='default')
-agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent', 'least frequent'])
+agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent, heatmap', 'least frequent, heatmap', 'most frequent, bars', 'least frequent, bars'])
+num_positions_slider = pn.widgets.IntSlider(name='number of positions',
+                                    start=5,
+                                    end=max_positions,
+                                    step=1,
+                                    value=10 )
+# link the number of positions slider to the NTorAA radio button
+# update the range of bins based on the maximum value of the column
+def num_positions_callback(IntSlider, event):
+    value = event.new
+    NTorAA = value[-3:-1]
+    max_positions = all_data.integer_matrix[NTorAA].shape[1]
+    IntSlider.end = max_positions
+    
+NTorAA_radio.link(num_positions_slider, callbacks={'value':num_positions_callback})
 
-def plot_mutations_aggregated(dataset, all_data, num_positions, NTorAA, plot_type):
+def plot_mutations_aggregated(link, all_data, num_positions, NTorAA, plot_type, cmap):
     """
-    produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input
+    produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input. link is just used to trigger the callback when a selection is made
     """
     NTorAA = NTorAA[-3:-1] # get NT or AA from the text in the radio button
-    if plot_type.endswith('frequent'):
-        if plot_type.startswith('most'):
-            most_common=True
-        elif plot_type.startswith('least'):
-            most_common=False
-        selected_idx = dataset.data.index
-        total_seqs = all_data.get_count(selected_idx)
-        df = all_data.aggregate_mutations(
-                                 NTorAA=NTorAA,
-                                 idx=selected_idx)
-        plot = conspicuous_mutations(df, num_positions, colormaps[NTorAA],
-                                    most_common=most_common).opts(ylabel=f"frequency (n={total_seqs})")
-    
+    if plot_type.endswith('heatmap'):
+        heatmap = True
+    elif plot_type.endswith('bars'):
+        heatmap = False
+        cmap = colormaps[NTorAA]
+    if plot_type.startswith('most'):
+        most_common=True
+    elif plot_type.startswith('least'):
+        most_common=False
+    # selected_idx = dataset.data.index
+    selected_idx = all_data.selected_idx
+    total_seqs = all_data.get_count(selected_idx)
+    df = all_data.aggregate_mutations(
+                                NTorAA=NTorAA,
+                                idx=selected_idx)
+
+    plot = conspicuous_mutations(df, num_positions, total_seqs,
+                                colormap=cmap, most_common=most_common, heatmap=heatmap)
+
     return plot
 
-aggregated_muts_plot = selected.apply(plot_mutations_aggregated,
+aggregated_muts_plot = pn.bind(plot_mutations_aggregated,
+                                        link=ls.param.selection_expr,
                                         all_data=all_data,
                                         num_positions=num_positions_slider,
                                         NTorAA=NTorAA_radio,
-                                        plot_type=agg_plot_type_selector)
+                                        plot_type=agg_plot_type_selector,
+                                        cmap=cmap_selector)
 
 # Create a panel with a slider to control the width of the plot
 aggregated_muts_panel = pn.panel(aggregated_muts_plot, width=agg_muts_width_slider.value)

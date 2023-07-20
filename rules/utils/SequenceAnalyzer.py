@@ -23,6 +23,7 @@ class SequenceAnalyzer:
 
     def __init__(self, reference_fasta=None, genotypesCSV=None, exclude_indels=False, MSA_fasta=None):
         self.characters = {'NT':'ATGC-', 'AA':'ACDEFGHIKLMNPQRSTVWY*-'}
+        self.DR_embeddings = {}
 
         # two different kinds of initialization, one for genotypes CSV input and one for MSA fasta input
         if genotypesCSV:
@@ -42,6 +43,8 @@ class SequenceAnalyzer:
         
         #  MSA initialization
         elif MSA_fasta:
+            # features will be pulled from sequence IDs, they should be in the format 'label:value', and separated by '__'
+            #   All sequences do not need to share the same labels, and do not need to have the same number of labels
             if genotypesCSV is not None:
                 raise ValueError("genotypes CSV file must not be input if MSA fasta is used for initialization")
             # use first sequence to determine if sequences are NT or AA
@@ -74,7 +77,7 @@ class SequenceAnalyzer:
                 if len(self.ref_seq[MSA_type]) != len(first_seq):
                     raise ValueError(f"First sequence in MSA fasta file is not the same length as the reference sequence in the reference fasta file {reference_fasta}. All sequences in the MSA fasta file must be the same length as the reference sequence in the reference fasta file")
             
-            integer_matrix, self.features_DF = self.seq_array_from_MSA(MSA_fasta, MSA_type)
+            integer_matrix, self.features_DF = self.seq_array_from_MSA(MSA_fasta, MSA_type, record_features=True)
             self.integer_matrix = {MSA_type:integer_matrix}
             self.genotypes = None
 
@@ -160,6 +163,7 @@ class SequenceAnalyzer:
             MSA_fasta:          str, path to fasta file containing MSA
             NTorAA:             string, either 'NT' or 'AA'
             record_features:    bool, whether to record features of sequences as columns in a dataframe
+                                    if False, will only output the sequence ID in the data_DF
         
         returns:
             integer_matrix:     np.array, 2D matrix of integer-encoded sequences
@@ -183,7 +187,11 @@ class SequenceAnalyzer:
                 print(f"SequenceAnalyzer.py: [NOTICE] Sequence {ID} contains invalid characters {', '.join(invalid_chars)}. Not using this sequence.")
                 continue
             if record_features:
-                raise NotImplementedError('record_features in seq_array_from_MSA not yet implemented')
+                # example: recordID__feature1:value1__feature2:value2
+                ID, *features = ID.split('__')
+                for feature in features:
+                    key, value = feature.split(':')
+                    data_dict[key] = value
             data_dict['ID'] = ID
             integer = SequenceEncoder(seq, characters).integer
             integer_list.append(integer)
@@ -602,9 +610,9 @@ class SequenceAnalyzer:
             posi += 1
             mut = chars[char_idx]
 
-            # don't add a row for the wildtype sequence identities
-            if wt != mut:
-                rows.append([wt, posi, mut, count])
+            if wt == mut:
+                count = np.nan
+            rows.append([wt, posi, mut, count])
                 
         df = pd.DataFrame(rows, columns=['wt', 'position', 'mutation', 'total_count'])
         df['proportion_of_seqs'] = df['total_count']/total_seqs
@@ -641,8 +649,8 @@ class SequenceAnalyzer:
                 f.write(f'>{name}{NTorAA}_consensus_sequence_from_{total_seqs}_sequences\n{consensus}\n')
 
         return consensus
-    
-    def dimension_reduction(self, NTorAA, idx=None, onehot=True, encoding=None, dimensions=2):
+
+    def dimension_reduction(self, NTorAA, idx=None, onehot=True, encoding=None, dimensions=2, drop_same=True, use_previous=False):
         """ 
         Perform dimension reduction (DR) on the sequences of a particular level (NT or AA), and return the result as a DataFrame
         
@@ -654,57 +662,63 @@ class SequenceAnalyzer:
             encoding (dict):        encoding dictionary to use. Keys correspond to the original sequence, values correspond to the final value.
                                         If None, the standard integer encoding is used
             dimensions (int):       number of dimensions to reduce to
+            drop_same (bool):       whether to drop columns in the matrix that are the same in all sequences. 
+            use_previous (bool):    whether to use a previous DR embedding if it exists. if False, a new embedding is generated, and if drop_same=False, the embedding is stored. If True,
+                                        an old embedding is used and a new embedding is not stored
         
         Returns:
             pd.DataFrame:           DataFrame of shape (n_sequences, dimensions) containing the DR output
         """
         if idx is None:
             idx = np.arange(self.integer_matrix[NTorAA].shape[0])
-        
-        # behavior depends on both onehot and encoding. if both are default, then just use the stored onehot matrix instead of rebuilding it
-        if encoding is None:
-            if onehot:
-                matrix = self.select(idx)['onehot'][NTorAA]
-            else: 
-                matrix = self.select(idx)['integer'][NTorAA]
 
+        # get the matrix, behavior depends on both onehot and encoding. if both are default, then just use the stored onehot matrix instead of rebuilding it
+        if encoding is None:
+            matrix = self.select(idx)['onehot'][NTorAA] if onehot else self.select(idx)['integer'][NTorAA]
         else:
             matrix = self.select(idx)['integer'][NTorAA]
-            # convert encoding to an encoding that can be used directly on the stored integer matrix
             letter_to_int = self.ref_seq[NTorAA].encoder_dict
             encoding = {letter_to_int[k]:v for k,v in encoding.items()}
             matrix = SequenceEncoder.convert_array(matrix, encoding)
 
-            if onehot: # convert to onehot encoding
-                # this is not a good assumption, but is just a maximum. if there are fewer values, then the blank values will be removed prior to DR
+            if onehot: 
                 num_characters = len(encoding)
+                matrix = SequenceAnalyzer.integer_to_onehot_matrix(matrix, num_characters)
 
-                matrix = SequenceAnalyzer.integer_to_onehot_matrix(matrix, num_characters)            
-
-        if onehot:
-            # flatten onehot matrix, remove axis 1 positions that are all 0s. accomplishes a similar task to the 'else' block but is faster and only works for onehot encoding
+        if onehot: # flatten
             N,L,C = matrix.shape
             matrix = matrix.reshape((N,L*C))
-            cols_with_nonzero = np.where(np.any(matrix, axis=0))[0]
-            matrix = matrix[:, cols_with_nonzero]
-        else:
-            # remove values that are the same across axis 1 (i.e. all sequences have the same value for that position)
-            same_values = np.all(matrix == matrix[0, :], axis=0)
-            different_values = np.logical_not(same_values)
-            matrix = matrix[:, different_values]
-            
-        # initializing the pacmap instance
-        embedding = pm.PaCMAP(n_components=dimensions, MN_ratio=0.5, FP_ratio=2.0)
+        if drop_same:
+            if onehot: # flatten onehot matrix, remove axis 1 positions that are all 0s. accomplishes a similar task to the 'else' block but is faster and only works for onehot encoding
+                keep_columns = np.where(np.any(matrix, axis=0))[0]
+            else: # remove values that are the same across axis 1 (i.e. all sequences have the same value for that position)
+                same_values = np.all(matrix == matrix[0, :], axis=0)
+                keep_columns = np.logical_not(same_values)
+            matrix = matrix[:, keep_columns]
 
-        # fit the data to provided number of dimensions then make into a dataframe with # of columns = dimensions
-        reduced = embedding.fit_transform(matrix, init="pca")
+        if not use_previous:
+
+            embedding = pm.PaCMAP(n_components=dimensions, MN_ratio=0.5, FP_ratio=2.0)
+            reduced = embedding.fit_transform(matrix, init="pca")
+            if not drop_same: # store embedding
+                self.DR_embeddings[NTorAA] = embedding, idx
+            
+        elif use_previous and (not drop_same) and NTorAA in self.DR_embeddings:
+            embedding, old_idx = self.DR_embeddings[NTorAA]
+            old_matrix = self.select(old_idx)['onehot'][NTorAA]
+            N,L,C = old_matrix.shape
+            old_matrix = old_matrix.reshape((N,L*C))
+            reduced = embedding.transform(matrix, basis=old_matrix)
+
+        else:
+            raise ValueError(f'No previous embedding for {NTorAA} exists, or drop_same=True, which is incompatible with using previous embeddings. Set use_previous and drop_same to False to create a new embedding.')
+        
         columns = [f'{NTorAA}_PaCMAP{i}' for i in range(1,dimensions+1)]
         if self.genotypes is not None:
             index = self.genotypes.index
         else:
             index = idx
-        reduced_DF = pd.DataFrame(reduced, columns=columns, index=index)
-        return reduced_DF
+        return pd.DataFrame(reduced, columns=columns, index=index)
     
     def assign_dimension_reduction(self, NTorAA, onehot=True, encoding=None, dimensions=2):
         """

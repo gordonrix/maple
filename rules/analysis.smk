@@ -392,7 +392,7 @@ rule plot_mutation_rate:
     script:
         'utils/plot_mutation_rate.py'
 
-rule plot_mutation_frequencies:
+rule plot_mutation_frequencies_tag:
     input:
         genotypes = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
                                                     tag=wildcards.tag,
@@ -405,19 +405,27 @@ rule plot_mutation_frequencies:
         least_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies-rare.html'
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
-        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20)
+        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
+        heatmap = lambda wildcards: config.get('mutations_frequencies_heatmap', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_mutations_frequencies.py'
 
-rule plot_mutations_frequencies_tag:
+rule plot_mutations_frequencies:
     input:
         frequencies = 'mutation_data/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
-        mutStats = '{tag}_mutation-stats.csv'
+        mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
-        'plots/{tag, [^\/_]*}_{barcodes, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies.html'
+        all_muts = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies.html',
+        most_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies-common.html',
+        least_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies-rare.html',
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
-        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20)
+        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
+        heatmap = lambda wildcards: config.get('mutations_frequencies_heatmap', False),
+        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        export_SVG = lambda wildcards: config.get('export_SVG', False)
     script:
         'utils/plot_mutations_frequencies.py'
 

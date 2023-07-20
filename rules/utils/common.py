@@ -198,14 +198,15 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
                     This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n""")
     return
         
-def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap=False):
+def conspicuous_mutations(df, num_positions, total_seqs, colormap='kbc_r', most_common=True, heatmap=False):
     """
     produces a bar plot of the most or least frequent mutations
     
     parameters:
         df (pd.DataFrame):   dataframe of aggregated mutations output by aggregate_mutations
         num_positions (int): number of mutations to include in the bar plot output
-        colormap (dict):     AA/NT letter : color hex code key:value pairs to use for the plot
+        colormap (dict):     AA/NT letter : color hex code key:value pairs to use for the stacked bars plot output
+                                or a name of the colormap to use for the heatmap output
         most_common (bool):  if True/False, output the most/least commonly mutated positions
         
     returns:
@@ -218,15 +219,21 @@ def conspicuous_mutations(df, num_positions, colormap, most_common=True, heatmap
     positions = df_grouped['position'].iloc[:num_positions]
     df = df[df['position'].isin(positions)]
     df = df.sort_values('position', ascending=True)
-    df['position'] = df['wt'] + df['position'].astype(str)
+    df['WT_position'] = df['wt'] + df['position'].astype(str)
+
     if heatmap:
-        plot = hv.HeatMap(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
-                    show_legend=True, height=500, xlabel='position',
-                    xrotation=40, cmap=colormap, tools=['hover'])
+        AAs = list('AILPVFWYNQSTCMDEHKRG*')
+        order = AAs + [m for m in df['mutation'].unique().tolist() if m not in AAs]
+        df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
+        df = df.sort_values(['position','mutation'], ascending=[True,False])
+
+        plot = hv.HeatMap(df, kdims=['WT_position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+                    colorbar=True, clabel=f"frequency (n={total_seqs})", ylabel="mutation")
     else:
-        plot = hv.Bars(df, kdims=['position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
-                    show_legend=False, height=500, xlabel='position',
-                    xrotation=40, stacked=True, cmap=colormap, tools=['hover'])
+        plot = hv.Bars(df, kdims=['WT_position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+                    show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True)
+                    
+    plot = plot.opts(height=500, width=1000, xrotation=90, tools=['hover'],  cmap=colormap, xlabel='position', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
     return plot
 
 def dashboard_input(wildcards, config):
