@@ -3,6 +3,7 @@ import pandas as pd
 import pacmap as pm
 import pathlib
 import sklearn
+from collections import Counter
 from Bio import SeqIO
 from Bio.Seq import Seq
 
@@ -178,13 +179,14 @@ class SequenceAnalyzer:
         MSA = list(SeqIO.parse(MSA_fasta, 'fasta'))
         integer_list = []
         data_list = []
+        invalid_chars_counter = Counter()
         for sequence in MSA:
             seq = sequence.seq.upper()
             ID = sequence.id
             data_dict = {}
             invalid_chars = set(seq).difference(set(characters))
             if len(invalid_chars) > 0:
-                print(f"SequenceAnalyzer.py: [NOTICE] Sequence {ID} contains invalid characters {', '.join(invalid_chars)}. Not using this sequence.")
+                invalid_chars_counter.update(invalid_chars)
                 continue
             if record_features:
                 # example: recordID__feature1:value1__feature2:value2
@@ -196,6 +198,10 @@ class SequenceAnalyzer:
             integer = SequenceEncoder(seq, characters).integer
             integer_list.append(integer)
             data_list.append(data_dict)
+        
+        if len(invalid_chars_counter) > 0:
+            for char in invalid_chars_counter:
+                print(f"SequenceAnalyzer.py: [NOTICE] {invalid_chars_counter[char]} sequences contained invalid character `{char}` not in the list of valid characters `{characters}`. Not using these sequences.")
         
         integer_matrix = np.array(integer_list, dtype=np.int8)
         data_DF = pd.DataFrame(data_list)
