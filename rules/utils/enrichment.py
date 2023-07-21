@@ -15,6 +15,7 @@ import pandas as pd
 import numpy as np
 import holoviews as hv
 from holoviews.operation import histogram
+import hvplot.pandas
 hv.extension('bokeh')
 import scipy
 from sklearn.linear_model import LinearRegression
@@ -362,37 +363,43 @@ def plot_enrichment(enrichment_df, plots_out):
         replicates.sort()
         sample_plots = []
 
-        for replicate1, replicate2 in itertools.combinations(replicates, 2):
+        # if there are no replicates, just plot the distribution of scores
+        if len(replicates) == 1:
+            sample_plots.append(sample_df.hvplot.hist(y='enrichment_score', ylabel='sequences count', bins=20, title=f'{sample}', color='grey')
+                                .opts(fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, width=500, height=500))
 
-            # filter for the two replicates, pivot to get both replicates in the same row, remove rows with NaNs
-            pivot_df = sample_df[sample_df['replicate'].isin([replicate1, replicate2])].pivot(index=enrichment_bc, columns='replicate', values='enrichment_score').dropna()
+        else:
+            for replicate1, replicate2 in itertools.combinations(replicates, 2):
 
-            # plot points
-            kdims = ["replicate " + str(replicate1), "replicate " + str(replicate2)]
-            points = hv.Points((pivot_df[replicate1], pivot_df[replicate2]), kdims=kdims)
-            points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400,
-                        fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=2, color='black', alpha=0.1)
+                # filter for the two replicates, pivot to get both replicates in the same row, remove rows with NaNs
+                pivot_df = sample_df[sample_df['replicate'].isin([replicate1, replicate2])].pivot(index=enrichment_bc, columns='replicate', values='enrichment_score').dropna()
 
-            # use statsmodels OLS to calculate R² between the two replicates
-            y = pivot_df[replicate2].to_numpy()
-            x = sm.add_constant(pivot_df[replicate1].to_numpy())
-            fit = sm.OLS(y,x).fit()
-            fit_r2 = fit.rsquared
-            intercept = fit.params[0]
-            slope = fit.params[1]
+                # plot points
+                kdims = ["replicate " + str(replicate1), "replicate " + str(replicate2)]
+                points = hv.Points((pivot_df[replicate1], pivot_df[replicate2]), kdims=kdims)
+                points.opts(title=f'{sample}, Replicates {replicate1} and {replicate2}', width=400, height=400,
+                            fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}, size=2, color='black', alpha=0.1)
 
-            # use hv.Curve to show the fit line
-            trendline = hv.Curve(([min_value, max_value], [min_value * slope + intercept, max_value * slope + intercept])).opts(
-                xlabel=kdims[0], ylabel=kdims[1], color="lightgrey", line_dash='dashed')
+                # use statsmodels OLS to calculate R² between the two replicates
+                y = pivot_df[replicate2].to_numpy()
+                x = sm.add_constant(pivot_df[replicate1].to_numpy())
+                fit = sm.OLS(y,x).fit()
+                fit_r2 = fit.rsquared
+                intercept = fit.params[0]
+                slope = fit.params[1]
 
-            # also calculate the R² for fit to x=y line
-            r2 = r2_score(pivot_df[replicate1], pivot_df[replicate2])
-            r2_label = hv.Text(min_value, max_value, f' slope 1, R² = {r2:.2f}\n slope {slope:.2f}, R² = {fit_r2:.2f}', halign='left', valign='top').opts(color='black')
+                # use hv.Curve to show the fit line
+                trendline = hv.Curve(([min_value, max_value], [min_value * slope + intercept, max_value * slope + intercept])).opts(
+                    xlabel=kdims[0], ylabel=kdims[1], color="lightgrey", line_dash='dashed')
 
-            # distributions
-            x_hist, y_hist = (histogram(points, dimension=k).opts(fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}) for k in kdims)
+                # also calculate the R² for fit to x=y line
+                r2 = r2_score(pivot_df[replicate1], pivot_df[replicate2])
+                r2_label = hv.Text(min_value, max_value, f' slope 1, R² = {r2:.2f}\n slope {slope:.2f}, R² = {fit_r2:.2f}', halign='left', valign='top').opts(color='black')
 
-            sample_plots.append((trendline * points * r2_label) << y_hist.opts(width=125, color='grey', tools=['hover']) << x_hist.opts(height=125, color='grey', tools=['hover']))
+                # distributions
+                x_hist, y_hist = (histogram(points, dimension=k).opts(fontsize={'title':16,'labels':14,'xticks':10,'yticks':10}) for k in kdims)
+
+                sample_plots.append((trendline * points * r2_label) << y_hist.opts(width=125, color='grey', tools=['hover']) << x_hist.opts(height=125, color='grey', tools=['hover']))
         
         plots[sample] = hv.Layout(sample_plots).cols(1)
     
