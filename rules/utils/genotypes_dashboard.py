@@ -84,7 +84,14 @@ downsample_slider = pn.widgets.IntSlider(name='downsample',
                                         step=1000,
                                         value=len(all_data.genotypes) )
 
-def initialize_ds(dataset, downsample, size_column, size_range):
+num_barcodes_slider = pn.widgets.IntSlider(name='maximum number of barcodes',
+                                            start = 1,
+                                            end = 100,
+                                            step = 1,
+                                            value = 10,
+                                            disabled = not 'barcode(s)' in all_data.genotypes.columns)
+
+def initialize_ds(dataset, downsample, size_column, size_range, num_barcodes):
     df = dataset.data
 
     if downsample < len(df):
@@ -99,13 +106,23 @@ def initialize_ds(dataset, downsample, size_column, size_range):
         df['size'] = minSize
     else:
         df['size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
+
+    # add a new column for a the subset of the most common barcodes
+    if not num_barcodes_slider.disabled:
+        barcode_counts = df['barcode(s)'].value_counts()
+        if len(barcode_counts) > num_barcodes_slider.value:
+            top_barcodes = barcode_counts[:num_barcodes_slider.value].index
+            df['barcode(s)_subset'] = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
+        else:
+            df['barcode(s)_subset'] = df['barcode(s)']
     
     return hv.Dataset(df)
 
 downsampled = hv.Dataset(all_data.genotypes).apply(initialize_ds,
                                 downsample=downsample_slider,
                                 size_column=size_column_select,
-                                size_range=size_range_slider)
+                                size_range=size_range_slider,
+                                num_barcodes=num_barcodes_slider)
 
 
 
@@ -203,6 +220,9 @@ filtered = downsampled_MOI.apply(filter_dataset,
 color_options = ['NT_substitutions_count', 'NT_muts_of_interest', choice_col] + [col for col in numerical_columns if col != 'NT_substitutions_count']
 if do_AA_analysis:
     color_options.append('AA_muts_of_interest')
+
+if 'barcode(s)' in all_data.genotypes.columns:
+    color_options.append('barcode(s)_subset')
 
 embedding_options = [col.split('_')[0] for col in list(all_data.genotypes.columns) if col.endswith('_PaCMAP1')]
 points_x_select = pn.widgets.Select(name='column for x axis', options=numerical_columns, value=embedding_options[0] + '_PaCMAP1')
@@ -542,7 +562,7 @@ export_agg_muts_button.on_click(export_agg_muts)
 # make a table to display the selected genotypes
 def tabulate(dataset, sample_size):
     idx = dataset.data.index
-    df = all_data.select(idx)['df']
+    df = all_data.select(idx)['df'].drop(['barcode(s)_subset','size'], axis=1)
     if sample_size < len(df):
         df = df.sample(n=sample_size, random_state=0)
     if df.empty:
@@ -640,7 +660,8 @@ layout = pn.Column(
         pn.Row(color_by_select,cmap_selector),
         pn.Row(NT_muts_text,AA_muts_text),
         pn.Row(SVG_button, max_mut_combos_slider),
-        pn.Row(selection_name_text, reset_button)),
+        pn.Row(selection_name_text, num_barcodes_slider),
+        pn.Row(reset_button)),
     pn.Row(dynamic_points, colorbar),
     pn.Column(sample_size_slider,
               selected_table,

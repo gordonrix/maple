@@ -102,6 +102,8 @@ def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
     Returns:
         df (pandas.DataFrame): original dataframe with two additional columns for the slope and standard error of the regression for each row
     """
+    if len(df) < 2*n_threads:
+        n_threads = 1
     df_chunks = np.array_split(df, n_threads)
     with ProcessPoolExecutor(max_workers=n_threads) as executor:
         results = executor.map(regression_worker, df_chunks, itertools.repeat(x), itertools.repeat(timepoints), itertools.repeat(weighted))
@@ -113,7 +115,7 @@ def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
     return df
 
 
-def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barcode_groups, reference_bc='', scores_csv='', screen_no_group=True):
+def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc='', scores_csv='', screen_no_group=True):
     """
     Calculate enrichment scores from counts of barcodes.
 
@@ -121,45 +123,53 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
         demux_stats (str): Path to the demux_stats.csv file output by `demux.py`.
         n_threads (int): Number of threads to use for linear regression parallelization.
         timepoints (str): Path to the timepoints.csv file output by `demux.py`.
-        barcode_info (dict): Dictionary of barcode information from config file
-        barcode_groups (dict): Dictionary of barcode groups from config file
+        runs (dict):     Config runs dictionary
         output_csv (str): Path to the output CSV file.
         screen_no_group (bool): Whether to screen out barcodes that were not assigned to a barcode group. Default: True.
 
     Returns:
         enrichment_df (pandas.DataFrame): DataFrame containing the enrichment scores for each barcode/sample combination.
     """
-    demux_stats_DF = pd.read_csv(demux_stats,index_col=False)
+    all_demux_DF = pd.read_csv(demux_stats,index_col=False)
 
-    barcode_types = list(barcode_info.keys())
-    grouped_barcode_types = list(barcode_groups[list(barcode_groups.keys())[0]].keys())
+    # prepare demux DF from each tag for pivot separately and then combine
+    tag_DFs = []
+    for tag in runs:
+        barcode_types = runs[tag]['barcodeInfo'].keys()
+        barcode_groups = runs[tag]['barcodeGroups']
+        grouped_barcode_types = list(barcode_groups[list(barcode_groups.keys())[0]].keys())
 
-    ungrouped_barcode_types = [bc_type for bc_type in barcode_types if bc_type not in grouped_barcode_types]
-    if len(ungrouped_barcode_types) != 1:
-        raise ValueError('Enrichment currently requires exactly one barcode type not used for barcode groups.')
-    enrichment_bc = '_'.join(ungrouped_barcode_types)
+        tag_demux_DF = all_demux_DF[all_demux_DF['tag'] == tag].copy()
 
-    # remove any barcode_type columns that are 'fail'
-    drop_idx = []
-    for bc_type in barcode_types:
-        drop_idx.extend(demux_stats_DF[(demux_stats_DF[bc_type] == 'fail')].index.tolist())
-    if screen_no_group:
-        # remove any sequences that were not assigned a barcode group
-        demux_stats_DF['named_by_group'] = demux_stats_DF.apply(lambda row:
-            False if row['output_file_barcodes'] not in barcode_groups.keys() else True, axis=1)
-        drop_idx.extend(demux_stats_DF[(demux_stats_DF['named_by_group'] == False)].index.tolist())
-    demux_stats_DF.drop(drop_idx, inplace=True)
+        ungrouped_barcode_types = [bc_type for bc_type in barcode_types if bc_type not in grouped_barcode_types]
+        if len(ungrouped_barcode_types) != 1:
+            raise ValueError('Enrichment currently requires exactly one barcode type not used for barcode groups.')
+        enrichment_bc = '_'.join(ungrouped_barcode_types)
+
+        # remove any barcode_type columns that are 'fail'
+        drop_idx = []
+        for bc_type in barcode_types:
+            drop_idx.extend(tag_demux_DF[(tag_demux_DF[bc_type] == 'fail')].index.tolist())
+        if screen_no_group:
+            # remove any sequences that were not assigned a barcode group
+            tag_demux_DF['named_by_group'] = tag_demux_DF.apply(lambda row:
+                False if row['output_file_barcodes'] not in barcode_groups.keys() else True, axis=1)
+            drop_idx.extend(tag_demux_DF[(tag_demux_DF['named_by_group'] == False)].index.tolist())
+
+        tag_demux_DF = tag_demux_DF.drop(drop_idx)
+        tag_DFs.append(tag_demux_DF)
+
+    all_demux_DF = pd.concat(tag_DFs)
 
     # add a demuxed count column for all enrichment barcodes that did not fail demux
-    demux_stats_DF['enrichment_bc_no_fail_count'] = demux_stats_DF.groupby('output_file_barcodes')['barcodes_count'].transform('sum')
+    all_demux_DF['enrichment_bc_no_fail_count'] = all_demux_DF.groupby('output_file_barcodes')['barcodes_count'].transform('sum')
 
-    demux_stats_DF['tag_bcGroup'] = demux_stats_DF.apply(lambda row:
-        row['tag'] + '_' + row['output_file_barcodes'], axis=1)
-    
+    all_demux_DF['tag_bcGroup'] = all_demux_DF.apply(lambda row:
+        row['tag'] + '_' + row['output_file_barcodes'], axis=1)    
 
     # pivot the counts to give one row per enrichment barcode, with columns for counts of that enrichment barcode
     #   per each barcode group, then convert to fraction of counts for sample/timepoint
-    counts_pivot = demux_stats_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count')
+    counts_pivot = all_demux_DF.pivot(index=enrichment_bc, columns='tag_bcGroup',values='barcodes_count')
     sample_sums = counts_pivot.sum(axis=0)
     counts_pivot_no_na = counts_pivot.dropna()
     counts_pivot = counts_pivot.fillna(0)
@@ -198,7 +208,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
         sample_count[row[sample_label]] += 1
         replicateCol.append(sample_count[row[sample_label]])
     timepoints_DF['replicate'] = replicateCol
-    timepoints_DF.set_index([sample_label, 'replicate'], inplace=True)
+    timepoints_DF = timepoints_DF.set_index([sample_label, 'replicate'])
 
     # loop through each sample of the timepoints DF and use the columns to slice the enrichment DF
     #   such that we get a DF with (n= (samples per timepoint * replicates) ) rows per enrichment barcode,
@@ -220,8 +230,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, barcode_info, barco
         else:
             # get the total counts for only barcodes that appear in all timepoints, used as a reference
             reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
-        counts = sample_df[slice_cols].to_numpy()
-
+        counts = sample_df[slice_cols].to_numpy().astype(float)
 
         # set counts following 0 counts to nan then calculate normalized log transformed y values
         counts_pruned = counts.copy()
@@ -331,7 +340,7 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter
     count_col = mean_enrichment_df.count(axis=1)
     mean_enrichment_df['mean_enrichment_score'] = mean_enrichment_df.mean(axis=1)
     mean_enrichment_df['valid_replicates'] = count_col
-    mean_enrichment_df.reset_index(inplace=True)
+    mean_enrichment_df = mean_enrichment_df.reset_index()
 
     if filtered_csv:
         enrichment_df.to_csv(filtered_csv, index=False)
@@ -409,4 +418,4 @@ def plot_enrichment(enrichment_df, plots_out):
 
 
 if __name__ == '__main__':
-    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.threads, snakemake.input.timepoints, snakemake.params.barcodeInfo, snakemake.params.barcodeGroups, reference_bc=snakemake.params.reference_bc, scores_csv=snakemake.output.scores, screen_no_group=snakemake.params.screen_no_group)
+    enrichment_df = calculate_enrichment(snakemake.input.CSV, snakemake.threads, snakemake.input.timepoints, snakemake.config['runs'], reference_bc=snakemake.params.reference_bc, scores_csv=snakemake.output.scores, screen_no_group=snakemake.params.screen_no_group)
