@@ -583,7 +583,7 @@ def export_svg(event):
     points = dynamic_points()
 
     # get current plots
-    export_svg_plots([points, aggregated_muts_plot.last.opts(width=agg_muts_width_slider.value), dynamic_hist.last*static_hist.last], f'dashboard/dashboard-plot_{selection_name_text.value}_{timestamp}.html', ['points', 'mutations-frequencies', 'histogram']) # "html" gets clipped and replaced with "SVG"
+    export_svg_plots([points, aggregated_muts_plot().opts(width=agg_muts_width_slider.value), dynamic_hist.last*static_hist.last], f'dashboard/dashboard-plot_{selection_name_text.value}_{timestamp}.html', ['points', 'mutations-frequencies', 'histogram']) # "html" gets clipped and replaced with "SVG"
     print('plots exported as SVGs to dashboard folder')
 SVG_button.on_click(export_svg)
 
