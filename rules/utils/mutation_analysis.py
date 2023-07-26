@@ -357,6 +357,9 @@ class MutationAnalysis:
             break
         
         for bamEntry in bamFile:
+            if self.config.get('demux_screen_failures', False):
+                if self.barcodeColumn and ('fail' in bamEntry.get_tag('BC')):
+                    continue
             cleanAln = self.clean_alignment(bamEntry)
             if cleanAln:
                 if self.useReverseComplement:

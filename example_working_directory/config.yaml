@@ -139,7 +139,7 @@ alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --secondary=no'   #
 
 # demultiplexing
 demux_screen_no_group: True   # set to True if demuxed sequences that are not assigned a named barcode group should be blocked from subsequent analysis steps
-demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. If demux_screen_no_group is set to True, this option will not change any results
+demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. Note that failures for noSplit barcodes will be written to the same demux file and will only be removed during mutation analysis
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
 # enrichment   # note: to prevent repeated enrichment score calculation, filtering is not applied to the enrichment-scores output itself but is instead applied to subsequent analysis steps.

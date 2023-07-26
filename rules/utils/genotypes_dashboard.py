@@ -583,6 +583,7 @@ def tabulate(dataset, sample_size):
 
 selected_table = selected.apply(tabulate, sample_size=sample_size_slider)
 
+# add the legend for the bar plots only if the bar plot is being displayed
 def get_bar_legend(agg_plot_type):
     if agg_plot_type.endswith('heatmap'):
         return pn.Spacer(width=0)
