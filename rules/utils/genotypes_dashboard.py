@@ -499,10 +499,26 @@ def num_positions_callback(IntSlider, event):
     
 NTorAA_radio.link(num_positions_slider, callbacks={'value':num_positions_callback})
 
-def plot_mutations_aggregated(link, all_data, num_positions, NTorAA, plot_type, cmap):
+def plot_mutations_aggregated(filtered_dataset, all_data, num_positions, NTorAA, plot_type, cmap):
     """
     produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input. link is just used to trigger the callback when a selection is made
     """
+
+    # apply is faster but can't deal with both heatmap and bars, so we wrap within a pn.bind function
+    def apply_plot(dataset, all_data, num_positions, NTorAA, most_common, heatmap, cmap):
+        selected_idx = dataset.data.index
+        # selected_idx = all_data.selected_idx
+        total_seqs = all_data.get_count(selected_idx)
+        df = all_data.aggregate_mutations(
+                                    NTorAA=NTorAA,
+                                    idx=selected_idx)
+
+        plot = conspicuous_mutations(df, total_seqs, num_positions=num_positions,
+                                    colormap=cmap, most_common=most_common, heatmap=heatmap)
+        if heatmap: # normally the plot would have n in the clabel but this doesn't get updated after a selection
+            plot.opts(title=str(f'n={total_seqs}'), clabel='frequency', fontsize={'title':10})
+        return plot
+    
     NTorAA = NTorAA[-3:-1] # get NT or AA from the text in the radio button
     if plot_type.endswith('heatmap'):
         heatmap = True
@@ -513,20 +529,13 @@ def plot_mutations_aggregated(link, all_data, num_positions, NTorAA, plot_type, 
         most_common=True
     elif plot_type.startswith('least'):
         most_common=False
-    # selected_idx = dataset.data.index
-    selected_idx = all_data.selected_idx
-    total_seqs = all_data.get_count(selected_idx)
-    df = all_data.aggregate_mutations(
-                                NTorAA=NTorAA,
-                                idx=selected_idx)
-
-    plot = conspicuous_mutations(df, total_seqs, num_positions=num_positions,
-                                colormap=cmap, most_common=most_common, heatmap=heatmap)
+    
+    plot = filtered_dataset.apply(apply_plot, all_data=all_data, num_positions=num_positions, NTorAA=NTorAA, most_common=most_common, heatmap=heatmap, cmap=cmap)
 
     return plot
 
 aggregated_muts_plot = pn.bind(plot_mutations_aggregated,
-                                        link=ls.param.selection_expr,
+                                        filtered_dataset=selected,
                                         all_data=all_data,
                                         num_positions=num_positions_slider,
                                         NTorAA=NTorAA_radio,
@@ -573,6 +582,14 @@ def tabulate(dataset, sample_size):
     return table
 
 selected_table = selected.apply(tabulate, sample_size=sample_size_slider)
+
+def get_bar_legend(agg_plot_type):
+    if agg_plot_type.endswith('heatmap'):
+        return pn.Spacer(width=0)
+    elif agg_plot_type.endswith('bars'):
+        snakemake_dir = pathlib.Path(__file__).parent.parent.parent
+        return pn.panel(pathlib.Path(snakemake_dir/'images'/'AA_NT_colormap.png'),width=200,align='start')
+bars_legend = pn.bind(get_bar_legend, agg_plot_type=agg_plot_type_selector)
 
 # Add a button that exports all three plots to SVG format
 SVG_button = pn.widgets.Button(name='export plots to .SVG', button_type='primary')
@@ -646,8 +663,6 @@ def reset(event):
         widget.value = value
 reset_button.on_click(reset)
 
-snakemake_dir = pathlib.Path(__file__).parent.parent.parent
-
 ## build the layout
 layout = pn.Column(
     pn.Row(
@@ -679,7 +694,7 @@ pn.Row(
         num_positions_slider,
         agg_muts_width_slider,
         export_agg_muts_button),
-    pn.panel(pathlib.Path(snakemake_dir/'images'/'AA_NT_colormap.png'),width=200,align='start')
+    bars_legend
     ))
 
 layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')
