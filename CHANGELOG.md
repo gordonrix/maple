@@ -4,6 +4,8 @@
    - Fixed a bug in SequenceAnalyzer.downsample()
    - Updated to Python 3.9
    - Added sample/file specificity to SVG export
+   - Enrichment now works for timepoint samples that use more than one tag
+   - Color by barcode in dashboard
 
 ## v0.10.2
 # Major

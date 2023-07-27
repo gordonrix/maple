@@ -91,11 +91,9 @@ num_barcodes_slider = pn.widgets.IntSlider(name='maximum number of barcodes',
                                             value = 10,
                                             disabled = not 'barcode(s)' in all_data.genotypes.columns)
 
-def initialize_ds(dataset, downsample, size_column, size_range, num_barcodes):
+def initialize_ds(dataset, all_data, downsample, size_column, size_range, num_barcodes, NT_muts, AA_muts, max_groups):
+    idx = all_data.downsample(downsample)['df'].index
     df = dataset.data
-
-    if downsample < len(df):
-        df = df.sample(n=downsample, random_state=0).sort_index()
     
     # add a size column scaled to user provided point size values
     minSize, maxSize = size_range
@@ -103,27 +101,23 @@ def initialize_ds(dataset, downsample, size_column, size_range, num_barcodes):
     maxSizeCol = sizeCol.max()
     minSizeCol = sizeCol.min()
     if minSizeCol==maxSizeCol:
-        df['size'] = minSize
+        df.loc[idx, 'size'] = minSize
     else:
-        df['size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
+        df.loc[idx, 'size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
 
-    # add a new column for a the subset of the most common barcodes
+    # add a new column for the subset of the most common barcodes
     if not num_barcodes_slider.disabled:
         barcode_counts = df['barcode(s)'].value_counts()
-        if len(barcode_counts) > num_barcodes_slider.value:
-            top_barcodes = barcode_counts[:num_barcodes_slider.value].index
-            df['barcode(s)_subset'] = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
+        if len(barcode_counts) > num_barcodes:
+            top_barcodes = barcode_counts[:num_barcodes].index
+            df.loc[idx, 'barcode(s)_subset'] = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
         else:
-            df['barcode(s)_subset'] = df['barcode(s)']
-    
+            df.loc[idx, 'barcode(s)_subset'] = df['barcode(s)']
+
+    # add new columns for mutations of interest
+    df.loc[df.index,'NT_muts_of_interest'] = all_data.get_mutations_of_interest('NT', NT_muts, max_groups, idx=df.index)
+    df.loc[df.index,'AA_muts_of_interest'] = all_data.get_mutations_of_interest('AA', AA_muts, max_groups, idx=df.index)
     return hv.Dataset(df)
-
-downsampled = hv.Dataset(all_data.genotypes).apply(initialize_ds,
-                                downsample=downsample_slider,
-                                size_column=size_column_select,
-                                size_range=size_range_slider,
-                                num_barcodes=num_barcodes_slider)
-
 
 
 ## add columns for coloring by nucleotide or amino acid mutations of interest
@@ -136,14 +130,12 @@ max_mut_combos_slider = pn.widgets.IntSlider(name='maximum number of mutation of
                                         step=1,
                                         value=10)
 
-def add_muts_of_interest_columns(dataset, all_data, NT_muts, AA_muts, max_groups):
-    df = dataset.data
-    df['NT_muts_of_interest'] = all_data.get_mutations_of_interest('NT', NT_muts, max_groups, idx=df.index)
-    df['AA_muts_of_interest'] = all_data.get_mutations_of_interest('AA', AA_muts, max_groups, idx=df.index)
-    return hv.Dataset(df)
-
-downsampled_MOI = downsampled.apply(add_muts_of_interest_columns,
+downsampled_MOI = hv.Dataset(all_data.genotypes).apply(initialize_ds,
                                 all_data=all_data,
+                                downsample=downsample_slider,
+                                size_column=size_column_select,
+                                size_range=size_range_slider,
+                                num_barcodes=num_barcodes_slider,
                                 NT_muts=NT_muts_text,
                                 AA_muts=AA_muts_text,
                                 max_groups=max_mut_combos_slider)
@@ -235,7 +227,6 @@ tools = ['box_select', 'lasso_select']
 
 def points(dataset, x_column, y_column, tools, link=None):
     # dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
-
     # ticks outside range to hide them
     plot = dataset.data.hvplot(kind='points', x=x_column, y=y_column, hover_cols=color_options ).opts(
         xlabel=x_column, ylabel=y_column, tools=tools, height=600, width=770)
@@ -246,15 +237,15 @@ downsampled_points = downsampled_MOI.apply(points, x_column=points_x_select, y_c
 
 ls = link_selections.instance()
 
-# filter dataset by selection if any points are selected
+# filter dataset by selection if any points are selected and clear selection if no points are selected
 def select_dataset(dataset, selection_expr):
-    dataset_selected = dataset.select(selection_expr)
-    idx = dataset_selected.data.index
-    all_data.select(idx=idx) # stores the most recently selected indices in the all_data SequenceAnalyzer object
-    if dataset_selected.data.empty:
-        return dataset
-    else:
-        return dataset_selected
+    idx = dataset.select(selection_expr).data.index
+    if len(idx) == 0:
+        print('clearing selection')
+        ls.selection_expr = None
+    # stores the most recently selected indices in the all_data SequenceAnalyzer object and retrieve the indices, which will be the same as before unless nothing is selected
+    idx = all_data.select(idx=idx)['df'].index
+    return hv.Dataset(dataset.data.loc[idx])
 
 selected = filtered.apply(select_dataset, selection_expr=ls.param.selection_expr)
 
@@ -327,18 +318,17 @@ def points_bind(link, x_col, y_col, filtered_dataset, points_unfiltered, colorby
         clims = None
         cnorm = 'eq_hist'
         min_alpha = 40
+        color_key = None
         # decide how to aggregate based on if the colorby column is categorical or numerical
         is_not_numeric = not pd.api.types.is_numeric_dtype(all_data.genotypes[colorby].dtype)
         if is_not_numeric: # highest per category count within a pixel
             agg = ds.by(colorby)
-            color_key = get_color_key(all_data.genotypes[colorby].unique(), cmap)
+            color_key = get_color_key(all_data.get_selection()['df'][colorby].unique(), cmap)
             min_alpha = 255 # prevents coloring with non-discrete colors
         elif colorby == 'count':
             agg = ds.reductions.sum(colorby)
-            color_key = None
         else:          # average value within a pixel
             agg = ds.reductions.mean(colorby)
-            color_key = None
             clims = all_data.genotypes[colorby].min(), all_data.genotypes[colorby].max()
             cnorm = 'linear'
 
@@ -570,8 +560,7 @@ export_agg_muts_button.on_click(export_agg_muts)
 
 # make a table to display the selected genotypes
 def tabulate(dataset, sample_size):
-    idx = dataset.data.index
-    df = all_data.select(idx)['df'].drop(['barcode(s)_subset','size'], axis=1)
+    df = dataset.data.drop(['barcode(s)_subset','size'], axis=1)
     if sample_size < len(df):
         df = df.sample(n=sample_size, random_state=0)
     if df.empty:
@@ -611,7 +600,7 @@ def export_csv(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
-    selected_genotypes = all_data.get_selection()['df']
+    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset','size'], axis=1)
     pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
     selected_genotypes.to_csv(filename)
     print(f'selected genotypes exported to {filename}')

@@ -93,7 +93,7 @@ class SequenceAnalyzer:
         # make all indices the most recently selected indices
         key = list(self.integer_matrix.keys())[0]
         self.selected_idx = np.arange(self.integer_matrix[key].shape[0])
-        self.selected_data = {}
+        self.downsampled_idx = np.arange(self.integer_matrix[key].shape[0])
 
     def assign_reference(self, reference_fasta, include_AA):
         """ stores sequences from reference fasta as SequenceEncoder objects
@@ -246,8 +246,6 @@ class SequenceAnalyzer:
             idx:    list-like, a list of integers referring to indexes within the integer matrix,
                         onehot matrix, and, if it exists, genotypes pd.DataFrame. If not provided,
                         no subselection is applied to the matrices or dataframe.
-            new:    bool, whether to save the selection as a new selection and wipe associated data
-                        or to keep the selection as the current selection and retain the associated data
         
         returns:
             dictionary, {'integer':selection from each integer 2D matrix in self.integer_matrix dict,
@@ -257,6 +255,8 @@ class SequenceAnalyzer:
         if idx is None:
             key = list(self.integer_matrix.keys())[0]
             idx = np.arange(self.integer_matrix[key].shape[0])
+        elif len(idx) == 0:
+            idx = self.downsampled_idx
         else:
             idx = np.sort(np.array(idx))
 
@@ -266,10 +266,9 @@ class SequenceAnalyzer:
         if self.genotypes is not None:
             out_dict['df'] = self.genotypes.iloc[idx]
 
-        # if selection is new, assign as most recent selection and wipe associated data
+        # if selection is new, assign as most recent selection
         if not np.array_equal(idx, self.selected_idx):
             self.selected_idx = idx
-            self.selected_data = {}
         return out_dict
     
     def get_selection(self):
@@ -284,8 +283,6 @@ class SequenceAnalyzer:
                         (optional)'df':subset of pd.DataFrame self.genotypes}
         """
         selected_dict = self.select(idx=self.selected_idx)
-        for key in self.selected_data:
-            selected_dict['df'][key] = self.selected_data[key]
         return selected_dict
     
     def downsample(self, size):
@@ -301,8 +298,11 @@ class SequenceAnalyzer:
         if size > self.integer_matrix[key].shape[0]:
             idx = np.arange(self.integer_matrix[key].shape[0])
         else:
+            np.random.seed(0)
             idx = np.sort(np.random.choice(np.arange(self.integer_matrix[key].shape[0]), size=size, replace=False))
-            
+        
+        self.selected_idx = idx
+        self.downsampled_idx = idx
         return self.select(idx=idx)
 
     @staticmethod
@@ -444,16 +444,22 @@ class SequenceAnalyzer:
                 appearing combinations (n=max_groups) are specified, all others are combined under the name 'other'.
                 Length of output list is equal to len(idx) if idx is provided, otherwise onehot_matrix.shape[0]
         """
+        selection = self.select(idx)
+
         column_name = f'{NTorAA}_muts_of_interest'
+
+        if self.genotypes is not None:
+            genotypes_idx = selection['df'].index
 
         # if no mutations of interest are specified, return a list of 'none' strings
         if muts == '':
             out_length = len(idx) if idx is not None else self.integer_matrix[NTorAA].shape[0]
             out = ['none']*out_length
-            self.selected_data[column_name] = out
+            if self.genotypes is not None:
+                self.genotypes.loc[genotypes_idx, column_name] = out
             return out
-
-        onehot_matrix = self.select(idx)['onehot'][NTorAA]
+        
+        onehot_matrix = selection['onehot'][NTorAA]
         N,L,C = onehot_matrix.shape
         all_L_idx = np.arange(L)
         all_C_idx = np.arange(C)
@@ -566,7 +572,7 @@ class SequenceAnalyzer:
 
         MOI_combo_strings_original = MOI_combo_strings_unsorted[idx_original] # convert to original order of all arrays/genotypes with reverse indexing
 
-        self.selected_data[column_name] = MOI_combo_strings_original
+        self.genotypes.loc[genotypes_idx, column_name] = MOI_combo_strings_original
         return MOI_combo_strings_original
     
     def aggregate_identities(self, NTorAA, idx=None):
