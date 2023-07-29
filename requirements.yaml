@@ -12,7 +12,7 @@ dependencies:
   - minimap2
   - samtools
   - ngmerge
-  - numba>=0.57 # pacmap installation is broken with numba 0.53
+  - numba=0.56 # pacmap is broken with numba 0.53, medaka is broken with numba 0.57
   - setuptools
   - wget
   - numpy
@@ -32,8 +32,6 @@ dependencies:
   - datashader
   - bokeh
   - spatialpandas # allows for lasso selections of datashaded plots
-  - selenium # for bokeh SVG export
-  - webdriver-manager # for bokeh SVG export
   - panel
   - editdistance
   - racon
@@ -46,3 +44,4 @@ dependencies:
   - pip:
     - pyabpoa==1.4.0
     - pacmap
+    - selenium # for bokeh SVG export, conda installation is broken

@@ -13,7 +13,6 @@ import holoviews as hv
 from bokeh.io import export_svgs
 from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from bokeh import palettes
 from colorcet import palette
 from natsort import natsorted
@@ -181,9 +180,7 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
             options.add_argument("--no-sandbox")
             options.add_argument("--window-size=2000x2000")
             options.add_argument('--disable-dev-shm-usage')
-
-            service = Service(ChromeDriverManager().install())
-            webdriver = wd.Chrome(service=service, options=options)
+            webdriver = wd.Chrome(service=Service(), options=options)
             
             for plot, label in zip(plots, labels):
                 fName = f'{file_name_base}_{label}.svg'

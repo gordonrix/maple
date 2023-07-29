@@ -282,7 +282,8 @@ def main():
     meanRatesDF = (meanRatesDF.assign(
                             rate_mean = meanRatesDF['rate_mean'].map('{:.3g}'.format),
                             rate_std = meanRatesDF['rate_std'].map('{:,.2g}'.format))
-                    .assign(mean_std = lambda x: x['rate_mean'] + np.where(x['rate_std'] == 'nan', '', ' ± ' + x['rate_std'])))
+                                                .assign(mean_std = lambda x: np.where(x['rate_mean'] == 'nan', 'nan', 
+                                                x['rate_mean'] + np.where(x['rate_std'] == 'nan', '', ' ± ' + x['rate_std']))))
     meanRatesPivotDF = meanRatesDF.pivot(index='sample_label', columns='mut_type', values='mean_std').reset_index()
     sortOrder = {value:position for position,value in enumerate(meanRatesDF['sample_label'].unique())}
     meanRatesPivotDF = meanRatesPivotDF.sort_values('sample_label', key=lambda x: x.apply(lambda y: sortOrder[y]))
