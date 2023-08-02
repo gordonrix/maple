@@ -25,6 +25,7 @@ dependencies:
   - jupyter_bokeh
   - umi_tools
   - medaka
+  - keras-preprocessing # not installed by medaka in some cases, probably just specific to my machine but doesn't hurt to add
   - nanoplot
   - natsort
   - hvplot

@@ -6,11 +6,13 @@
    - Added sample/file specificity to SVG export
    - Enrichment now works for timepoint samples that use more than one tag
    - Color by barcode in dashboard
+   - Dashboard bug fixes
+   - Conda environment: update panel, add jupyter
 
 ## v0.10.2
 # Major
    - Implemented enrichment scores for noSplit barcodes. A plot comparing replicates will be automatically
-      generated, and qhen NT or AA analysis are performed,
+      generated, and when NT or AA analysis are performed,
       scores are appended to the genotypes CSV and become viewable within the dashboard
 # Minor
    - Updated README

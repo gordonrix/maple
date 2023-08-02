@@ -93,10 +93,10 @@ num_barcodes_slider = pn.widgets.IntSlider(name='maximum number of barcodes',
 
 def initialize_ds(dataset, all_data, downsample, size_column, size_range, num_barcodes, NT_muts, AA_muts, max_groups):
     idx = all_data.downsample(downsample)['df'].index
-    df = dataset.data
+    df = dataset.data.loc[idx]
     
     # add a size column scaled to user provided point size values
-    minSize, maxSize = size_range
+    minSize, maxSize = size_range   
     sizeCol = df[size_column]
     maxSizeCol = sizeCol.max()
     minSizeCol = sizeCol.min()
@@ -110,9 +110,11 @@ def initialize_ds(dataset, all_data, downsample, size_column, size_range, num_ba
         barcode_counts = df['barcode(s)'].value_counts()
         if len(barcode_counts) > num_barcodes:
             top_barcodes = barcode_counts[:num_barcodes].index
-            df.loc[idx, 'barcode(s)_subset'] = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
+            barcodes_col = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
         else:
-            df.loc[idx, 'barcode(s)_subset'] = df['barcode(s)']
+            barcodes_col = df['barcode(s)']
+        df.loc[idx, 'barcode(s)_subset'] = barcodes_col
+        all_data.genotypes.loc[idx, 'barcode(s)_subset'] = barcodes_col
 
     # add new columns for mutations of interest
     df.loc[df.index,'NT_muts_of_interest'] = all_data.get_mutations_of_interest('NT', NT_muts, max_groups, idx=df.index)
@@ -173,7 +175,7 @@ filter_by_select.link(filter_range_slider, callbacks={'value':range_widget_callb
 
 count_range_slider = pn.widgets.IntRangeSlider(name='genotype count range',
                                     start=round(all_data.genotypes['count'].min()),
-                                    end=round(all_data.genotypes['count'].max()),
+                                    end=max(round(all_data.genotypes['count'].max()), round(all_data.genotypes['count'].min())+1),
                                     step=1,
                                     value=( round(all_data.genotypes['count'].min()),round(all_data.genotypes['count'].max()) ))
 
@@ -600,8 +602,8 @@ def export_csv(event):
     # get date/time for filename
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
-    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset','size'], axis=1)
     pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
+    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset','size'], axis=1)
     selected_genotypes.to_csv(filename)
     print(f'selected genotypes exported to {filename}')
 genotypes_CSV_button.on_click(export_csv)
