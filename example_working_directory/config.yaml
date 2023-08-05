@@ -84,7 +84,7 @@ colormap: 'kbc_r'              # colormap to use for plots that use a colormap. 
 distribution_x_range: False       # comma separated pair of values to use for the x axis of all distribution plots. Best to leave as False unless you are exporting SVGs, whose axes are not adjustable
 distribution_y_range: False
 export_SVG: False              # str or Bool. Controls export of plot outputs to SVG format in addition to .html.
-                                #   If False, does not export SVGs. If True, exports all plots that can be exported as SVGs.
+                                #   If False, does not export SVGs. If True, exports all plots that can be exported as SVGs (in addition to the normal .html outputs).
                                 #   If string, exports only plots from file names that contain this string or plots with a label
                                 #   (e.g. barcode group, timepoint) that contains this string. Requires a chrome installation on your
                                 #   machine in the default location. Best to leave this as False unless you are generating publication-quality figures,
@@ -147,7 +147,10 @@ enrichment_SE_filter: 0           # proportion of standard errors to filter out.
 enrichment_t0_filter: 0        # proportion of timepoint 0 counts to filter out. e.g. if set to 0.1, scores derived from the lowest 10% of counts at the first timepoint will be removed. Setting to 0 or 1 will disable this filter
 enrichment_score_filter: False     # enrichment score threshold. Scores below this value will be removed. Setting to False will disable this filter
 enrichment_missing_replicates_filter: True   # whether to filter out any barcodes that do not have enrichment scores for all replicates
-enrichment_reference_bc: ''     # name of the barcode to use as a reference for calculating enrichment scores. If not set, a barcode that is abundant within all samples will be chosen as the reference. If no such barcode exists, the first barcode in the list will be used as the reference
+enrichment_reference_bc: 'all_barcodes'     # str, name of the barcode to use as a reference for normalization in calculating enrichment scores.
+                                #   Alternatively, can be set to 'all_barcodes' to normalize to all barcodes in the sample.
+                                    # If '' or False, a single barcode that is abundant within all samples will be chosen as the reference.
+                                    # If no such barcode exists, the first barcode in the list will be used as the reference
 
 # mutation analysis
 mutation_analysis_quality_score_minimum: 5 # Minimum quality score needed for mutation to be counted. For amino acid level analysis, all nucleotides in the codon must be above the threshold for the mutation to be counted

@@ -187,8 +187,7 @@ rule enrichment_scores:
         screen_no_group = lambda wildcards: config['demux_screen_no_group'],
         barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
         barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {}),
-        reference_bc = lambda wildcards: config.get('enrichment_reference_bc', ''),
-
+        reference_bc = lambda wildcards: config.get('enrichment_reference_bc', '')
     threads: max(workflow.cores-1,1)
     script:
         'utils/enrichment.py'

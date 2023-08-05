@@ -176,19 +176,21 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
     counts_pivot = counts_pivot.reset_index().rename(columns={'index':enrichment_bc})
 
     # identify the barcode that should be used as a reference
-    if reference_bc:
+    if reference_bc == 'all_barcodes':
+        print("[NOTICE] enrichment.py: Using all barcodes as the enrichment reference.\n")
+    else:
         if reference_bc in counts_pivot_no_na.index:
             print(f"[NOTICE] enrichment.py: Provided enrichment reference_bc {reference_bc} found in all samples. Using this barcode as the enrichment reference.\n")
         else:
             print(f"[WARNING] enrichment.py: Provided enrichment reference_bc {reference_bc} not found in all samples.\n")
             reference_bc = ''
-    if reference_bc == '':
-        # if pivot no na isnt empty, use the most abundant barcode as the reference
-        if counts_pivot_no_na.shape[0] > 0:
-            reference_bc = counts_pivot_no_na.divide( counts_pivot_no_na.mean(axis=0) ).sum(axis=1).sort_values(ascending=False).idxmax()
-            print(f"[NOTICE] enrichment.py: Using the most abundant barcode, {reference_bc}, as the enrichment reference.\n")
-        else:
-            print("[NOTICE] enrichment.py: No barcodes found in all samples. Using the total count of all barcodes found in each set of timepoints as the reference.\n")
+
+            # if pivot no na isnt empty, use the most abundant barcode as the reference
+            if counts_pivot_no_na.shape[0] > 0:
+                reference_bc = counts_pivot_no_na.divide( counts_pivot_no_na.mean(axis=0) ).sum(axis=1).sort_values(ascending=False).idxmax()
+                print(f"[NOTICE] enrichment.py: Using the most abundant barcode, {reference_bc}, as the enrichment reference.\n")
+            else:
+                print("[NOTICE] enrichment.py: No barcodes found in all samples. Using the total count of all barcodes found in each set of timepoints as the reference.\n")
 
     # Grab the timepoints DF and use this to convert tag_bcGroup column names to timepoint names
     timepoints_DF = pd.read_csv(timepoints, header=1).astype(str)
@@ -225,8 +227,12 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
         sample_df = counts_pivot.loc[:,[enrichment_bc] + slice_cols]
         
         if reference_bc:
-            # get the total counts for the reference barcode
-            reference_counts = sample_df[sample_df[enrichment_bc] == reference_bc][slice_cols].sum(axis=0).to_numpy()
+            if reference_bc == 'all_barcodes':
+                # get the total counts for all barcodes
+                reference_counts = sample_df[slice_cols].sum(axis=0).to_numpy()
+            else:    
+                # get the total counts for the reference barcode
+                reference_counts = sample_df[sample_df[enrichment_bc] == reference_bc][slice_cols].sum(axis=0).to_numpy()
         else:
             # get the total counts for only barcodes that appear in all timepoints, used as a reference
             reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
