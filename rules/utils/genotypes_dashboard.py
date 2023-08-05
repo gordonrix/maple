@@ -603,7 +603,7 @@ def export_csv(event):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
     pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
-    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset','size'], axis=1)
+    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset'], axis=1)
     selected_genotypes.to_csv(filename)
     print(f'selected genotypes exported to {filename}')
 genotypes_CSV_button.on_click(export_csv)
