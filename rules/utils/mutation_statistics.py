@@ -57,7 +57,13 @@ def main():
             NTmuts = pd.concat([NTmuts, transNTmuts, allMutTypes], axis='columns')
             NTmuts_unique = pd.concat([NTmuts_unique, transNTmuts_unique, allMutTypes_unique], axis='columns')
 
-            valuesList = [tag, bcGroup, totalSeqs, failCount]
+            # don't consider barcodes to calculate unique genotypes
+            num_genotypes = (DFdict['genotypes']
+                                [DFdict['genotypes']['count']>0]
+                                [['NT_substitutions', 'NT_insertions', 'NT_deletions']]
+                                .drop_duplicates()
+                                .shape[0])
+            valuesList = [tag, bcGroup, totalSeqs, num_genotypes, failCount]
 
             if config['do_AA_mutation_analysis'][tag]:
                 AAdist = DFdict['AA-mutation-distribution']['total sequences']
@@ -78,7 +84,7 @@ def main():
             valuesList.extend([allMutTypes[mutType].sum() for mutType in allMutTypes] + [allMutTypes_unique[mutType].sum() for mutType in allMutTypes_unique])
             statsList.append(valuesList)
 
-    cols = ['tag', 'barcode_group', 'total_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
+    cols = ['tag', 'barcode_group', 'total_seqs', 'total_unique_seqs', 'total_failed_seqs', 'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq', 'median_AA_mutations_per_seq',
         'total_NT_mutations', 'unique_NT_mutations', 'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq', 'median_NT_mutations_per_seq', 'total_transversions', 'total_transitions', 'unique_transversions', 'unique_transitions', 'total_insertion_length', 'total_deletion_length']
     cols.extend([column for column in allMutTypes]+[column for column in allMutTypes_unique])
     statsDF = pd.DataFrame(statsList, columns=cols)
