@@ -66,8 +66,10 @@ class SequenceAnalyzer:
                 not_NT_or_AA = set(first_seq).difference(set(self.characters['AA']))
                 raise ValueError(f"First sequence in MSA fasta file contains characters that are not NT ({self.characters['NT']}) or AA ({self.characters['AA']}): {not_NT_or_AA}")
 
+            first_seq_as_ref = False
             if reference_fasta is None:
                 print("reference fasta file not input, will use first sequence in MSA fasta as reference")
+                first_seq_as_ref = True
                 self.ref_seq = {}
                 if self.do_AA_analysis:
                     self.ref_seq['AA'] = SequenceEncoder(first_seq, self.characters['AA'])
@@ -79,6 +81,9 @@ class SequenceAnalyzer:
                     raise ValueError(f"First sequence in MSA fasta file is not the same length as the reference sequence in the reference fasta file {reference_fasta}. All sequences in the MSA fasta file must be the same length as the reference sequence in the reference fasta file")
             
             integer_matrix, self.features_DF = self.seq_array_from_MSA(MSA_fasta, MSA_type, record_features=True)
+            if first_seq_as_ref: # skip first sequence
+                integer_matrix = integer_matrix[1:,:]
+                self.features_DF = self.features_DF.iloc[1:,:]
             self.integer_matrix = {MSA_type:integer_matrix}
             self.genotypes = None
 
@@ -410,7 +415,8 @@ class SequenceAnalyzer:
             int, number of sequences in the dataset
         """
         if idx is None:
-            idx = np.arange(self.integer_matrix.shape[0])
+            key = list(self.integer_matrix.keys())[0]
+            idx = np.arange(self.integer_matrix[key].shape[0])
         subset = self.select(idx)
 
         if 'df' in subset:  # if genotypes DF is present, use the count column

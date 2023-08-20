@@ -222,7 +222,7 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
     df['WT_position'] = df['wt'] + df['position'].astype(str)
 
     if heatmap:
-        AAs = list('AILPVFWYNQSTCMDEHKRG*')
+        AAs = list('AILMPVFWYNQSTCDEHKRGC*')
         order = AAs + [m for m in df['mutation'].unique().tolist() if m not in AAs]
         df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
         df = df.sort_values(['position','mutation'], ascending=[True,False])
@@ -260,6 +260,9 @@ def dashboard_input(wildcards, config):
     elif sample in config.get('timepointsInfo', ''):
         inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
                     'refFasta': config['timepointsInfo'][sample]['reference']}
+        tag = config['timepointsInfo'][sample]['tag']
+        if 'enrichment' in config['runs'][tag]:
+            inputDict['genotypes'] = inputDict['genotypes'][:-4] + '-enrichment.csv'
     elif '_' in sample and (sample.split('_')[0] in config['runs']):
         print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
         tag, barcodes = sample.split('_')
