@@ -222,7 +222,7 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
     df['WT_position'] = df['wt'] + df['position'].astype(str)
 
     if heatmap:
-        AAs = list('AILMPVFWYNQSTCDEHKRGC*')
+        AAs = list('AILMPVFWYNQSTDEHKRGC*')
         order = AAs + [m for m in df['mutation'].unique().tolist() if m not in AAs]
         df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
         df = df.sort_values(['position','mutation'], ascending=[True,False])
