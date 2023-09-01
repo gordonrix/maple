@@ -6,6 +6,7 @@ channels:
   - anaconda
   - pyviz
   - bokeh
+  - schrodinger
 dependencies:
   - snakemake
   - python=3.9
@@ -41,6 +42,7 @@ dependencies:
   - tqdm
   - blat # for C3POa
   - mappy
+  - pymol # not used by pipeline, but nice to have for SequenceAnalyzer
   - pip
   - pip:
     - pyabpoa==1.4.0
