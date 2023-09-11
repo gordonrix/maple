@@ -581,7 +581,7 @@ class SequenceAnalyzer:
         self.genotypes.loc[genotypes_idx, column_name] = MOI_combo_strings_original
         return MOI_combo_strings_original
     
-    def aggregate_identities(self, NTorAA, idx=None):
+    def aggregate_identities(self, NTorAA, idx=None, unique_only=False):
         """
         Generate a numpy array of counts of all NT or AA identities in a selection by summing
             the onehot sequence array along axis 0
@@ -589,6 +589,7 @@ class SequenceAnalyzer:
         Parameters:
             NTorAA (str):           'NT' or 'AA' to indicate nucleotide or amino acid mutation level aggregation
             idx (np.array):         1d array of indices of a selection. If None, all sequences are used
+            unique_only (bool):     If True, counts of sequences are not taken into consideration
         
         Returns:
             np.array: A 2D array of shape L,C that tabulates counts for all possible mutations
@@ -596,26 +597,27 @@ class SequenceAnalyzer:
 
         selected = self.select(idx)
         onehot_matrix = selected['onehot'][NTorAA]
-        if 'df' in selected:
+        if 'df' in selected and not unique_only:
             counts = selected['df']['count'].values.reshape(-1,1,1)
             onehot_matrix = onehot_matrix * counts
         aggregated_identities = np.sum(onehot_matrix, axis=0, dtype=np.int32)
 
         return aggregated_identities
     
-    def aggregate_mutations(self, NTorAA, idx=None):
+    def aggregate_mutations(self, NTorAA, idx=None, unique_only=False):
         """
         Generate a tidy format pd.DataFrame of counts of all NT or AA mutations 
         
         Parameters:
             NTorAA (str):           'NT' or 'AA' to indicate nucleotide or amino acid mutation level aggregation
             idx (np.array):         1d array of indices of a selection. If None, all sequences are used
+            unique_only (bool):     If True, counts of sequences are not taken into consideration
         
         Returns:
             pd.DataFrame: A tidy-formatted dataframe that tabulates counts for all possible mutations
         """
 
-        aggregated_identities = self.aggregate_identities(NTorAA, idx=idx)
+        aggregated_identities = self.aggregate_identities(NTorAA, idx=idx, unique_only=unique_only)
         total_seqs = self.get_count(idx=idx)
         
         rows = []

@@ -562,7 +562,10 @@ export_agg_muts_button.on_click(export_agg_muts)
 
 # make a table to display the selected genotypes
 def tabulate(dataset, sample_size):
-    df = dataset.data.drop(['barcode(s)_subset','size'], axis=1)
+    drop_cols = ['size']
+    if not num_barcodes_slider.disabled:
+        drop_cols.append('barcode(s)_subset')
+    df = dataset.data.drop(drop_cols, axis=1)
     if sample_size < len(df):
         df = df.sample(n=sample_size, random_state=0)
     if df.empty:
@@ -603,7 +606,9 @@ def export_csv(event):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
     pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
-    selected_genotypes = all_data.get_selection()['df'].drop(['barcode(s)_subset'], axis=1)
+    selected_genotypes = all_data.get_selection()['df']
+    if not num_barcodes_slider.disabled:
+        selected_genotypes = selected_genotypes.drop(['barcode(s)_subset'], axis=1)
     selected_genotypes.to_csv(filename)
     print(f'selected genotypes exported to {filename}')
 genotypes_CSV_button.on_click(export_csv)

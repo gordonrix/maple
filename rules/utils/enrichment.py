@@ -225,6 +225,8 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
                 print(f'[WARNING] enrichment.py: No genotype barcodes above the threshold were identified for tag_barcodeGroup `{col}`, setting counts for this sample to 0\n')
                 counts_pivot = counts_pivot.assign(**{col:0})
         sample_df = counts_pivot.loc[:,[enrichment_bc] + slice_cols]
+        # remove rows with first timepoint counts of 0
+        sample_df = sample_df[sample_df[slice_cols[0]] > 0]
         
         if reference_bc:
             if reference_bc == 'all_barcodes':
@@ -236,6 +238,7 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
         else:
             # get the total counts for only barcodes that appear in all timepoints, used as a reference
             reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
+        reference_proportion = reference_counts / reference_counts.sum()
         counts = sample_df[slice_cols].to_numpy().astype(float)
 
         # set counts following 0 counts to nan then calculate normalized log transformed y values
@@ -244,11 +247,11 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
         counts_pruned[mask] = np.nan
         y_normalized = np.log( (counts_pruned+0.5) / (reference_counts+0.5) )
 
-        # calculate weights as 1/ 1/(counts)+0.5 + 1/(reference_counts)+0.5)
+        # calculate weights as reference_counts / ( 1/(counts)+0.5 + 1/(reference_counts)+0.5) )
         #   weight from survivor sum needs to be broadcasted to the same shape as counts
         # count_proportion = counts / np.repeat( sample_sums[slice_cols].to_numpy() [np.newaxis,], counts.shape[0], axis=0)
         # reference_proportion = reference_counts / sample_sums[slice_cols].to_numpy()
-        weights = 1 / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (reference_counts + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
+        weights = np.repeat(reference_proportion[np.newaxis,], counts.shape[0], axis=0) / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (reference_counts + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
         
         # add normalized values, weights, reference count to the sample_df. reference will be removed before output
         sample_df[cols_dict['normalized']] = y_normalized
