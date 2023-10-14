@@ -75,31 +75,32 @@ rule NanoPlot_fastq:
         NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_fastq_ {params.fastqType} {input[0]}
         """
 
-rule NanoPlot_alignment_preConsensus:
-    input:
-        'sequences/UMI/{tag}_noConsensus.bam'
-    output:
-        'plots/nanoplot/{tag, [^\/_]*}_alignment_preConsensus_NanoStats.txt'
-    params:
-        flags = lambda wildcards: config['nanoplot_flags']
-    shell:
-        """
-        mkdir plots/nanoplot -p
-        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_preConsensus_ --bam {input[0]}
-        """
+# can cause rule rerun for UMI plots
+# rule NanoPlot_alignment_preConsensus:
+#     input:
+#         'sequences/UMI/{tag}_noConsensus.bam'
+#     output:
+#         'plots/nanoplot/{tag, [^\/_]*}_alignment_preConsensus_NanoStats.txt'
+#     params:
+#         flags = lambda wildcards: config['nanoplot_flags']
+#     shell:
+#         """
+#         mkdir plots/nanoplot -p
+#         NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_preConsensus_ --bam {input[0]}
+#         """
 
-rule NanoPlot_alignment:
-    input:
-        'alignments/{tag}.bam'
-    output:
-        'plots/nanoplot/{tag, [^\/_]*}_alignment_NanoStats.txt'
-    params:
-        flags = lambda wildcards: config['nanoplot_flags']
-    shell:
-        """
-        mkdir plots/nanoplot -p
-        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_ --bam {input[0]}
-        """
+# rule NanoPlot_alignment:
+#     input:
+#         'alignments/{tag}.bam'
+#     output:
+#         'plots/nanoplot/{tag, [^\/_]*}_alignment_NanoStats.txt'
+#     params:
+#         flags = lambda wildcards: config['nanoplot_flags']
+#     shell:
+#         """
+#         mkdir plots/nanoplot -p
+#         NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_ --bam {input[0]}
+#         """
 
 # mapping stats
 rule aligner_stats:

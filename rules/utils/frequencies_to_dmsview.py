@@ -21,7 +21,7 @@ def dmsviewDF_from_mut_data(filename):
     
     condition = tag+'_'+barcodes
 
-    mutDataDF = pd.read_csv(filename, index_col=0).transpose()
+    mutDataDF = pd.read_csv(filename, index_col=0)
     mutDataDF.loc[:, f'site_{countorfreq}'] = mutDataDF.sum(axis=1)
     for index, row in mutDataDF.iterrows():
         wtAA = index[0]

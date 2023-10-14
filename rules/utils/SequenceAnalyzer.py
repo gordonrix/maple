@@ -379,7 +379,7 @@ class SequenceAnalyzer:
                                     the number of times it appears in the dataset
         """
         if idx is None:
-            idx = np.arange(self.integer_matrix.shape[0])
+            idx = np.arange(self.integer_matrix[NTorAA].shape[0])
 
         if self.genotypes is not None: # add genotype ID to fasta headers
             ID_list = self.genotypes['genotype_ID'].values
@@ -618,7 +618,10 @@ class SequenceAnalyzer:
         """
 
         aggregated_identities = self.aggregate_identities(NTorAA, idx=idx, unique_only=unique_only)
-        total_seqs = self.get_count(idx=idx)
+        if unique_only:
+            total_seqs = self.get_count(idx=idx)
+        else:
+            total_seqs = len(idx) if idx is not None else self.integer_matrix[NTorAA].shape[0]
         
         rows = []
         chars = self.characters[NTorAA]

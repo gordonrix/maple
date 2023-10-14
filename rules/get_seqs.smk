@@ -33,6 +33,10 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
 
         folders_with_seqs = []
         folderFilePaths = []
+
+        if not os.path.isdir(rootFolder):
+            print(f'[WARNING] Provided root folder "{rootFolder}" does not exist.')
+
         # Search for the uniquely named folder within the root folder
         for root, dirs, _ in os.walk(rootFolder):
             if folder in dirs:
