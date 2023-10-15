@@ -254,7 +254,7 @@ def main():
         #             logy=True, color='black', alpha=0.7, jitter=0.2, size=6)
         # 10^n markers (n=integer)
         h_lines = horizontal_lines(-11, -1)
-        sample_grouped_plot_list.append(h_lines*boxPlot)
+        sample_grouped_plot_list.append(boxPlot * h_lines)
 
         # plot individual substitution rates as heatmap
         mean_rates_individual = meanRatesDF[(meanRatesDF['sample_label']==sample) & (~meanRatesDF['wt_nt'].isin(['all','ins','del']))
