@@ -208,10 +208,11 @@ def main():
 
     # remove negatives then compute mean rates for replicate samples 
     allRatesDF['rate'] = allRatesDF['rate'].clip(lower=10**-10)
-    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', 'std':'rate_std'})
-    meanRatesDF = meanRatesDF.drop(columns=meanRatesDF.columns[-5:])
-    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10**-8) # convert means <= 10^-8 to nan bc they are not reliable
+    meanRatesDF = allRatesDF.groupby(['sample_label', 'mut_type', 'wt_nt', 'mut_nt'], sort=False)['rate'].describe().reset_index().rename(columns={'mean':'rate_mean', '50%':'rate_median', 'std':'rate_std'})
+    meanRatesDF['rate_mean'] = meanRatesDF['rate_mean'].clip(lower=10**-8) # convert medians and means <= 10^-8 to nan bc they are not reliable
     meanRatesDF.loc[meanRatesDF['rate_mean'] == 10**-8, 'rate_mean'] = np.nan
+    meanRatesDF['rate_median'] = meanRatesDF['rate_median'].clip(lower=10**-8)
+    meanRatesDF.loc[meanRatesDF['rate_median'] == 10**-8, 'rate_median'] = np.nan
 
     def hook(plot, element):
         plot.output_backend = 'svg'
@@ -284,10 +285,10 @@ def main():
     #                         rate_std = meanRatesDF['rate_std'].map('{:,.2g}'.format))
     #                                             .assign(mean_std = lambda x: np.where(x['rate_mean'] == 'nan', 'nan', 
     #                                             x['rate'] + np.where(x['rate_std'] == 'nan', '', ' ± ' + x['rate_std']))))
-    meanRatesPivotDF = meanRatesDF.pivot(index='sample_label', columns='mut_type', values='rate_mean').reset_index()
+    medianRatesPivotDF = meanRatesDF.pivot(index='sample_label', columns='mut_type', values='rate_median').reset_index()
     sortOrder = {value:position for position,value in enumerate(meanRatesDF['sample_label'].unique())}
-    meanRatesPivotDF = meanRatesPivotDF.sort_values('sample_label', key=lambda x: x.apply(lambda y: sortOrder[y]))
-    meanRatesPivotDF.to_csv(snakemake.output.CSV_summary, index=False)
+    medianRatesPivotDF = medianRatesPivotDF.sort_values('sample_label', key=lambda x: x.apply(lambda y: sortOrder[y]))
+    medianRatesPivotDF.to_csv(snakemake.output.CSV_summary, index=False)
 
 if __name__ == '__main__':
     main()

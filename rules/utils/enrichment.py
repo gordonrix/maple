@@ -247,10 +247,8 @@ def calculate_enrichment(demux_stats, n_threads, timepoints, runs, reference_bc=
         counts_pruned[mask] = np.nan
         y_normalized = np.log( (counts_pruned+0.5) / (reference_counts+0.5) )
 
-        # calculate weights as reference_counts / ( 1/(counts)+0.5 + 1/(reference_counts)+0.5) )
+        # calculate weights as reference_proportion / ( 1/(counts)+0.5 + 1/(reference_counts)+0.5) )
         #   weight from survivor sum needs to be broadcasted to the same shape as counts
-        # count_proportion = counts / np.repeat( sample_sums[slice_cols].to_numpy() [np.newaxis,], counts.shape[0], axis=0)
-        # reference_proportion = reference_counts / sample_sums[slice_cols].to_numpy()
         weights = np.repeat(reference_proportion[np.newaxis,], counts.shape[0], axis=0) / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (reference_counts + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
         
         # add normalized values, weights, reference count to the sample_df. reference will be removed before output
