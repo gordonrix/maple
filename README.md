@@ -86,6 +86,7 @@ needed for execution of the pipeline:
 Snakemake needs to know where two files are located in order to run the pipeline: the snakefile and the config file. Generally, the Snakefile tells snakemake how to construct all the necessary files generally for all Maple analyses, while the config file tells Snakemake how to retrieve inputs and name outputs for a specific Maple analysis, and is the primary means by which the user controls the analysis that is performed. If Snakemake is not told where these two files are, it assumes they are in the current working directory. Because the Snakefile remains constant across analyses, while the config file (described further below) changes, the Snakefile typically remains in the Maple directory and is specified in the command line call to Snakemake, while the config file is copied to a new working directory for each analysis and the command line call is done in that directory, allowing Snakemake to find it without adding the path to the command line call. When all inputs are properly defined and the Snakemake command is issued, analysis proceeds autonomously, outputting files to the working directory as they are generated. As an example, if a config file is set up to include a run tag named 'example', the inputs and outputs file structure might
 look something like this:
 
+```bash
 ├── config.yaml
 ├── ref
 │   ├── 7merBarcodes.fasta
@@ -174,7 +175,7 @@ look something like this:
     └── RCA
         ├── example_RCA.log
         └── example_RCA-log.csv
-
+```
 
 ## Inputs and outputs
 
