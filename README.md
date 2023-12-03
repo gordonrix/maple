@@ -101,9 +101,9 @@ look something like this:
 │           └── 20220827_1323_MN35267_FAU75463_1d527443
 │               └── fastq_pass
 │                   └── 10000seqs.fastq.gz
-|                                                    INPUTS
-|──────────────────────────────────────────────────────────
-|                                                   OUTPUTS
+│                                                    INPUTS
+│──────────────────────────────────────────────────────────
+│                                                   OUTPUTS
 ├── sequences
 │   ├── RCA
 │   │   └── example_RCAconsensuses-nofilter.fasta.gz
