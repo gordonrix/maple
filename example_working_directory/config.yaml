@@ -13,7 +13,6 @@ runs:
             - 20220827_1323_MN35267_FAU75463_1d527443
 
         # Alternatively, file names for paired end reads can be used as input. These will be merged with the NGmerge tool prior to analysis
-        #   Provided file names must both be present within the directory 'sequences/paired/'
         # fwdReads: seqsR1.fastq.gz
         # rvsReads: seqsR2.fastq.gz
 

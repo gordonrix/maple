@@ -83,13 +83,130 @@ needed for execution of the pipeline:
 
 ## Usage
 
-Snakemake takes as input a file name corresponding to a file that it is capable of generating via some sequence of steps, or 'rules', working backwards to determine
-which rules must be run, then running each of these rules to generate the user-specified file, along with all the files that were generated while carrying out
-the necessary steps.
+Snakemake needs to know where two files are located in order to run the pipeline: the snakefile and the config file. Generally, the Snakefile tells snakemake how to construct all the necessary files generally for all Maple analyses, while the config file tells Snakemake how to retrieve inputs and name outputs for a specific Maple analysis, and is the primary means by which the user controls the analysis that is performed. If Snakemake is not told where these two files are, it assumes they are in the current working directory. Because the Snakefile remains constant across analyses, while the config file (described further below) changes, the Snakefile typically remains in the Maple directory and is specified in the command line call to Snakemake, while the config file is copied to a new working directory for each analysis and the command line call is done in that directory, allowing Snakemake to find it without adding the path to the command line call. When all inputs are properly defined and the Snakemake command is issued, analysis proceeds autonomously, outputting files to the working directory as they are generated. As an example, if a config file is set up to include a run tag named 'example', the inputs and outputs file structure might
+look something like this:
 
-Maple relies upon a configuration file to determine what files can be generated. A portion of this config file is devoted to global settings that will
+├── config.yaml
+├── ref
+│   ├── 7merBarcodes.fasta
+│   ├── barcodeGroups.csv
+│   ├── exampleReferences.fasta
+│   ├── lineageBarcodes.fasta
+│   ├── timepoints.csv
+│   └── example-ref.fasta
+├── data
+│   └── expt
+│       └── sample
+│           └── 20220827_1323_MN35267_FAU75463_1d527443
+│               └── fastq_pass
+│                   └── 10000seqs.fastq.gz
+|                                                    INPUTS
+|──────────────────────────────────────────────────────────
+|                                                   OUTPUTS
+├── sequences
+│   ├── RCA
+│   │   └── example_RCAconsensuses-nofilter.fasta.gz
+│   ├── example.fastq.gz
+│   └── UMI
+│       ├── example_all_UMIgroup-distribution.csv
+│       ├── example_noConsensus.log
+│       ├── example-temp
+│       │   └── batch0.fasta
+│       ├── example_UMIconsensuses.fasta.gz
+│       ├── example_UMIconsensuses.log
+│       ├── example_UMI-extract.csv
+│       └── UMI-extract-summary.csv
+├── alignments
+│   ├── example.bam
+│   ├── example.bam.bai
+│   └── example.log
+├── demux-stats.csv
+├── demux
+│   ├── no_subsequent_analysis
+│   │   ├── example_bc1-fail.bam
+│   ├── example_control.bam
+│   ├── example_control.bam.bai
+│   ├── example_demux-stats.csv
+├── enrichment
+│   ├── example_enrichment-scores.csv
+│   └── example_enrichment-scores-mean.csv
+├── mutation-stats.csv
+├── mutation_data
+│   └── example
+│       ├── control
+│       │   ├── example_control_AA-hamming-distance-distribution.csv
+│       │   ├── example_control_AA-mutation-distribution.csv
+│       │   ├── example_control_AA-mutation-frequencies.csv
+│       │   ├── example_control_alignments.txt
+│       │   ├── example_control_failures.csv
+│       │   ├── example_control_genotypes.csv
+│       │   ├── example_control_NT-hamming-distance-distribution.csv
+│       │   ├── example_control_NT-mutation-distribution.csv
+│       │   ├── example_control_NT-mutation-frequencies.csv
+│       │   └── example_control_seq-IDs.csv
+├── plots
+│   ├── timepoints
+│   │   ├── example-IE5_AA-hamming-distance-distribution.html
+│   │   ├── example-IE5_AA-mutation-distribution.html
+│   │   ├── example-IE5_mutation-distribution-violin.html
+│   │   ├── example-IE5_NT-hamming-distance-distribution.html
+│   │   └── example-IE5_NT-mutation-distribution.html
+│   ├── example_AA-hamming-distance-distribution.html
+│   ├── example_AA-mutation-distribution.html
+│   ├── example_AA-mutation-frequencies-common.html
+│   ├── example_AA-mutation-frequencies.html
+│   ├── example_AA-mutation-frequencies-rare.html
+│   ├── example_demux.html
+│   ├── example_enrichment-scores.html
+│   ├── example_mutation-distribution-violin.html
+│   ├── example_mutation-rates-heatmap.html
+│   ├── example_mutation-rates-mut-grouped.html
+│   ├── example_mutation-rates-sample-grouped.html
+│   ├── example_NT-hamming-distance-distribution.html
+│   ├── example_NT-mutation-distribution.html
+│   ├── example_NT-mutation-frequencies-common.html
+│   ├── example_NT-mutation-frequencies.html
+│   ├── example_NT-mutation-frequencies-rare.html
+│   ├── example_RCA-distribution.html
+│   └── UMI-group-distribution.html
+├── log
+    ├── 20221113_18_41_16_275554.maple.log
+    └── RCA
+        ├── example_RCA.log
+        └── example_RCA-log.csv
+
+
+## Inputs and outputs
+
+Maple will generate a number of plots and corresponding data files depending on the inputs that are provided. These inputs and their effect on the resulting pipeline outputs are described below.
+
+### Config
+
+A .yaml file that includes all settings a user might want to change from run to run, and is required, as it is the central point of command for Maple. A portion of this config file is devoted to global settings that will
 be applied to all datasets analyzed using this config file, while another portion is used to designate information specific to each dataset being analyzed,
-organized by 'tags' which will be applied to all filenames. Detailed information on these settings can be found in example_working_directory/config.yaml.
+organized by 'tags' which will be applied to all filenames. Detailed information on these settings can be found as inline comments within example_working_directory/config.yaml.
+
+### Reference sequence
+
+![Reference sequence overview](images/reference_fasta.png)
+
+A .fasta file that is required and contains either two or three reference sequences. The first sequence is used for pairwise alignment of all reads and
+should contain Ns for known variable sequences such as barcodes or UMIs. The second sequence is used to define the range of the reference sequence in which 
+nucleotide mutations will be counted and should be a subsequence of either the first sequence or the reverse complement of the first sequence.
+The third sequence is used to define the range of the reference sequence in which amino acid mutations will be counted and should be a subsequence of the second
+sequence. If the third sequence is not provided, amino acid mutations will not be tabulated.
+
+### High throughput sequencing data
+
+.fastq.gz files. Typically, reads are retrieved using the global `sequences_dir` and `fastq_dir` parameters, which define where sequences are typically stored,
+and the tag-specific `runname` parameter, which is a uniquely named directory within `sequences_dir` that contains the .fastq.gz files for a specific run.
+In the example_working_directory, the `sequences_dir` is set to `data`, the `fastq_dir` is set to `fastq_pass, fastq_fail`, and the tag-specific runname is set to
+`20220827_1323_MN35267_FAU75463_1d527443`, so Maple will crawl the data directory to find the `20220827_1323_MN35267_FAU75463_1d527443` directory, then look for
+folders within that directory named `fastq_pass` and `fastq_fail`, and finally look for .fastq.gz files within those directories. As the first step of Maple,
+all such .fastq.gz will be combined for subsequent analysis. Alternatively, if merging of paired end reads is necessary, the `fwdReads` and `revReads` parameters
+must be provided, and these must correspond to paired end fastq.gz files that can be found in the fastq_dir and should be merged. Note that the `sequences_dir` can be
+a global file path. It is recommended that a single directory be used for all sequencing data, and that the `sequences_dir` be set to this directory in the config file,
+such that the `sequences_dir` parameter need not be changed when different working directories are cloned using this config file.
 
 # Running the example
 Included in the github repository is an example_working_directory that will allow you to test that everything was properly installed, and will serve as a
@@ -115,11 +232,9 @@ You can then explore the analysis files that have been created, and/or apply thi
 Following installation and running the example, the steps required for basic usage of the pipeline are as follows:
 1. Create a directory for the dataset(s) that you wish to analyze by creating a new working directory with the name of your choice (preferably related to
 a specific experiment) and copy the 'ref' directory and 'config.yaml' file from the example_working_directory to this new directory.
-2. Modify the config.yaml file within the new directory as appropriate. Global settings (applied to the working directory using this config file) are above
-the 'runs' key. Beneath the 'runs' key you must define the analysis for each individual run 'tag' that you wish to analyze. Ideally, a static directory that
-contains all your nanopore sequencing data will be chosen and can be defined at the top of the config.yaml such that this setting need not be changed
-when you copy the config.yaml to future working directories. It's not imperative to change most of the other global settings, though growing familiar
-with them will be useful. Most of the settings for the 'tag'(s) you are analyzing should be changed, such as the sequencing data type/location and the
+2. Modify the config.yaml file within the new directory as appropriate. Global settings (applied to the working directory using this config file) come after
+the 'runs' key. Most global settings can be kept as default, but pay special attention to the RCA and UMI settings if require consensus sequence generation.
+In contrast, most of the settings for the 'tag'(s) you are analyzing should be changed, such as the sequencing data type/location and the
 different required inputs for different types of analysis that should be performed (e.g. concatemer/UMI consensus, demultiplexing).
 3. Modify the reference sequence and barcode .fasta files (located in the 'ref' directory) as appropriate. Use the exampleReferences.fasta file
 for assistance with determining the appropriate reference sequences.
@@ -155,7 +270,7 @@ to enable rule re-run.
 
 ![A screenshot of the maple dashboard](images/dashboard_screenshot.png?raw=true)
 
-Maple provides an interactive dashboard to enable exploration of very large sequence datasets very quickly and without requiring coding knowledge.
+Maple provides an interactive dashboard to enable exploration of very large sequence datasets using a GUI.
 This is accomplished using [HoloViz](https://holoviz.org/) visualization libraries, in particular [Panel](https://panel.holoviz.org/).
 Unlike with other plots generated by maple, in which all the data necessary for visualization is contained within an .html file that
 can be opened and viewed on a browser, the dashboard is responsive to user interaction with a wide range of widgets to control the
