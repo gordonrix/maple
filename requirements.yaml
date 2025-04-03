@@ -8,43 +8,42 @@ channels:
   - bokeh
   - schrodinger
 dependencies:
-  - snakemake
-  - python=3.9
-  - minimap2
-  - samtools
-  - ngmerge
+  - snakemake=7.32.3
+  - python=3.9  
+  - minimap2=2.26
+  - samtools=1.17
+  - ngmerge=0.3
   - numba=0.56 # pacmap is broken with numba 0.53, medaka is broken with numba 0.57
-  - setuptools
-  - wget
-  - numpy
-  - pandas
-  - scipy
-  - scikit-learn
-  - statsmodels
-  - biopython
-  - jupyter
-  - jupyter_bokeh
-  - umi_tools
-  - medaka
-  - keras-preprocessing # not installed by medaka in some cases, probably just specific to my machine but doesn't hurt to add
-  - nanoplot
-  - natsort
-  - hvplot
-  - holoviews
-  - datashader
-  - bokeh
-  - spatialpandas # allows for lasso selections of datashaded plots
-  - panel
-  - editdistance
-  - racon
-  - wheel
-  - cython
-  - tqdm
-  - blat # for C3POa
-  - mappy
-  - pymol # not used by pipeline, but nice to have for SequenceAnalyzer
-  - pip
+  - setuptools=68.1.2
+  - wget=1.20.3
+  - numpy=1.23.5
+  - pandas=2.1.0
+  - scipy=1.11.2
+  - scikit-learn=1.3.0
+  - statsmodels=0.14.0
+  - biopython=1.81
+  - jupyter=1.0.0
+  - jupyter_bokeh=3.0.7
+  - umi_tools=1.1.4
+  - keras-preprocessing=1.1.2 # not installed by medaka in some cases, probably just specific to my machine but doesn't hurt to add
+  - nanoplot=1.41.6
+  - natsort=8.4.0
+  - hvplot=0.8.4
+  - holoviews=1.18.1
+  - datashader=0.15.2
+  - bokeh=3.2.2
+  - spatialpandas=0.4.8 # allows for lasso selections of datashaded plots
+  - panel=1.2.1
+  - editdistance=0.6.2
+  - racon=1.5.0
+  - wheel=0.41.2
+  - cython=3.0.2
+  - tqdm=4.66.1
+  - blat=35 # for C3POa
+  - mappy=2.26
+  - pip=23.2.1
+  - medaka=1.8
   - pip:
     - pyabpoa==1.4.0
-    - pacmap
-    - selenium # for bokeh SVG export, conda installation is broken
+    - pacmap==0.7.0
+    - selenium==4.12.0 # for bokeh SVG export, conda installation is broken
