@@ -9,9 +9,32 @@
 
 from utils.common import dashboard_input
 
+def get_demuxed_barcodes(tag, bcGroupsDict):
+    """
+    tag:            string, run tag
+    bcGroupsDict:   dictionary, barcodeGroups dict from config file for a specific tag,
+                        if it exists, otherwise an empty dict if no sorting is needed
+
+    grabs all barcodes for a given tag that were properly demultiplexed
+            if that tag was demultiplexed, then sorts according to the
+            barcode groups in the config file"""
+
+    if config['do_demux'][tag]:
+        checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+        BCs = glob_wildcards(checkpoint_demux_files).BCs
+        out = sort_barcodes(BCs, bcGroupsDict)
+    else:
+        out = ['all']
+    return out
 
 def targets_input(wildcards):
     out = []
+
+    if any(config['do_demux'][tag] for tag in config['runs']):
+        out.append('demux-stats.csv')
+
     if any(config['do_UMI_analysis'][tag] for tag in config['runs']):
         out.append('sequences/UMI/UMI-extract-summary.csv')
         out.append('plots/UMI-group-distribution.html')
@@ -20,19 +43,8 @@ def targets_input(wildcards):
     if any(config['do_AA_mutation_analysis'][tag] for tag in config['runs']):
         if ('dms_view_chain' and 'dms_view_chain_numbering_difference') in config:
             out.append('dms-view-table.csv')
-    if any(config['do_demux'][tag] for tag in config['runs']):
-        out.append('demux-stats.csv')
-        out.extend([f'plots/{tag}_demux.html' for tag in config['runs'] if config['do_demux'][tag]])
+
     for tag in config['runs']:
-        if config['do_NT_mutation_analysis'][tag]:
-            NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']
-            plot_types = ['mutation-distribution-violin']
-            if config.get('genotypes2D_plot_groups', False):
-                plot_type.append('genotypes2D')
-            out.extend(expand('plots/{tag}_{plot_type}.html', tag=tag, plot_type=plot_types))
-            plot_type = ['mutation-distribution', 'mutation-frequencies', 'hamming-distance-distribution']
-            out.extend(expand('plots/{tag}_{NTorAA}-{plot_type}.html', tag=tag, NTorAA=NTorAA, plot_type=plot_type))
-            # out.extend(expand('plots/{tag}_mutation-spectra.html', tag=tag))
         if config['do_RCA_consensus'][tag]:
             out.append(f'plots/{tag}_RCA-distribution.html')
         if config['do_UMI_analysis'][tag]:
@@ -44,6 +56,27 @@ def targets_input(wildcards):
         if config['do_enrichment_analysis'].get(tag, False):
             out.append(f'plots/{tag}_enrichment-scores.html')            
         # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
+
+    demux_success_tags = []
+    for tag in config['runs']:
+        if len(get_demuxed_barcodes(tag,{})) > 0:
+            demux_success_tags.append(tag)
+
+    # only process these rules if demux was successful for a given tag
+    for tag in demux_success_tags:
+        if config['do_demux'][tag] and config['plot_demux']:
+            out.append(f'plots/{tag}_demux.html')
+
+        if config['do_NT_mutation_analysis'][tag]:
+            NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']
+            plot_types = ['mutation-distribution-violin']
+            if config.get('genotypes2D_plot_groups', False):
+                plot_type.append('genotypes2D')
+            plot_types = [PT for PT in plot_types if config.get(f'plot_{PT}', False)]
+            out.extend(expand('plots/{tag}_{plot_type}.html', tag=tag, plot_type=plot_types))
+            NTAA_plot_types = ['mutation-distribution', 'mutation-frequencies', 'hamming-distance-distribution']
+            NTAA_plot_types = [PT for PT in NTAA_plot_types if config.get(f'plot_{PT}', False)]
+            out.extend(expand('plots/{tag}_{NTorAA}-{plot_type}.html', tag=tag, NTorAA=NTorAA, plot_type=NTAA_plot_types))
 
     # .done flag files are needed to separate the targets rule from rules that determine inputs from checkpoints (e.g. demux). A consequence of this is that
     #     simply deleting an input to one of these rules (what the user actually cares about) will not trigger the rule to be rerun. The user must delete

@@ -8,6 +8,9 @@
 #
 
 import os
+import glob
+import pandas as pd
+import subprocess
 
 def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
     """
@@ -85,6 +88,42 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
 
     return filePaths
 
+rule combine_tag: # combine batches of reads into a single file
+    input:
+        lambda wildcards: retrieve_fastqs(config['sequences_dir'], config['runs'][wildcards.tag].get('runname',''), config['fastq_dir'])
+    output:
+        temp("sequences/{tag, [^\/_]*}_combined.fastq.gz")
+    run:
+        with open(output[0], 'wb') as fp_out:
+            if len(input)==0:
+                raise RuntimeError(f"Basecalled sequence batches not found for tag `{wildcards.tag}`.")
+            for f in input:
+                with open(f, 'rb') as fp_in:
+                    fp_out.write(fp_in.read())
+
+checkpoint basespace_retrieve_project:
+    output:
+        flag = "sequences/{bs_project_ID}/.done"
+    shell:
+        """
+        bs download project -i {wildcards.bs_project_ID} -o sequences/{wildcards.bs_project_ID} --extension fastq.gz
+        touch {output.flag}
+        """
+
+def get_bs_paired_end(tag):
+    project_ID = config['runs'][tag].get('bs_project_ID', None)
+    if not project_ID:
+        raise ValueError(f"No BaseSpace project ID found for tag {tag}")
+    flag = checkpoints.basespace_retrieve_project.get(bs_project_ID=project_ID).output[0]
+    project_dir = os.path.dirname(flag)
+    fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"{tag}*R1*.fastq.gz"))
+    rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"{tag}*R2*.fastq.gz"))
+
+    if fwd and rvs:
+        return fwd[0], rvs[0]
+    else:
+        raise FileNotFoundError(f"Paired-end files for sample {tag} not found in {project_dir}")
+
 rule merge_paired_end:
     input:
         fwd = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag].get('runname','')[0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['fwdReads'])[0],
@@ -102,22 +141,41 @@ rule merge_paired_end:
         NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
         """
 
-rule basecaller_combine_tag: # combine batches of basecalled reads into a single file
+rule merge_paired_end_from_bs:
     input:
-        lambda wildcards: retrieve_fastqs(config['sequences_dir'], config['runs'][wildcards.tag].get('runname',''), config['fastq_dir'])
+        fwd = lambda wildcards: get_bs_paired_end(wildcards.tag)[0],
+        rvs = lambda wildcards: get_bs_paired_end(wildcards.tag)[1]
     output:
-        temp("sequences/{tag, [^\/_]*}_combined.fastq.gz")
-    run:
-        with open(output[0], 'wb') as fp_out:
-            if len(input)==0:
-                raise RuntimeError(f"Basecalled sequence batches not found for tag `{wildcards.tag}`.")
-            for f in input:
-                with open(f, 'rb') as fp_in:
-                    fp_out.write(fp_in.read())
+        merged = temp("sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}.fastq.gz"),
+        log = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_NGmerge.log",
+        failedfwd = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
+        failedrvs = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
+    params:
+        flags = config['NGmerge_flags'],
+        failed = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge"
+    shell:
+        """
+        NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
+        """
 
-rule move_seqs: # allows for merging batches of sequences or merging paired end reads depending on the tag definition using the above rules
+def get_merged_seqs(tag):
+
+    if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
+        return f'sequences/paired/{wildcards.tag}.fastq.gz'
+
+    elif 'runname' in config['runs'][tag]:
+        return f'sequences/{wildcards.tag}_combined.fastq.gz'
+
+    elif 'bs_project_ID' in config['runs'][tag]:
+        project_ID = config['runs'][tag]['bs_project_ID']
+        return f'sequences/{project_ID}_merged/{tag}.fastq.gz'
+    
+    else:
+        return ''
+
+rule move_seqs: # allows for merging batches of sequences or merging paired end reads depending on the tag definition
     input:
-        lambda wildcards: f'sequences/{wildcards.tag}_combined.fastq.gz' if config['merge_paired_end'][wildcards.tag]==False else f'sequences/paired/{wildcards.tag}.fastq.gz'
+        lambda wildcards: get_merged_seqs(wildcards.tag)
     output:
         'sequences/{tag, [^\/_]*}.fastq.gz'
     shell:
