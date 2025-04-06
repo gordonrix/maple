@@ -2,8 +2,11 @@
 # Major
    - Support for MacOS (ARM)
 # Minor
-   - Added support for .csv input for tags
+   - Added support for .csv input for tags and timepoints
    - Bugfixes for empty and nearly empty sequence datasets (demux.py)
+   - Default folder that holds metadata changed from 'ref' to 'metadata'
+   - Timepoints now defined globally, not for each tag
+   - Notices that can be repetitive are now sent to the log file
 
 ## v0.10.3
 # Minor

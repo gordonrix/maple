@@ -15,6 +15,8 @@ import snakemake.common
 from datetime import datetime
 from snakemake.utils import min_version
 from Bio import SeqIO
+import json
+import yaml
 import pandas as pd
 
 start_time = datetime.now()
@@ -63,143 +65,173 @@ config['version'] = {'tag': maple_tag, 'full-tag': maple_git_tag}
 def get_dir_files(base_dir):
     return set({os.path.join(path, name) for path, subdirs, files in os.walk(base_dir) for name in files if not '/.' in path})
 
-
 start_files = get_dir_files(workflow.workdir_init)
 
-
-# append username to shadow prefix if not present
-if hasattr(workflow, "shadow_prefix") and workflow.shadow_prefix:
-    shadow_prefix = workflow.shadow_prefix
-    if not os.environ['USER'] in shadow_prefix:
-        shadow_prefix = os.path.join(shadow_prefix, os.environ['USER'])
-        print_("[INFO] Shadow prefix is changed from {p1} to {p2} to be user-specific".format(
-            p1=workflow.shadow_prefix, p2=shadow_prefix), file=sys.stderr)
-    workflow.shadow_prefix = shadow_prefix
-
-
-# parse pipeline environment
-maple_env = {}
-with open(os.path.join(os.path.dirname(workflow.snakefile), "env.yaml"), 'r') as fp:
-    maple_env = yaml.safe_load(fp)
-
-
-# verify given binaries
-if 'bin' in maple_env:
-    if not 'bin' in config:
-        config['bin'] = {}
-    if not 'bin_singularity' in config:
-        config['bin_singularity'] = {}
-    for name, loc in maple_env['bin'].items():
-        loc_sys = None
-        loc_singularity = os.path.basename(loc)
-        if os.path.isfile(loc):
-            # absolute path is given
-            loc_sys = loc
-        elif os.path.isfile(os.path.join(os.path.dirname(sys.executable), loc)):
-            # executable in python installation/virtual environment
-            loc_sys = os.path.join(os.path.dirname(sys.executable), loc)
-        else:
-            # scan the PATH if we find the executable
-            for path in os.environ["PATH"].split(os.pathsep):
-                f = os.path.join(path, os.path.basename(loc))
-                if os.path.isfile(f):
-                    loc_sys = f
-                    break
-        # save executable path depending on singularity usage
-        if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-            # within singularity everything is accessible through /bin and /usr/bin
-            config['bin_singularity'][name] = loc_singularity
-            if loc_sys:
-                config['bin'][name] = loc_sys
-            #else:
-            #    print_("[WARNING] {name} not found as {loc} and is only available in singularity rules.".format(
-            #        name=name, loc=loc), file=sys.stderr)
-        else:
-            # singularity rules use system wide executables
-            if loc_sys:
-                config['bin_singularity'][name] = loc_sys
-                config['bin'][name] = loc_sys
-            else:
-                print_("[WARNING] {name} not found as {loc} and is not available in the workflow.".format(
-                    name=name, loc=loc), file=sys.stderr)
-else:
-    raise RuntimeError("[ERROR] No binaries in environment configuration\n", file=sys.stderr)
-
-
-# Runtime scaling of data depending tools
-if 'runtime' in maple_env:
-    config['runtime'] = {}
-    for key, value in maple_env['runtime'].items():
-        config['runtime'][key] = value
-else:
-    raise RuntimeError("[ERROR] No runtime scalings in environment configuration\n", file=sys.stderr)
-
-
-# memory scaling of data depending tools
-if 'memory' in maple_env:
-    config['memory'] = {}
-    for key, value in maple_env['memory'].items():
-        config['memory'][key] = tuple(value)
-else:
-    raise RuntimeError("[ERROR] No memory scalings in environment configuration.\n", file=sys.stderr)
-
-
-
-# locations of helper scripts in rules/utils
-if not 'sbin' in config:
-    config['sbin'] = {}
-if not 'sbin_singularity' in config:
-    config['sbin_singularity'] = {}
-for s in [s for s in os.listdir(os.path.join(os.path.dirname(workflow.snakefile), 'rules/utils/')) if
-        os.path.isfile(os.path.join(os.path.dirname(workflow.snakefile), 'rules/utils', s))]:
-    if s.startswith('__') or s.startswith('.'):
-        continue
-    config['sbin'][s] = os.path.join(os.path.dirname(workflow.snakefile), 'rules/utils', s)
-    if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-        config['sbin_singularity'][s] = os.path.join('/app/rules/utils', s)
-    else:
-        config['sbin_singularity'][s] = config['sbin'][s]
-
-
-# helper of submodules are called relative to the pipeline base directory
-config['sbin']['base'] = os.path.join(os.path.dirname(workflow.snakefile))
-if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-    config['sbin_singularity']['base'] = '/app'
-else:
-    config['sbin_singularity']['base'] = config['sbin']['base']
-
-
-# find the python executable
-# Python executable of the workflow
-config['bin']['python'] = sys.executable
-
-# In the container we just use python3
-if hasattr(workflow, 'use_singularity') and workflow.use_singularity:
-	config['bin_singularity']['python'] = 'python3'
-else:
-	config['bin_singularity']['python'] = sys.executable
-
-errors = []
+# add memory scaling for minimap2
+config['memory'] = {}
+config['memory']['minimap2'] = [8000,500]
 
 # list of required options. Will be added to if certain tools are used
-required = ['sequences_dir', 'fastq_dir', 'references_directory', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanopore', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'unique_genotypes_count_threshold', 'runs']
+required = ['sequences_dir', 'fastq_dir', 'metadata', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'unique_genotypes_count_threshold', 'runs']
 if ('minknowDir' in config) and ('sequences_dir' not in config):
     print('[WARNING] "sequences_dir" is a new required config variable that replaces "minknowDir", please replaced "minknowDir" with "sequences_dir" in your config file"')
 
-config['merge_paired_end'] = {}
-for tag in config['runs']:
-    config['merge_paired_end'][tag] = False
-    if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
-        config['merge_paired_end'][tag] = True
+def str_to_bool(value):
+    """
+    Convert a string to a boolean if possible, raise error if not.
+    """
+    if isinstance(value, str):
+        if value.lower() == 'true':
+            return True
+        elif value.lower() == 'false':
+            return False
+    raise ValueError(f"Invalid boolean string: {value}")
 
+def str_to_number(value):
+    """
+    Convert a string to a number (int or float) if possible, raise error if not.
+    """
+    try:
+        # Try converting to integer first
+        number = int(value)
+        return number
+    except ValueError:
+        raise ValueError(f"Invalid number string: {value}")
+    return number
+
+
+def pretty_print(d, indent=2):
+    """
+    Recursively prints a nested dictionary with indentation.
+    
+    :param d: The dictionary to print
+    :param indent: The current level of indentation (used internally)
+    """
+    for key, value in d.items():
+        print('  ' * indent + str(key) + ":")
+        if isinstance(value, dict):
+            pretty_print(value, indent + 1)
+        else:
+            print('  ' * (indent + 1) + str(value) + ' ' + type(value).__name__)
+
+def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
+    """
+    load the given csv file as a nested dictionary in which the first column is used as the outer key and columns are used as the inner key, with values as the inner values.
+    If a tag is given then the tag column will be used to filter the dataframe, then removed, and the first of the remaining columns will be used as the outer key.
+
+    params:
+        csv_path: str, path to the csv file
+        required: list, optional, list of required column values to check for in each row in the csv file
+        lists: list, optional, list of column names that should be converted to lists using '__' as the delimiter
+        tag: str, optional, the tag to filter the dataframe by. If this is used but no tag column is present,
+            no filtering will be done. This is to allow for the same file to be used by multiple tags
+        defaults: dict, optional, default values to use if a column is not present or if a value is missing
+    
+    returns:
+        dict, the csv file as a nested dictionary
+    """
+
+    if os.path.isfile(csv_path):
+        df = pd.read_csv(csv_path, index_col=False, dtype=str)
+        if ('tag' in df.columns) and tag:
+            df = df.loc[df['tag']==tag]
+            df = df.drop(columns='tag')
+        df = df.set_index(df.columns[0])
+        if any([c.startswith('Unnamed: ') for c in df.columns]):
+            print(f"[WARNING] Column name beginning with 'Unnamed: ' detected in csv {csv_path}. This usually results from erroneous whitespace characters.\n")
+        for req in required:
+            if req not in df.columns:
+                print(f"[WARNING] Required value `{req}` not found in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
+                return {}
+            elif df[req].isnull().values.any():
+                print(f"[WARNING] Some rows are missing value for required key `{req}` in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
+                return {}
+        for default in defaults:
+            if default not in df.columns:
+                df[default] = defaults[default]
+            elif df[default].isnull().values.any():
+                df[default] = df[default].fillna(defaults[default])
+        csv_dict = df.to_dict('index')
+        cleaned_dict = {
+            key: {k: v for k, v in csv_dict[key].items() if not pd.isnull(v)}
+            for key in csv_dict
+        }
+        # convert list columns to lists
+        for col in lists:
+            for key in cleaned_dict:
+                if col in cleaned_dict[key]:
+                    cleaned_dict[key][col] = cleaned_dict[key][col].split('__')
+
+        return cleaned_dict
+
+    else:
+        print(f"[WARNING] Provided string `{csv_path}` is not a csv file. Please provide a YAML-formatted dictionary or a csv file with the tag as the index.\n")
+        return {}
+
+def validate_bc(bc_info_dict, bc):
+    """
+    Validate the barcodeInfo dictionary for a given barcode type.
+    """
+    if type(bc_info_dict[bc]['reverseComplement']) is str:
+        try:
+            bc_info_dict[bc]['reverseComplement'] = str_to_bool(bc_info_dict[bc]['reverseComplement'])
+        except ValueError:
+            errors.append(f"[ERROR] Invalid boolean string for `reverseComplement` in barcodeInfo for barcode `{bc}`. Please provide a boolean string (True/False).\n")
+    if type(bc_info_dict[bc]['noSplit']) is str:
+        try:
+            bc_info_dict[bc]['noSplit'] = str_to_bool(bc_info_dict[bc]['noSplit'])
+        except ValueError:
+            errors.append(f"[ERROR] Invalid boolean string for `noSplit` in barcodeInfo for barcode `{bc}`. Please provide a boolean string (True/False).\n")
+    if (type(bc_info_dict[bc]['generate']) is str) and (bc_info_dict[bc]['generate'] != 'all'):
+        try:
+            bc_info_dict[bc]['generate'] = str_to_number(bc_info_dict[bc]['generate'])
+        except ValueError:
+            errors.append(f"[ERROR] Invalid string for `generate` in barcodeInfo for barcode `{bc}`. Please input `False`, `all`, or an integer.\n")
+        
+    return bc_info_dict
+
+# import any csv-formatted metadata as dictionaries
+
+if type(config.get('runs', False)) is str:
+    full_csv_path = os.path.join(config['metadata'], config['runs'])
+    config['runs'] = load_csv_as_dict(full_csv_path, required=['reference'], lists=['runname', 'UMI_contexts'])
+
+for tag in config['runs']:
+    if 'barcodeInfo' in config['runs'][tag]:
+        defaults = {'generate':False, 'noSplit':False}
+        if type(config['runs'][tag]['barcodeInfo']) is str:
+            full_csv_path = os.path.join(config['metadata'], config['runs'][tag]['barcodeInfo'])
+            config['runs'][tag]['barcodeInfo'] = load_csv_as_dict(full_csv_path, required=['context', 'fasta', 'reverseComplement'], tag=tag, defaults=defaults)
+        
+        # add default values if they are missing
+        elif type(config['runs'][tag]['barcodeInfo']) is dict:
+            for bc in config['runs'][tag]['barcodeInfo']:
+                for default in defaults:
+                    if default not in config['runs'][tag]['barcodeInfo'][bc]:
+                        config['runs'][tag]['barcodeInfo'][bc][default] = defaults[default]
+                config['runs'][tag]['barcodeInfo'] = validate_bc(config['runs'][tag]['barcodeInfo'].copy(), bc)
+    if 'barcodeGroups' in config['runs'][tag]:
+        if type(config['runs'][tag].get('barcodeGroups', False)) is str:
+            full_csv_path = os.path.join(config['metadata'], config['runs'][tag]['barcodeGroups'])
+            config['runs'][tag]['barcodeGroups'] = load_csv_as_dict(full_csv_path, tag=tag)
+    for bc in config['runs'][tag].get('barcodeInfo', {}):
+        config['runs'][tag]['barcodeInfo'] = validate_bc(config['runs'][tag]['barcodeInfo'].copy(), bc)
+
+# keep a list of errors that will be parsed all at once at the end
+errors = []
+# keep a list of all notices
+notices = []
+# notify user if any notices were not sent to stdout
+notice_of_notices = False
 runs_to_import = []
+
 # check for sequences
 for tag in config['runs']:
     sequences = os.path.join('sequences', tag+'.fastq.gz')
 
     if not os.path.exists(sequences):
 
-        if config['merge_paired_end'][tag] == True:
+        if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
             if 'fwdReads' not in config['runs'][tag] or 'rvsReads' not in config['runs'][tag]:
                 print_(f"[WARNING] Both forward and reverse reads files not provided for {tag} with keyword `fwdReads` and `rvsReads`.\n", file=sys.stderr)
             fwd = os.path.join('sequences', 'paired', config['runs'][tag]['fwdReads'])
@@ -207,14 +239,16 @@ for tag in config['runs']:
             if not all((os.path.exists(fwd), os.path.exists(rvs))):
                 print_(f"[WARNING] One or both forward/reverse reads files provided for {tag}, ({fwd}, {rvs}) do not exist.\n", file=sys.stderr)
 
-        elif 'runname' not in config['runs'][tag]:
-            print_(f"[WARNING] Neither paired end reads nor runname director(y/ies) provided for tag `{tag}`, but sequences file `{sequences}` not found.\n", file=sys.stderr)
-
-        else:
+        elif 'runname' in config['runs'][tag]:
             for runname in config['runs'][tag]['runname']:
                 batch = os.path.join('sequences', 'batches', runname)
                 if not os.path.exists(batch):
                     runs_to_import.append(runname)
+
+        read_source_key_count = sum(1 for key in ['fwdReads', 'runname', 'bs_project_ID'] if key in config['runs'][tag])
+        if read_source_key_count > 1:
+            errors.append(f"[ERROR] Multiple sources for reads provided for tag `{tag}`. Please provide only one of (`fwdReads`/`rvsReads`), `runname`, or `bs_project_ID`.\n")
+
 # Check minknow directory
 if runs_to_import != []:
     for runname in runs_to_import:
@@ -232,14 +266,14 @@ for tag in config['runs']:
     if 'reference' not in config['runs'][tag]:
         errors.append(f"[ERROR] No reference file provided for tag `{tag}")
     refName = config['runs'][tag]['reference']
-    refFullPath = os.path.join(config['references_directory'], config['runs'][tag]['reference'])
+    refFullPath = os.path.join(config['metadata'], config['runs'][tag]['reference'])
     if not (refName.endswith('fasta') or refName.endswith('.fa')):
         print_(f'[WARNING] Reference .fasta file for {tag} does not end with `.fasta` or `.fa` (given path: {refFullPath}).', file=sys.stderr)
     config['runs'][tag]['reference'] = refFullPath
     if not os.path.isfile(refFullPath):
         print_(f'[ERROR] Reference .fasta file for {tag} (given path: {refFullPath}) not found.', file=sys.stderr)
     refFastaPrefix = refName.split('.f')[0]
-    alnRefFullPath = os.path.join(config['references_directory'], '.' + refFastaPrefix + '_aln.fasta')
+    alnRefFullPath = os.path.join(config['metadata'], '.' + refFastaPrefix + '_aln.fasta')
     config['runs'][tag]['reference_aln'] = alnRefFullPath
     if (refFullPath, alnRefFullPath) not in refSeqFastaFiles:
         refSeqFastaFiles.append((refFullPath, alnRefFullPath))
@@ -277,8 +311,8 @@ for refFasta, alnFasta in refSeqFastaFiles:
         if len(proteinSeq.seq)%3 != 0:
             errors.append(f"[ERROR] Length of protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a multiple of 3, and therefore cannot be used as ORF\n")
         for i, nt in enumerate(str(proteinSeq.seq).upper()):
-            if nt not in list("ATGC"):
-                errors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide\n")
+            if nt not in list("ATGCN"):
+                errors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide or 'N'\n")
 
     # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
     if os.path.isfile(alnFasta):
@@ -308,7 +342,7 @@ for tag in config['runs']:
     if 'splint' in config['runs'][tag]:
         config['do_RCA_consensus'][tag] = True
         splintSeq = config['runs'][tag]['splint']
-        splintFasta = os.path.join(config['references_directory'], f".{tag}_splint.fasta")
+        splintFasta = os.path.join(config['metadata'], f".{tag}_splint.fasta")
         makeSplintFasta = True
         if os.path.isfile(splintFasta):
             first_record = next(SeqIO.parse(splintFasta, 'fasta'))
@@ -384,7 +418,6 @@ validate_params(potential_param_dicts)
 config['do_demux'] = {}
 for tag in config['runs']:
     if 'barcodeInfo' not in config['runs'][tag]:
-        print_(f"[NOTICE] No keyword 'barcodeInfo' provided for {tag}, will not perform demultiplexing for this tag.\n", file=sys.stderr)
         config['do_demux'][tag] = False
         continue
     else:
@@ -394,13 +427,13 @@ for tag in config['runs']:
     if 'barcodeGroups' in config['runs'][tag]:
         # add barcodeGroups to tag as a dict if declared as a csv file
         if type(config['runs'][tag]['barcodeGroups']) == str:
-            CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['barcodeGroups'])
+            CSVpath = os.path.join(config['metadata'], config['runs'][tag]['barcodeGroups'])
             if os.path.isfile(CSVpath):
                 barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=False, header=1, dtype=str)
                 barcodeGroupsCSV = barcodeGroupsCSV.set_index(barcodeGroupsCSV.columns[0]) #can't do this in one line because of a pd.read_csv bug that doesn't allow index to be string
                 if barcodeGroupsCSV.index.name == 'tag':
                     barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
-                if any([c[:9]=='Unnamed: ' for c in barcodeGroupsCSV.columns]):
+                if any([c.startswith('Unnamed: ') for c in barcodeGroupsCSV.columns]):
                     print_(f"[WARNING] Barcode type beginning with 'Unnamed: ' detected for tag {tag} in barcodeGroups csv {CSVpath}. This usually results from erroneous whitespace characters. Demultiplexing may fail.\n", file=sys.stderr)
                 config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
             else:
@@ -408,7 +441,9 @@ for tag in config['runs']:
         if len(config['runs'][tag]['barcodeGroups']) == 0:
             print_(f"[NOTICE] No barcode groups provided for run tag `{tag}`. Outputs will be named as concatemerized barcode names.\n", file=sys.stderr)
     else:
-        print_(f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.\n", file=sys.stderr)
+        notice = f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.\n"
+        notices.append(notice)
+        notice_of_notices = True
     refFasta = config['runs'][tag]['reference']
     alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
     contexts = []
@@ -424,7 +459,7 @@ for tag in config['runs']:
             print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
         elif occurences > 1:
             print_(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` found more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
-        bcFasta = os.path.join(config['references_directory'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
+        bcFasta = os.path.join(config['metadata'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
         config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
         if os.path.isfile(bcFasta):
             if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
@@ -447,14 +482,18 @@ for tag in config['runs']:
                 elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
                     if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][bcGroup][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
                         print_(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{bcGroup}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` set for this tag.\n", file=sys.stderr)
-        if 'generate' in config['runs'][tag]['barcodeInfo'][barcodeType]:
+        if config['runs'][tag]['barcodeInfo'][barcodeType].get('generate', False):
             numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
             if (numToGenerate != 'all') and type(numToGenerate) != int:
                 print_(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.\n", file=sys.stderr)
             if os.path.isfile(bcFasta):
-                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` exists. Using this file for demultiplexing.\n", file=sys.stderr)
+                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` exists. Using this file for demultiplexing.\n"
+                notices.append(notice)
+                notice_of_notices = True
             else:
-                print_(f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.\n", file=sys.stderr)
+                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.\n"
+                notices.append(notice)
+                notice_of_notices = True
         if len(set(contexts)) != len(contexts):
             print_(f"[WARNING] Duplicate barcode contexts provided for run tag `{tag}`.\n", file=sys.stderr)
 
@@ -488,99 +527,112 @@ if config.get('background', False):
 #           barcode group is provided in the config file. This is important because background subtraction is necessary
 #           for accurate rate calculations, and sequencing error can of course differ from run to run.
 config['do_enrichment_analysis'] = {}
-for tag in config['runs']:
-    if 'timepoints' in config['runs'][tag]:
-        CSVpath = os.path.join(config['references_directory'], config['runs'][tag]['timepoints'])
-        if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
-            config['timepoints'] = {}
-            config['timepointsInfo'] = {}
-        if CSVpath in config['timepoints'].values():
-            print_(f"[NOTICE] Timepoints file `{CSVpath}` is used for multiple tags. Files will be named only using the first tag that uses this file.\n", file=sys.stderr)
-        else:
-            config['timepoints'][tag] = CSVpath
 
-        # decide whether to do barcode enrichment analysis
-        no_split_bcs = [bc for bc in config['runs'][tag]['barcodeInfo'] if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
+if 'timepoints' in config:
+
+    for tag in config['runs']:
+        no_split_bcs = [bc for bc in config['runs'][tag].get('barcodeInfo',[]) if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
         # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
         if len(no_split_bcs) == 1:
             config['do_enrichment_analysis'][tag] = True
-
-        if os.path.isfile(CSVpath):
-            timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
-            topRow = [x for x in pd.read_csv(CSVpath).columns if 'Unnamed: ' not in x]
-
-            if len(topRow) > 1:
-                print_(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {CSVpath}. Only the first cell in this row will be used for labeling timepoint-based plots.\n", file=sys.stderr)
-            elif len(topRow) == 0: 
-                print_(f"[NOTICE] No time unit provided in top row of timepoint CSV file {CSVpath}. Default 'generations' will be used.\n", file=sys.stderr)
-            else:
-                units = topRow[0]
-
-            if len(timepointsCSV.columns) <= 1:
-                print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
-            else:
-                rowIndex = 3    # start at 3 because first two rows are ignored with pd.read_csv call, and errors/warnings will use 1-indexing
-                uniqueSamples = list(timepointsCSV.index.unique())
-                replicates = False
-                if len(uniqueSamples) != len(timepointsCSV.index): # assign replicate designations for samples with replicates (more than one row with the same sample name)
-                    replicates = True
-
-                for sampleGroup in uniqueSamples:
-
-                    replicateIndex = 0
-
-                    if sampleGroup in config['runs']:
-                        errors.append(f"[ERROR] Timepoint sample name used for row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{sampleGroup}` is also used as a tag. This is forbidden.\n")
-                    if '_' in sampleGroup:
-                        errors.append(f"[ERROR] Underscore used in timepoint sample name `{sampleGroup}` in row {rowIndex} of timepoints .CSV file `{CSVpath}`. This is forbidden.\n")
-                    if (sampleGroup in config['timepointsInfo']) or (sampleGroup in [key.split('-rep')[0] for key in config['timepointsInfo']]):
-                        print_(f'[NOTICE] Sample name `{sampleGroup}` is used in timepoints file `{CSVpath}` as well as in another timepoints file. This is allowed, but note that plots in `plots/timepoints` will only be based on the first timepoints file that uses this sample name.\n', file=sys.stderr)
-                        continue
-
-                    for _, row in timepointsCSV.loc[timepointsCSV.index==sampleGroup].iterrows():
-                        replicateIndex += 1
-                        if replicates:
-                            sample = sampleGroup + f"-rep{str(replicateIndex)}"
-                        else:
-                            sample = sampleGroup
-
-                        firstTP = timepointsCSV.columns[0]
-                        i = 0
-                        while pd.isnull(row[firstTP]): # not all samples need to have the same first timepoint
-                            i+=1
-                            firstTP = timepointsCSV.columns[i]
-                        firstTag = str(row[firstTP]).split('_')[0]
-                        if firstTag in config['runs']:
-                            firstTagRefFasta = config['runs'][firstTag]['reference']
-                            if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
-                                config['timepointsInfo'][sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
-                            firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[0].seq).upper()
-                            firstTagRunname = config['runs'][firstTag].get('runname', '')
-                        else:
-                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
-                        for tp in timepointsCSV.columns:
-                            if str(row[tp]) == 'nan':
-                                continue
-                            tag, barcodeGroup = row[tp].split('_')
-                            if tag in config['runs']:
-                                if firstTag in config['runs']:
-                                    tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
-                                    if tagRefSeq != firstTagRefSeq:
-                                        print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.\n", file=sys.stderr)
-                                    tagRunname = config['runs'][tag].get('runname', '')
-                                    if tagRunname != firstTagRunname and 'background' not in config:
-                                        print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
-                                if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
-                                    config['timepointsInfo'][sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
-                            else:
-                                errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
-                     
         else:
-            print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.\n", file=sys.stderr)
+            config['do_enrichment_analysis'][tag] = False
+
+    CSVpath = os.path.join(config['metadata'], config['timepoints'])
+
+    timepoints_info_dict = {}
+
+    # if 'timepoints' not in config: # construct timepoints dict for first tag encountered with timepoints file declared
+
+    # if CSVpath in config['timepoints'].values():
+    #     print_(f"[NOTICE] Timepoints file `{CSVpath}` is used for multiple tags. Files will be named only using the first tag that uses this file.\n", file=sys.stderr)
+    # else:
+    #     config['timepoints'][tag] = CSVpath
+
+    # decide whether to do barcode enrichment analysis
+
+    if os.path.isfile(CSVpath):
+        timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
+        topRow = [x for x in pd.read_csv(CSVpath).columns if 'Unnamed: ' not in x]
+
+        if len(topRow) > 1:
+            print_(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {CSVpath}. Only the first cell in this row will be used for labeling timepoint-based plots.\n", file=sys.stderr)
+        elif len(topRow) == 0: 
+            print_(f"[NOTICE] No time unit provided in top row of timepoint CSV file {CSVpath}. Default 'generations' will be used.\n", file=sys.stderr)
+        else:
+            units = topRow[0]
+
+        if len(timepointsCSV.columns) <= 1:
+            print_(f"[WARNING] Timepoints .CSV file `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
+        else:
+            rowIndex = 3    # start at 3 because first two rows are ignored with pd.read_csv call, and errors/warnings will use 1-indexing
+            uniqueSamples = list(timepointsCSV.index.unique())
+            replicates = False
+            if len(uniqueSamples) != len(timepointsCSV.index): # assign replicate designations for samples with replicates (more than one row with the same sample name)
+                replicates = True
+
+            for sampleGroup in uniqueSamples:
+
+                replicateIndex = 0
+
+                if sampleGroup in config['runs']:
+                    errors.append(f"[ERROR] Timepoint sample name used for row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`, `{sampleGroup}` is also used as a tag. This is forbidden.\n")
+                if '_' in sampleGroup:
+                    errors.append(f"[ERROR] Underscore used in timepoint sample name `{sampleGroup}` in row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`. This is forbidden.\n")
+                # if (sampleGroup in config['timepointsInfo']) or (sampleGroup in [key.split('-rep')[0] for key in config['timepointsInfo']]):
+                #     print_(f'[NOTICE] Sample name `{sampleGroup}` is used in timepoints file `{CSVpath}` as well as in another timepoints file. This is allowed, but note that plots in `plots/timepoints` will only be based on the first timepoints file that uses this sample name.\n', file=sys.stderr)
+                #     continue
+
+                for _, row in timepointsCSV.loc[timepointsCSV.index==sampleGroup].iterrows():
+                    replicateIndex += 1
+                    if replicates:
+                        sample = sampleGroup + f"-rep{str(replicateIndex)}"
+                    else:
+                        sample = sampleGroup
+
+                    firstTP = timepointsCSV.columns[0]
+                    i = 0
+                    while pd.isnull(row[firstTP]): # not all samples need to have the same first timepoint
+                        i+=1
+                        firstTP = timepointsCSV.columns[i]
+                    firstTag = str(row[firstTP]).split('_')[0]
+                    if firstTag in config['runs']:
+                        firstTagRefFasta = config['runs'][firstTag]['reference']
+                        if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
+                            timepoints_info_dict[sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
+                        firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[0].seq).upper()
+                        firstTagRunname = config['runs'][firstTag].get('runname', '')
+                    else:
+                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
+                    for tp in timepointsCSV.columns:
+                        if str(row[tp]) == 'nan':
+                            continue
+                        tag, barcodeGroup = row[tp].split('_')
+                        if tag in config['runs']:
+                            if firstTag in config['runs']:
+                                tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
+                                if tagRefSeq != firstTagRefSeq:
+                                    print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.\n", file=sys.stderr)
+                                tagRunname = config['runs'][tag].get('runname', '')
+                                if tagRunname != firstTagRunname and 'background' not in config:
+                                    print_(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
+                            if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
+                                timepoints_info_dict[sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
+                        else:
+                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
+            config['timepointsInfo'] = timepoints_info_dict
+    else:
+        print_(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.\n", file=sys.stderr)
 if len(errors) > 0:
     for err in errors:
         print_(err, file=sys.stderr)
     raise RuntimeError("Critical errors found. See above.\n")
+
+if notice_of_notices:
+    print_("[NOTICE] Some notices not printed to terminal. Please see log file for more information.\n", file=sys.stderr)
+
+with open(os.path.join(config['metadata'], 'config_final.yaml'), 'w') as outfile:
+    yaml.dump(config, outfile, default_flow_style=False)
 
 # check for required options
 missing = []
@@ -630,6 +682,10 @@ def print_log(status='SUCCESS'):
         print('\n'.join(sorted([f for f in end_files.difference(start_files)])), file=fp)
         print("Deleted files:", file=fp)
         print('\n'.join(sorted([f for f in start_files.difference(end_files)])), file=fp)
+        if len(notices) > 0:
+            print('Notices:', file=fp)
+            print('-----------------------------------', file=fp)
+            print('\n'.join(notices), file=fp)
     return log_name
 
 onsuccess:
