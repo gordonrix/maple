@@ -23,7 +23,7 @@ class SequenceAnalyzer:
     """
 
     def __init__(self, reference_fasta=None, genotypesCSV=None, exclude_indels=False, MSA_fasta=None):
-        self.characters = {'NT':'ATGC-', 'AA':'ACDEFGHIKLMNPQRSTVWY*-'}
+        self.characters = {'NT':'ATGC-N', 'AA':'ACDEFGHIKLMNPQRSTVWY*-X'}
         self.DR_embeddings = {}
 
         # two different kinds of initialization, one for genotypes CSV input and one for MSA fasta input
@@ -619,9 +619,9 @@ class SequenceAnalyzer:
 
         aggregated_identities = self.aggregate_identities(NTorAA, idx=idx, unique_only=unique_only)
         if unique_only:
-            total_seqs = self.get_count(idx=idx)
-        else:
             total_seqs = len(idx) if idx is not None else self.integer_matrix[NTorAA].shape[0]
+        else:
+            total_seqs = self.get_count(idx=idx)
         
         rows = []
         chars = self.characters[NTorAA]
