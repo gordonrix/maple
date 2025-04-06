@@ -32,10 +32,10 @@ rule align:
     resources:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),
-        time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
+        time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt)   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {params.flags} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
+        minimap2 -t {threads} {params.flags} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
         if [ $(grep 'ERROR' {output.log} | wc -l) -gt 0 ]; then exit 1; fi
         """
 
@@ -44,35 +44,32 @@ rule aligner_sam2bam:
     input:
         sam = "alignments/{tag}.sam"
     output:
-        bam = "alignments/{tag, [^\/_]*}.bam",
-        bai = "alignments/{tag, [^\/_]*}.bam.bai"
+        bam = temp("alignments/{tag, [^\/_]*}.bam"),
+        bai = temp("alignments/{tag, [^\/_]*}.bam.bai")
     shadow: "minimal"
     threads: 1
     resources:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, attempt: int((1.0 + (0.2 * (attempt - 1))) * 5000)
-    # singularity:
-    #     config['singularity_images']['alignment']
     shell:
         """
-        {config[bin_singularity][samtools]} view -b {input.sam} | {config[bin_singularity][samtools]} sort -m 4G > {output.bam}
-        {config[bin_singularity][samtools]} index {output.bam}
+        samtools view -b {input.sam} | samtools sort -m 4G > {output.bam}
+        samtools index {output.bam}
         """
 
 # Use NanoPlot package to generate and organize plots that describe sequencing data and alignments
-
+# use a try except instead of requiring the nanopore option in config
 rule NanoPlot_fastq:
     input:
         'sequences/{tag}.fastq.gz'
     output:
         'plots/nanoplot/{tag, [^\/_]*}_fastq_NanoStats.txt'
     params:
-        fastqType = lambda wildcards: '--fastq_rich' if config['nanopore']==True else '--fastq',
         flags = lambda wildcards: config['nanoplot_flags']
     shell:
         """
-        mkdir plots/nanoplot -p
-        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_fastq_ {params.fastqType} {input[0]}
+        mkdir -p plots/nanoplot
+        (NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_fastq_ --fastq_rich {input[0]} || NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_fastq_ --fastq {input[0]})
         """
 
 # can cause rule rerun for UMI plots
@@ -89,33 +86,17 @@ rule NanoPlot_fastq:
 #         NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_preConsensus_ --bam {input[0]}
 #         """
 
-# rule NanoPlot_alignment:
-#     input:
-#         'alignments/{tag}.bam'
-#     output:
-#         'plots/nanoplot/{tag, [^\/_]*}_alignment_NanoStats.txt'
-#     params:
-#         flags = lambda wildcards: config['nanoplot_flags']
-#     shell:
-#         """
-#         mkdir plots/nanoplot -p
-#         NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_ --bam {input[0]}
-#         """
-
-# mapping stats
-rule aligner_stats:
+rule NanoPlot_alignment:
     input:
-        "alignments/batches/{tag}/{runname}_aligned-file-names.txt.txt"
+        'alignments/{tag}.bam'
     output:
-        "alignments/batches/{tag, [^\/]*}/{runname, [^.\/]*}.hdf5"
-    threads: config.get('threads_samtools') or 1
-    resources:
-        threads = lambda wildcards, threads: threads,
-    # singularity:
-    #     config['singularity_images']['alignment']
+        'plots/nanoplot/{tag, [^\/_]*}_alignment_NanoStats.txt'
+    params:
+        flags = lambda wildcards: config['nanoplot_flags']
     shell:
         """
-        while IFS= read -r bam_file; do {config[bin_singularity][samtools]} view ${{bam_file}}; done < {input} | {config[bin_singularity][python]} {config[sbin_singularity][alignment_stats.py]} {output}
+        mkdir plots/nanoplot -p
+        NanoPlot {params.flags} -o plots/nanoplot -p {wildcards.tag}_alignment_ --bam {input[0]}
         """
 
 rule generate_barcode_ref:
@@ -181,7 +162,7 @@ rule plot_demux:
 rule enrichment_scores:
     input:
         CSV = 'demux-stats.csv',
-        timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
+        timepoints = lambda wildcards: config['timepoints']
     output:
         scores = 'enrichment/{tag, [^\/]*}_enrichment-scores.csv'
     params:
@@ -250,38 +231,6 @@ rule mutation_analysis:
     script:
         'utils/mutation_analysis.py'
 
-def mut_stats_input(wildcards):
-    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
-    if config['do_AA_mutation_analysis'][wildcards.tag]: datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
-    if config['do_demux'][wildcards.tag]:
-        checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        out = expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
-    else:
-        out = expand('mutation_data/{tag}/all/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
-    assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
-    return out
-
-rule mut_stats:
-	input:
-		mut_stats_input
-	output:
-		'mutation_data/{tag, [^\/]*}/{tag}_mutation-stats.csv'
-	script:
-		'utils/mutation_statistics.py'
-
-rule merge_mut_stats:
-    input:
-        expand('mutation_data/{tag}/{tag}_mutation-stats.csv', tag=[tag for tag in config['runs'] if config['do_NT_mutation_analysis'][tag]])
-    output:
-        'mutation-stats.csv'
-    run:
-        import pandas as pd
-        dfs = [pd.read_csv(f) for f in input]
-        combined = pd.concat(dfs)
-        combined.to_csv(output[0], index=False)
-
 def get_demuxed_barcodes(tag, bcGroupsDict):
     """
     tag:            string, run tag
@@ -320,28 +269,79 @@ def get_demuxed_barcodes_timepoint(tag_bcs):
             print(f'[NOTICE] tag_bc combination "{tag}_{bc}" was not demultiplexed. Not including in timepoint outputs')
     return out
 
+def mut_stats_input(wildcards):
+    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
+    if config['do_AA_mutation_analysis'][wildcards.tag]: datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
+    if config['do_demux'][wildcards.tag]:
+        checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+        out = expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{datatype}', tag=wildcards.tag, barcodes=glob_wildcards(checkpoint_demux_files).BCs, datatype=datatypes)
+    else:
+        out = expand('mutation_data/{tag}/all/{tag}_all_{datatype}', tag=wildcards.tag, datatype=datatypes)
+    assert len(out) > 0, "No demux output files with > minimum count. Pipeline halting."
+    return out
+
+rule mut_stats:
+	input:
+		mut_stats_input
+	output:
+		'mutation_data/{tag, [^\/]*}/{tag}_mutation-stats.csv'
+	script:
+		'utils/mutation_statistics.py'
+
+# allows for tolerance of tags that do not pass the demux checkpoint
+def merge_mut_stats_input(wildcards):
+    out = []
+
+    for tag in config['runs']:
+        if config['do_demux'][tag]:
+            checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+            checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+            checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+            if len(glob_wildcards(checkpoint_demux_files).BCs) > 0:
+                out.append(f'mutation_data/{tag}/{tag}_mutation-stats.csv')
+
+    return out
+
+rule merge_mut_stats:
+    input:
+        merge_mut_stats_input
+    output:
+        'mutation-stats.csv'
+    run:
+        import pandas as pd
+        dfs = [pd.read_csv(f) for f in input]
+        combined = pd.concat(dfs)
+        combined.to_csv(output[0], index=False)
+
 def get_timepoint_plots_all_input(wildcards):
     out = []
-    if not config.get('timepoints', {}):
-        print('[WARNING] All timepoints rule invoked but timepoints not specified in config file. No timepoint plots will be generated.')
-    else:
-        for tag in config['timepoints']:
-            if not config['do_NT_mutation_analysis'][tag]:
-                continue
-            out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=config['timepoints']))                 # mutation rates includes data for all rows in the timepoints file
+    # if not config.get('timepoints', {}):
+    #     print('[WARNING] All timepoints rule invoked but timepoints not specified in config file. No timepoint plots will be generated.')
+    # else:
+    # other timepoints outputs are specific to each row in the timepoints file
+    timepoint_rows = [row for row in config['timepointsInfo'] if len(get_demuxed_barcodes_timepoint( config['timepointsInfo'][row]['tag_barcode_tp'].keys() )) > 0] # only include timepoints that have at least one demuxed barcode
+    print_flag = False
+    plot_types = ['mutation-distribution-violin', 'genotypes-distribution']
+    if config.get('plot_mutation_frequencies', False):
+        plot_types.append('AA-mutation-frequencies')
+    if config.get('genotypes2D_plot_groups', False):
+        plot_types.append('genotypes2D')
+    out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=plot_types))    # each of these outputs includes data for a single row in the timepoints file
+    timepointSample_NTorAA = []
+    tags = []
+    for timepointSample in timepoint_rows:
+        tag = config['timepointsInfo'][timepointSample]['tag']
+        if tag not in tags:
+            tags.append(tag)
+        timepointSample_NTorAA.extend(expand('{TS}_{NTorAA}', TS=timepointSample, NTorAA= ['NT','AA'] if config['do_AA_mutation_analysis'][ tag ] else ['NT']))
+    # out.extend(expand('plots/{tag}_mutation-rates-mut-grouped.html', tag=[t for t in tags if config['do_NT_mutation_analysis'][t]]))                 # mutation rates includes data for all rows in the timepoints file
+    dist_types = ['mutation']
+    if config['plot_hamming-distance-distribution']:
+        dist_types.append('hamming-distance')
+    out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=dist_types))
 
-            # other timepoints outputs are specific to each row in the timepoints file
-            timepoint_rows = [row for row in config['timepointsInfo'] if len(get_demuxed_barcodes_timepoint( config['timepointsInfo'][row]['tag_barcode_tp'].keys() )) > 0] # only include timepoints that have at least one demuxed barcode
-            print_flag = False
-            plot_types = ['mutation-distribution-violin']
-            if config.get('genotypes2D_plot_groups', False):
-                plot_types.append('genotypes2D')
-            out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=plot_types))    # each of these outputs includes data for a single row in the timepoints file
-            timepointSample_NTorAA = []
-            for timepointSample in timepoint_rows:
-                tag = config['timepointsInfo'][timepointSample]['tag']
-                timepointSample_NTorAA.extend(expand('{TS}_{NTorAA}', TS=timepointSample, NTorAA= ['NT','AA'] if config['do_AA_mutation_analysis'][ tag ] else ['NT']))
-            out.extend(expand('plots/timepoints/{timepointSample_NTorAA}-{distType}-distribution.html', timepointSample_NTorAA=timepointSample_NTorAA, distType=['mutation', 'hamming-distance']))
     return out
 
 rule timepoint_plots_all:
@@ -368,6 +368,27 @@ rule dms_view:
     script:
         'utils/frequencies_to_dmsview.py'
 
+rule genotypes_distribution:
+    input:
+        genotypes = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv'
+    output:
+        distribution = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-distribution.csv'
+    run:
+        import pandas as pd
+        import numpy as np
+
+        df = pd.read_csv(input.genotypes)
+        max_value = df['count'].max()
+        bins = np.concatenate(([0], 10 ** np.arange(0, np.ceil(np.log10(max_value)) + 1))) # manually add in 0 bin for unique genotypes
+        binned_sums = df['count'].groupby(pd.cut(df['count'], bins=bins, right=True)).sum()
+        df = pd.DataFrame({'bin': binned_sums.index, 'total reads': binned_sums.values})
+        df['log(max of bin)'] = df['bin'].apply(lambda x: int(np.log10(x.right)))
+        df['proportion of all reads'] = df['total reads'] / df['total reads'].sum()
+        df['cumulative proportion of all reads'] = df['proportion of all reads'].cumsum()
+        df = df[['log(max of bin)', 'total reads', 'proportion of all reads', 'cumulative proportion of all reads']]
+        df.to_csv(output.distribution, index=False)
+
+
 rule plot_mutation_spectrum:
     input:
         'mutation_data/{tag}/{tag}_mutation-stats.csv'
@@ -379,7 +400,7 @@ rule plot_mutation_spectrum:
 rule plot_mutation_rate:
     input:
         mutStats = 'mutation-stats.csv',
-        timepoints = lambda wildcards: config['timepoints'][wildcards.tag]
+        timepoints = lambda wildcards: config['timepoints']
     output:
         boxplot_mut_grouped = 'plots/{tag, [^\/]*}_mutation-rates-mut-grouped.html',
         boxplot_plot_sample_grouped = 'plots/{tag, [^\/]*}_mutation-rates-sample-grouped.html',
@@ -407,8 +428,31 @@ rule plot_mutation_frequencies_tag:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
         number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
         heatmap = lambda wildcards: config.get('mutations_frequencies_heatmap', False),
-        cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
-        export_SVG = lambda wildcards: config.get('export_SVG', False)
+        labels = lambda wildcards, input: [in_file.split('/')[-2] for in_file in input],
+        title = lambda wildcards: wildcards.tag,
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
+    script:
+        'utils/plot_mutations_frequencies.py'
+
+rule plot_mutation_frequencies_timepointGroup:
+    input:
+        genotypes = lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-mutation-frequencies.csv',
+                                                    tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )],
+                                                    NTorAA = wildcards.NTorAA ),
+        mut_stats = 'mutation-stats.csv'
+    output:
+        all_muts = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies.html',
+        most_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies-common.html',
+        least_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies-rare.html'
+    params:
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
+        number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
+        heatmap = lambda wildcards: config.get('mutations_frequencies_heatmap', False),
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsGroup,
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r')
     script:
         'utils/plot_mutations_frequencies.py'
 
@@ -504,6 +548,25 @@ rule plot_distribution_timepointGroup:
                                 distType = wildcards.distType)
     output:
         plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-{distType, [^\/_]*}-distribution.html'
+    params:
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsGroup,
+        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        background = lambda wildcards: config.get('background', False),
+        raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
+        export_SVG = lambda wildcards: config.get('export_SVG', False),
+        colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
+        x_max = lambda wildcards: config.get('distribution_x_range', False),
+        y_max = lambda wildcards: config.get('distribution_y_range', False)
+    script:
+        'utils/plot_distribution.py'
+
+rule plot_genotypes_distribution_timepointGroup:
+    input:
+        lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_genotypes-distribution.csv',
+                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )])
+    output:
+        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes-distribution.html'
     params:
         labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
         title = lambda wildcards: wildcards.timepointsGroup,
