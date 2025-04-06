@@ -1,18 +1,19 @@
-name:   maple
+name: maple
 channels:
   - conda
-  - bioconda
+  # - bioconda # no ARM support except sometimes like for umicollapse? Idk, weird
   - conda-forge
   - anaconda
   - pyviz
   - bokeh
-  - schrodinger
 dependencies:
   - snakemake
-  - python=3.9
-  - minimap2
-  - samtools
-  - ngmerge
+  - python
+  - automake
+  - git-lfs
+  # - minimap2
+  # - samtools
+  # - ngmerge
   - numba=0.56 # pacmap is broken with numba 0.53, medaka is broken with numba 0.57
   - setuptools
   - wget
@@ -25,9 +26,8 @@ dependencies:
   - jupyter
   - jupyter_bokeh
   - umi_tools
-  - medaka
-  - keras-preprocessing # not installed by medaka in some cases, probably just specific to my machine but doesn't hurt to add
-  - nanoplot
+  # - medaka
+  - keras-preprocessing # can help with medaka installation
   - natsort
   - hvplot
   - holoviews
@@ -36,15 +36,19 @@ dependencies:
   - spatialpandas # allows for lasso selections of datashaded plots
   - panel
   - editdistance
-  - racon
+  # - racon # maybe dont need because it will be installed by C3POa?
   - wheel
   - cython
   - tqdm
-  - blat # for C3POa
-  - mappy
-  - pymol # not used by pipeline, but nice to have for SequenceAnalyzer
+  - openjdk
+  - bioconda::umicollapse
+  # - blat # for C3POa
+  # - mappy
+  - pymol-open-source # not used by pipeline, but nice to have for SequenceAnalyzer
   - pip
   - pip:
-    - pyabpoa==1.4.0
+    # - pyabpoa==1.4.0
     - pacmap
     - selenium # for bokeh SVG export, conda installation is broken
+    - nanoplot
+    # - blat # for C3POa

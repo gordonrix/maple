@@ -1,3 +1,10 @@
+## v0.11.0
+# Major
+   - Support for MacOS (ARM)
+# Minor
+   - Added support for .csv input for tags
+   - Bugfixes for empty and nearly empty sequence datasets (demux.py)
+
 ## v0.10.3
 # Minor
    - Changed how timepoint files are requested to prevent a bug

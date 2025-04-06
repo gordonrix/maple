@@ -34,20 +34,24 @@ run will depend on what information is provided in the config file (see 'Usage')
 Maple has only been tested on Linux, but should also work on MacOS. Maple requires conda, which can be installed by following
 [these instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/). Miniconda is lighter weight and provides all that is needed by Maple.
 
-Additionally, the following software packages are required:
+Additionally, the following software packages are required as system-wide installations:
  - git gcc g++ wget rsync
  - binutils autoconf make cmake
- - libgomp1
- - zlib1g-dev
- - bzip2 libbz2-dev
- - liblzma-dev libncurses5-dev
- - libcunit1 libhdf5-100 libidn11 libopenblas-base
- - libgssapi-krb5-2
- - libzstd-dev
+ - git-lfs
  
 These are likely already present in most production environments.
 
-To get started, clone the repository:
+for MacOS users, OpenMP must be installed. As per instructions from [here](https://mac.r-project.org/openmp/), OpenMP can be installed
+into the proper `usr/local/lib` and `usr/local/include` locations by typing this into terminal:
+
+```
+curl -O https://mac.r-project.org/openmp/openmp-14.0.6-darwin20-Release.tar.gz
+sudo tar fvxz openmp-14.0.6-darwin20-Release.tar.gz -C /
+```
+
+If you want to retrieve sequences using Illumina's basespace, install and authenticate basespace using [these instructions](https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview)
+
+To get started installing Maple, clone the repository:
 
     git clone https://github.com/gordonrix/maple.git
     cd maple
@@ -73,10 +77,10 @@ be specified with the `--prefix` flag. In this example, the default path prefix 
     conda activate maple
 
 
-The various tools that maple uses that are not simple python scripts must now be installed. This is accomplished
-easily through snakemake, using the `install.smk` snakemake module, derived from a similar setup in [Nanopype](https://nanopype.readthedocs.io/en/latest/).
-Running the following command, with the `--prefix` flag modified to point to the location of the environment
-we created in the previous step, will carry out all the steps to provide the environment with program binaries
+The various tools that maple uses that are not simple python scripts must now be installed. This is done 
+via snakemake, using the `install.smk` snakemake module.
+Running the following command, with the `--directory` flag modified to point to same location used for the `--prefix` flag 
+in the previous step will finish the installation process by carry out all the steps to providing the environment with program binaries
 needed for execution of the pipeline:
 
     snakemake --snakefile rules/install.smk --directory ~/miniconda3/envs/maple -j 4 all
