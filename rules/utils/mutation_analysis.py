@@ -308,25 +308,27 @@ class MutationAnalysis:
         failuresList = []                                                           # list of data for failed sequences that will be used to generate DataFrame
         failuresColumns = ['seq_ID', 'failure_reason', 'failure_index']             # columns for failures DataFrame
         genotypesList = []                                                          # list of genotypes to be converted into a DataFrame
-        genotypesColumns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length'] # columns for genotypes DataFrame
+        all_seqs_columns = ['seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count', 'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length'] # columns for a dataframe with 1:1 row:sequence correspondence (excluding failures)
         wildTypeCount = 0
         wildTypeRow = [wildTypeCount, 0, '', 0, '', '']
 
         if self.doAAanalysis:
             protLength = int( len(self.refProtein) / 3 )
             AAmutArray = np.zeros((protLength, len(self.AAs)), dtype=int)
-            AAmutDist = np.zeros(protLength, dtype=int)
-            genotypesColumns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count', 'AA_insertions', 'AA_deletions'])
+            AAmutDist = np.zeros(protLength+1, dtype=int)
+            all_seqs_columns.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous', 'AA_substitutions_nonsynonymous_count', 'AA_insertions', 'AA_deletions'])
             wildTypeRow.extend(['', '', 0])
 
-        # if any barcodes are not used to demultiplex, add a column that shows what these barcodes are
+        genotypes_columns = all_seqs_columns[2:] # columns to group by to identify duplicate genotypes
+
+        # if any barcodes are not used to demultiplex, add a column to the seq_IDs output that shows what these barcodes are
         self.barcodeColumn = False
         if self.config['do_demux'][tag]:
             for bcType in self.config['runs'][tag]['barcodeInfo']:
                 if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
                     self.barcodeColumn = True
         if self.barcodeColumn:
-            genotypesColumns.append('barcode(s)')
+            all_seqs_columns.append('barcode(s)')
             wildTypeRow.append('')
 
         ## should use SequenceAnalyzer for this
@@ -388,20 +390,16 @@ class MutationAnalysis:
             
             genotypesList.append(seqGenotype)
 
-        genotypesDF = pd.DataFrame(genotypesList, columns=genotypesColumns)
+        all_seqs_DF = pd.DataFrame(genotypesList, columns=all_seqs_columns)
         failuresDF = pd.DataFrame(failuresList, columns=failuresColumns)
         
-        genotypesDF['genotype->seq'] = genotypesDF.groupby(by=genotypesColumns[2:]).ngroup()        # identify duplicate genotypes, assign a unique value. This value will not be the genotype_ID, which will be assigned after further manipulation, but will be used to correlate seq_IDs to genotype_IDs
-        genotypesDF['count'] = genotypesDF.groupby(by='genotype->seq')['seq_ID'].transform('count') # count duplicate genotypes, add to new column
-        genotypesDFcondensed = genotypesDF.sort_values('avg_quality_score', ascending=False).drop_duplicates('genotype->seq', keep='first')[ ['genotype->seq','count']+genotypesColumns ] # remove duplicate genotype rows, keep the seq_ID with the highest average quality score
+        all_seqs_DF['genotype->seq'] = all_seqs_DF.groupby(by=genotypes_columns).ngroup()        # identify duplicate genotypes, assign a unique value. This value will not be the genotype_ID, which will be assigned after further manipulation, but will be used to correlate seq_IDs to genotype_IDs
+        all_seqs_DF['count'] = all_seqs_DF.groupby(by='genotype->seq')['seq_ID'].transform('count') # count duplicate genotypes, add to new column
+        genotypesDFcondensed = all_seqs_DF.sort_values('avg_quality_score', ascending=False).drop_duplicates('genotype->seq', keep='first')[ ['genotype->seq','count']+all_seqs_columns ] # remove duplicate genotype rows, keep the seq_ID with the highest average quality score
         sort = ['count','NT_substitutions_count']
-        ascendBool = [False,True]
-        if self.barcodeColumn:
-            sort.append('barcode(s)')
-            ascendBool.append(True)
-        genotypesDFcondensed = genotypesDFcondensed.sort_values(sort, ascending=ascendBool)
+        genotypesDFcondensed = genotypesDFcondensed.sort_values(sort, ascending=[False,True])
 
-        # move wildtype row(s) to the beginning, if they exist. rename as wild type only if there aren't any barcodes in the genotype, as this would result in many different 'wildtype' rows
+        # move wildtype row(s) to the beginning, if they exist. rename as wild type
         wildtypeDF = genotypesDFcondensed.loc[(genotypesDFcondensed['NT_substitutions']=='')&(genotypesDFcondensed['NT_insertions']=='')&(genotypesDFcondensed['NT_deletions']=='')]
         if len(wildtypeDF) > 0:
             wildtype_in_df = True
@@ -409,17 +407,16 @@ class MutationAnalysis:
         if wildtype_in_df:
             genotypesDFcondensed = genotypesDFcondensed.drop(index=wildtypeDF.index)
             genotypesDFcondensed = pd.concat([wildtypeDF, genotypesDFcondensed]).reset_index(drop=True)
-            if not self.barcodeColumn:
-                genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
+            genotypesDFcondensed.rename(index={0:'wildtype'}, inplace=True)
         else:
             genotypesDFcondensed.reset_index(drop=True, inplace=True)
-        if (len(genotypesDFcondensed)!=0) and (genotypesDFcondensed.index[0] == 0) : # make barcode IDs 1-indexed if necessary
+        if (len(genotypesDFcondensed)!=0) and (genotypesDFcondensed.index[0] == 0) : # make genotype IDs 1-indexed if necessary
                 genotypesDFcondensed.index += 1
 
         # now that genotype IDs are established, add column that correlates every sequence ID with a genotype ID from the condensed genotypes DF
         genotypesDFcondensed = genotypesDFcondensed.reset_index().rename(columns={'index':'genotype_ID'})
         seq_to_genotype_dict = dict(zip(genotypesDFcondensed['genotype->seq'], genotypesDFcondensed['genotype_ID']))
-        genotypesDF['genotype_ID'] = genotypesDF['genotype->seq'].map(seq_to_genotype_dict)
+        all_seqs_DF['genotype_ID'] = all_seqs_DF['genotype->seq'].map(seq_to_genotype_dict)
 
         # iterate through x genotypes with highest counts and genotypes of specific ID # (both defined in config file) , get a representative sequence for each (that w highest avg_quality_score, or essentially random if there are no quality scores), and write alignments to file
         genotypeAlignmentsOutDF = genotypesDFcondensed.iloc[0:self.highestAbundanceGenotypes+1,]
@@ -460,8 +457,15 @@ class MutationAnalysis:
 
         NTdistDF = dist_to_DF(np.trim_zeros(NTmutDist,'b'), 'NT mutations', 'sequences')
 
-        genotypesDFcondensed.drop(columns=['genotype->seq', 'seq_ID', 'avg_quality_score']).to_csv(self.outputList[1], index=False)
-        genotypesDF.drop(columns=genotypesDF.columns.difference(['seq_ID', 'genotype_ID'])).to_csv(self.outputList[2], index=False)
+        condensed_drop = ['genotype->seq', 'seq_ID', 'avg_quality_score']
+        all_include = ['seq_ID', 'genotype_ID']
+        if self.barcodeColumn:
+            condensed_drop.append('barcode(s)')
+            all_include.append('barcode(s)')
+
+        genotypesDFcondensed.drop(columns=condensed_drop).to_csv(self.outputList[1], index=False)
+        
+        all_seqs_DF[all_include].reindex(columns=all_include).to_csv(self.outputList[2], index=False)
 
         failuresDF.to_csv(self.outputList[3], index=False)
         if not self.use_raw_mut_count and totalSeqs>0:
