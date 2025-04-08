@@ -89,6 +89,12 @@ def main():
         if maxBCs == 'all':
             maxBCs = False
         fileName = config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']
+
+        # handle fasta file within a directory that does not yet exist
+        output_dir = os.path.dirname(fileName)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
         with open(fileName, 'w') as f:
             count = 0
             for row in df.itertuples():
