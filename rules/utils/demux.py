@@ -435,7 +435,7 @@ class BarcodeParser:
         rowCountsDict = Counter()
         for BAMentry in bamfile.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
-            sequenceBarcodesDict, barcodeNames, bcDataArray = self.id_seq_barcodes(refAln, BAMentry) #this takesd about 3 times as long as other steps in this loop, probably due to try except clauses
+            sequenceBarcodesDict, barcodeNames, bcDataArray = self.id_seq_barcodes(refAln, BAMentry) #this takes about 3 times as long as other steps in this loop, probably due to try except clauses
             if len(self.noSplitBarcodeTypes) > 0:
                 noSplitBarcodeBAMtag = '_'.join([sequenceBarcodesDict.pop(noSplitBarcode) for noSplitBarcode in self.noSplitBarcodeTypes])
                 BAMentry.set_tag('BC', noSplitBarcodeBAMtag)
@@ -447,13 +447,17 @@ class BarcodeParser:
             outFileDict[outputBarcodes].write(BAMentry)
             bcDataArray = np.insert(bcDataArray, 0, 1)                                                                    # insert 1 in front to serve as counter for total number of sequences with these barcodes
             rowCountsDict[tuple([self.tag, outputBarcodes, groupedBool] + barcodeNames)] += bcDataArray     # add counters for demux and data on failure modes
-            
+
         # combine barcode info (strings) and counters (int) from dict into a list of row lists
         rows = []
         for row, counters in rowCountsDict.items():
             row = list(row)
             counters = counters.tolist()
             rows.append(row + counters)
+
+        # if no sequences aligned to reference, create a blank row for the output stats file
+        if len(rows) == 0:
+            rows.append([self.tag, 'all', False, 0] + [0]*(len(colNames)-4))
 
         for sortedBAM in outFileDict:
             outFileDict[sortedBAM].close()
@@ -468,18 +472,24 @@ class BarcodeParser:
         demuxStats = demuxStats.groupby(groupByColNames).agg(sumColsDict).reset_index()
         demuxStats.sort_values(['demuxed_count','barcodes_count'], ascending=False, inplace=True)
 
-        # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory
+        # move files with sequence counts below the set threshold or having failed any barcodes to a subdirectory banished from downstream analysis
         banishDir = os.path.join(outputDir, 'no_subsequent_analysis')
         os.makedirs(banishDir, exist_ok=True)
         banished = [] # prevent banishing same file more than once
         for i, row in demuxStats.iterrows():
+            if row['demuxed_count'] == 0: continue # prevents error from trying to move file that doesn't exist
             if row['output_file_barcodes'] in banished: continue
             banish = False
             if row['demuxed_count'] < self.config['demux_threshold'] * totalSeqs:
                 banish = True
             if self.config.get('demux_screen_failures', False):
+                # banish if demux barcodes failed
                 for barcodeType in self.groupedBarcodeTypes+self.ungroupedBarcodeTypes:
                     if row[barcodeType] == 'fail':
+                        banish = True
+                # banish if all noSplit barcodes failed
+                for barcodeType in self.noSplitBarcodeTypes:
+                    if (row[barcodeType] == 'fail') and (row['barcodes_count'] == row['demuxed_count']):
                         banish = True
             if (self.config.get('demux_screen_no_group', False) == True) and not row['named_by_group']:
                 banish = True
