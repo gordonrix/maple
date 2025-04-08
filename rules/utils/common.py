@@ -45,6 +45,26 @@ amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3
 
 colormaps.update({'AA':amino_acid_colormap})
 
+def get_demuxed_barcodes(tag, bcGroupsDict):
+    """
+    tag:            string, run tag
+    bcGroupsDict:   dictionary, barcodeGroups dict from config file for a specific tag,
+                        if it exists, otherwise an empty dict if no sorting is needed
+
+    grabs all barcodes for a given tag that were properly demultiplexed
+            if that tag was demultiplexed, then sorts according to the
+            barcode groups in the config file"""
+
+    if config['do_demux'][tag]:
+        checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+        BCs = glob_wildcards(checkpoint_demux_files).BCs
+        out = sort_barcodes(BCs, bcGroupsDict)
+    else:
+        out = ['all']
+    return out
+
 def sort_barcodes(bcList, bcGroupsDict):
     """
     bcList:         list of strings, barcode groups
@@ -211,8 +231,16 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
         hv.Bars or hv.heatmap object showing the topN most frequently observed mutations
             in the aggregated mutations dataframe
     """
+    # Determine the x-axis dimension based on num_positions
     if num_positions is None:
         num_positions = len(df['position'].unique())
+        xrotation = 0            # No rotation needed for numerical labels
+        kdims = ['position','mutation'] # Use numerical positions
+        vdims = ['proportion_of_seqs', 'total_count', 'WT_position']
+    else:
+        xrotation = 90               # Rotate labels to prevent overlap
+        kdims = ['WT_position','mutation'] # Use WT_position labels
+        vdims = ['proportion_of_seqs', 'total_count']
 
     df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
     df_grouped = df.groupby('position', as_index=False).sum().sort_values(['total_count','position'],ascending=[not most_common, True])
@@ -221,19 +249,24 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
     df = df.sort_values('position', ascending=True)
     df['WT_position'] = df['wt'] + df['position'].astype(str)
 
+    min_proportion, max_proportion = df['proportion_of_seqs'].min(), df['proportion_of_seqs'].max()
+
+    df.loc[df['mutation'] == df['wt'], 'proportion_of_seqs'] = -.000001 # set the proportion of the WT to -.000001 to make it white in the plot
+
     if heatmap:
         AAs = list('AILMPVFWYNQSTDEHKRGC*')
         order = AAs + [m for m in df['mutation'].unique().tolist() if m not in AAs]
         df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
         df = df.sort_values(['position','mutation'], ascending=[True,False])
 
-        plot = hv.HeatMap(df, kdims=['WT_position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+        plot = hv.HeatMap(df, kdims=kdims, vdims=vdims).opts(clipping_colors={'min':'white'}, clim=(0,None),
                     colorbar=True, clabel=f"frequency (n={total_seqs})", ylabel="mutation")
     else:
-        plot = hv.Bars(df, kdims=['WT_position','mutation'], vdims=['proportion_of_seqs', 'total_count']).opts(
+        plot = hv.Bars(df, kdims=kdims, vdims=vdims).opts(
                     show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True)
                     
-    plot = plot.opts(height=500, width=1000, xrotation=90, tools=['hover'],  cmap=colormap, xlabel='position', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
+    plot = plot.opts(height=500, width=1000, xrotation=xrotation, tools=['hover'],
+                     cmap=colormap, xlabel='position', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
     return plot
 
 def dashboard_input(wildcards, config):
