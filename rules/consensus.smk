@@ -12,7 +12,7 @@
 rule RCA_consensus:
     input:
         sequence = 'sequences/{tag}.fastq.gz',
-        splintRef = lambda wildcards: os.path.join(config['references_directory'], f".{wildcards.tag}_splint.fasta")
+        splintRef = lambda wildcards: os.path.join(config['metadata'], f".{wildcards.tag}_splint.fasta")
     output:
         consensus = 'sequences/RCA/{tag, [^\/_]*}_RCAconsensuses-nofilter.fasta.gz',
         tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
@@ -118,10 +118,10 @@ rule UMI_align:
     resources:
         threads = lambda wildcards, threads: threads,
         mem_mb = lambda wildcards, threads, attempt: int((1.0 + (0.2 * (attempt - 1))) * (config['memory']['minimap2'][0] + config['memory']['minimap2'][1] * threads)),
-        time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt * config['runtime']['minimap2'])   # 60 min / 16 threads
+        time_min = lambda wildcards, threads, attempt: int((960 / threads) * attempt)   # 60 min / 16 threads
     shell:
         """
-        {config[bin_singularity][minimap2]} -t {threads} {params.flags} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
+        minimap2 -t {threads} {params.flags} {input.alnRef} {input.sequence} 1>> {output.aln} 2> >(tee {output.log} >&2)
         if [ $(grep 'ERROR' {output.log} | wc -l) -gt 0 ]; then exit 1; fi
         """
 
@@ -141,23 +141,40 @@ rule UMI_aligner_sam2bam:
     #     config['singularity_images']['alignment']
     shell:
         """
-        {config[bin_singularity][samtools]} view -b {input.sam} | {config[bin_singularity][samtools]} sort -m 4G > {output.bam}
-        {config[bin_singularity][samtools]} index {output.bam}
+        samtools view -b {input.sam} | samtools sort -m 4G > {output.bam}
+        samtools index {output.bam}
         """
 
-rule UMI_extract:
+# rule UMI_extract:
+#     input:
+#         bam = 'sequences/UMI/{tag}_noConsensus.bam',
+#         index = "sequences/UMI/{tag}_noConsensus.bam.bai"
+#     output:
+#         extracted = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam'),
+#         index = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam.bai'),
+#         log = 'sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'
+#     params:
+#         reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
+#         UMI_contexts = lambda wildcards: config['runs'][wildcards.tag]['UMI_contexts']
+#     script:
+#         'utils/UMI_extract.py'
+
+# extract UMI sequences from the bam file and save both original sequences and UMI sequences to fastq files
+rule UMI_extract_fastq:
     input:
         bam = 'sequences/UMI/{tag}_noConsensus.bam',
         index = "sequences/UMI/{tag}_noConsensus.bam.bai"
     output:
-        extracted = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam'),
-        index = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam.bai'),
-        log = 'sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'
+        UMIs = temp('sequences/UMI/{tag, [^\/_]*}_UMIs.fastq'),
+        sequences = temp('sequences/UMI/{tag, [^\/_]*}_sequences.fastq'),
+        log = temp('sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv')
     params:
         reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
-        UMI_contexts = lambda wildcards: config['runs'][wildcards.tag]['UMI_contexts']
+        UMI_contexts = lambda wildcards: ",".join(config['runs'][wildcards.tag]['UMI_contexts']),
+        mode = "fastq"
     script:
-        'utils/UMI_extract.py'
+        "utils/UMI_extract.py"
+
 
 # collapse UMI extract log files into a single small file that summarizes UMI recognition in aggregate instead of on a read-by-read basis
 rule UMI_extract_summary:
@@ -188,23 +205,53 @@ rule UMI_extract_summary:
             outDF = pd.concat([outDF, dfSum], ignore_index=True)
         outDF.to_csv(output[0])
 
+# rule UMI_group:
+#     input:
+#         bam = 'sequences/UMI/{tag}_UMIextract.bam',
+#         index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
+#     output:
+#         bam = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam'),
+#         log = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv')
+#     params:
+#         UMI_mismatches = lambda wildcards: config['UMI_mismatches']
+#     shell:
+#         """
+#         umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
+#         """
+
 rule UMI_group:
     input:
-        bam = 'sequences/UMI/{tag}_UMIextract.bam',
-        index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
+        UMIs = 'sequences/UMI/{tag}_UMIs.fastq'
     output:
-        bam = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam'),
-        log = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv')
+        UMIs_grouped = temp('sequences/UMI/{tag, [^\/_]*}_UMIs-grouped.fastq')
     params:
         UMI_mismatches = lambda wildcards: config['UMI_mismatches']
     shell:
         """
-        umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
+        umicollapse fastq -i {input.UMIs} -o {output.UMIs_grouped} --tag -k {params.UMI_mismatches}
         """
+
+# transfer the cluster ID from the UMI file to the corresponding sequence
+rule transfer_cluster_id:
+    input:
+        umi_fastq = 'sequences/UMI/{tag}_UMIs-grouped.fastq',
+        seq_fastq = 'sequences/UMI/{tag}_sequences.fastq'
+    output:
+        fastq = temp('sequences/UMI/{tag, [^\/_]*}_sequences-grouped.fastq')
+    script:
+        "utils/UMI_transfer_id.py"
+
+rule UMI_groups_log:
+    input:
+        fastq = "sequences/UMI/{tag}_UMIs-grouped.fastq"
+    output:
+        csv = temp("sequences/UMI/{tag, [^\/_]*}_UMI-groups-log.csv")
+    script:
+        "utils/UMI_groups_log.py"
 
 rule UMI_group_distribution:
     input:
-        tsv = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
+        csv = 'sequences/UMI/{tag}_UMI-groups-log.csv'
     output:
         csv = 'sequences/UMI/{tag, [^\/_]*}_all_UMIgroup-distribution.csv'
     run:
@@ -212,11 +259,17 @@ rule UMI_group_distribution:
         import numpy as np
         from utils.common import dist_to_DF
 
-        df = pd.read_csv(input.tsv, sep='\t')
-        UMIcounts = df[['final_umi_count', 'unique_id']].drop_duplicates()['final_umi_count'].to_numpy()
+        df = pd.read_csv(input.csv)
+        df_subset = df[['final_umi_count', 'unique_id']].dropna()
+        count_before = len(df_subset)
+        df_unique = df_subset.drop_duplicates()
+        count_after = len(df_unique)
+        if count_before != count_after:
+            raise ValueError(f"drop_duplicates reduced rows from {count_before} to {count_after}")
+        UMIcounts = df_unique['final_umi_count'].to_numpy().astype(int)
         dist = np.bincount(UMIcounts)
         outDF = dist_to_DF(dist, 'subreads', 'UMI groups')
-        outDF = outDF.loc[1:,:] # skip first row because there are never 0 subreads
+        outDF = outDF.loc[1: , :] # skip first row because there are never 0 subreads
         outDF.to_csv(output.csv, index=False)
 
 rule plot_distribution_UMI_group:
@@ -237,19 +290,19 @@ rule plot_distribution_UMI_group:
     script:
         'utils/plot_distribution.py'
 
-UMIbatchesList = [str(x) for x in range(0,config['UMI_medaka_batches'])]
-rule split_BAMs_to_fasta:
+UMIbatchesList = [str(x) for x in range(0, config['UMI_medaka_batches'])]
+rule split_FASTQs_to_fasta:
     input:
-        grouped = 'sequences/UMI/{tag}_UMIgroup.bam',
-        log = 'sequences/UMI/{tag}_UMIgroup-log.tsv'
+        fastq="sequences/UMI/{tag}_sequences-grouped.fastq",
+        log="sequences/UMI/{tag}_UMI-groups-log.csv"
     output:
-        fastas = expand('sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta', x=UMIbatchesList)
+        fastas = expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta", x=UMIbatchesList)
     params:
         batches = lambda wildcards: config['UMI_medaka_batches'],
         minimum = lambda wildcards: config['UMI_consensus_minimum'],
         maximum = lambda wildcards: config['UMI_consensus_maximum']
     script:
-        'utils/UMI_splitBAMs.py'
+        "utils/UMI_split_fastqs.py"
 
 # use medaka to generate consensus sequences if either min or max reads/UMI not set to 1, otherwise can just merge the sequences as they have been deduplicated by the split_BAMs_to_fasta rule
 if config['UMI_consensus_minimum'] == config['UMI_consensus_maximum'] == 1:

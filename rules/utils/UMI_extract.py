@@ -1,147 +1,155 @@
-"""part of maple pipeline, written by Gordon Rix
+#!/usr/bin/env python3
+"""
 UMI_extract.py
-identifies UMI barcodes in each sequence of a .bam file based on sequence context provided
-in config file, appends this sequence to the sequence name, and writes these to a new .bam file,
-including a GN tag that is used by the UMI_group rule to group reads"""
 
-import gzip
-import re
+Extracts UMI barcodes from each read in an aligned BAM file using a reference and provided UMI contexts.
+For each read where all UMIs are identified:
+  - In BAM mode: Appends the concatenated UMI to the read's query name, sets a GN tag, and writes the record to an output BAM file (which is then indexed).
+  - In FASTQ mode: Writes two FASTQ files: one with full-length sequences (with the UMI appended to the read name)
+    and one with only the extracted UMI sequence.
+Reads for which no UMI can be extracted are omitted (though failures are logged).
+"""
+
+import argparse
 import pandas as pd
 import numpy as np
 import pysam
-from Bio.Seq import reverse_complement
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from Bio import SeqIO
-from demux import BarcodeParser
 
-def main():
+try:
+    snakemake
+    snakemake_mode = True
+except NameError:
+    snakemake_mode = False
 
-    ### Asign variables from config file and input
-    config = snakemake.config
-    tag = snakemake.wildcards.tag
-    BAMin = str(snakemake.input.bam)
+# Set up arguments for snakemake or command line
+if snakemake_mode:
+    class Args: pass
+    args = Args()
+    args.input_bam = snakemake.input.bam
+    args.mode = snakemake.params.mode
+    if args.mode == "bam":
+        args.output_bam = snakemake.output.bam
+    else:
+        args.output_fastq_full = snakemake.output.sequences
+        args.output_fastq_umi = snakemake.output.UMIs
+    args.log = snakemake.output.log
+    args.reference = snakemake.params.reference
+    args.UMI_contexts = snakemake.params.UMI_contexts
 
-    BAMout = snakemake.output.extracted
-    logOut = snakemake.output.log
-
-    xUMIs = UMI_Extractor(config['runs'], tag, BAMin, BAMout, logOut)
-    xUMIs.extract_UMIs()
+else:
+    parser = argparse.ArgumentParser(description="Extract UMIs from an aligned BAM file")
+    parser.add_argument("--input_bam", required=True)
+    parser.add_argument("--mode", choices=["bam", "fastq"], default="bam")
+    parser.add_argument("--output_bam", help="Output BAM file (if mode is bam)")
+    parser.add_argument("--output_fastq_full", help="Output full-length FASTQ file (if mode is fastq)")
+    parser.add_argument("--output_fastq_umi", help="Output UMI FASTQ file (if mode is fastq)")
+    parser.add_argument("--log", required=True)
+    parser.add_argument("--reference", required=True)
+    parser.add_argument("--UMI_contexts", required=True, help="Comma-separated UMI contexts")
+    args = parser.parse_args()
 
 class UMI_Extractor:
-
-    def __init__(self, runsConfig, tag, BAMin, BAMout, logOut):
-        """
-        arguments:
-
-        runsConfig      - snakemake config dictionary for all runs
-        tag             - tag for sequences to be UMI extracted, defined in config file
-        BAMin           - BAM input file
-        BAMout          - BAM file containing each sequence for which all UMIs could be identified
-                            with each UMI concatenated together and added to the end of the read ID
-        """
-        self.tag = tag
+    def __init__(self, BAMin, reference, UMI_contexts):
         self.BAMin = BAMin
-        self.BAMout = BAMout
-        self.logOut = logOut
-        self.refSeqfasta = runsConfig[tag]['reference']
-        self.reference = list(SeqIO.parse(self.refSeqfasta, 'fasta'))[0]
+        self.reference = list(SeqIO.parse(reference, 'fasta'))[0]
         self.referenceSequence = str(self.reference.seq).upper()
-        self.UMI_contexts = [context.upper() for context in runsConfig[tag]['UMI_contexts']]
+        self.UMI_contexts = [c.strip().upper() for c in UMI_contexts.split(',')]
         for context in self.UMI_contexts:
             contextIndex = self.referenceSequence.find(context)
-            assert contextIndex != -1, f'UMI context not found in reference sequence. Modify context or reference sequence to ensure an exact match is present.\n\nRun tag: `{self.tag}`\nsequence context: `{context}`\nreference sequence: `{self.reference.id}`\nreference sequence fasta file: `{self.refSeqfasta}`'
-            assert self.referenceSequence[contextIndex+1:].find(context) == -1, f'UMI context found in reference sequence more than once. Modify context or reference sequence to ensure only one exact match is present.\n\nRun tag: `{self.tag}`\nsequence context: `{context}`\nreference sequence: `{self.reference.id}`\nreference sequence fasta file: `{self.refSeqfasta}`'
-            
+            assert contextIndex != -1, f'UMI context not found: {context}'
+            assert self.referenceSequence[contextIndex+1:].find(context) == -1, f'UMI context appears multiple times: {context}'
 
     def find_N_start_end(self, sequence, context, i):
-        """given a sequence with barcode locations marked as Ns, and a barcode sequence context (e.g. ATCGNNNNCCGA),
-        this function will return the beginning and end of the Ns within the appropriate context if it exists only once.
-        If the context does not exist or if the context appears more than once, then will assign the failure mode
-        to `self.failureReason`, including the index of the context `i`, and will return 'fail', 'fail'"""
-
         location = sequence.find(context)
         if location == -1:
             self.logFailure[i] += 1
             return 'fail', 'fail'
         N_start = location + context.find('N')
         N_end = location + len(context) - context[::-1].find('N')
-
         if sequence[N_end:].find(context) == -1:
             return N_start, N_end
         else:
             self.logFailure[i] += 1
             return 'fail', 'fail'
 
-
     def align_reference(self, BAMentry):
-        """given a pysam.AlignmentFile BAM entry,
-        builds the reference alignment string with indels accounted for"""
         index = BAMentry.reference_start
         refAln = ''
-        for cTuple in BAMentry.cigartuples:
-            if cTuple[0] == 0: #match
-                refAln += self.reference.seq.upper()[index:index+cTuple[1]]
-                index += cTuple[1]
-            elif cTuple[0] == 1: #insertion
-                refAln += '-'*cTuple[1]
-            elif cTuple[0] == 2: #deletion
-                index += cTuple[1]
+        for op, length in BAMentry.cigartuples:
+            if op == 0:
+                refAln += self.reference.seq.upper()[index:index+length]
+                index += length
+            elif op == 1:
+                refAln += '-' * length
+            elif op == 2:
+                index += length
         return refAln
 
-
     def id_UMIs(self, refAln, BAMentry):
-        """Inputs:
-            refAln:         aligned reference string from align_reference()
-            BAMentry:       pysam.AlignmentFile entry
-        
-        Returns the combined UMIs if all can be identified, or the reason for failure
-        if they cannot"""
-
         UMItag = ''
-
         for i, context in enumerate(self.UMI_contexts):
-
-            start,stop = self.find_N_start_end(refAln, context, i)
-
+            start, stop = self.find_N_start_end(refAln, context, i)
+            if start == 'fail' or stop == 'fail':
+                return None
             try:
-                UMItag += BAMentry.query_alignment_sequence[ start:stop ]
-            except (TypeError or SyntaxError) as Err:
-                UMItag = None
-
+                UMItag += BAMentry.query_alignment_sequence[start:stop]
+            except Exception:
+                return None
         return UMItag
 
-    def extract_UMIs(self):
-        """ loops through BAM file and uses alignments to identify sequences aligned to UMI contexts,
-        and appends these sequences to the query name for use by UMI_tools group,
-        and if a UMI is identified then the alignment will be written to self.BAMout
-        """
-
-        BAMin = pysam.AlignmentFile(self.BAMin, 'rb')
-        BAMout = pysam.AlignmentFile(self.BAMout, 'wb', template=BAMin)
-
+    def extract_UMIs(self, mode, log_out, **kwargs):
+        bam_in = pysam.AlignmentFile(self.BAMin, 'rb')
         self.logList = []
-        columns = ['read_id', 'umi', 'success', 'failure'] + [f'umi_{i+1}_failure' for i,a in enumerate(self.UMI_contexts)]
-
-        count = 0
-        for BAMentry in BAMin.fetch(self.reference.id):
+        cols = ['read_id','umi','success','failure'] + [f'umi_{i+1}_failure' for i in range(len(self.UMI_contexts))]
+        if mode == "bam":
+            bam_out_path = kwargs.get("bam_out")
+            bam_out = pysam.AlignmentFile(bam_out_path, 'wb', template=bam_in)
+        else:
+            fastq_full = []
+            fastq_umi = []
+        for BAMentry in bam_in.fetch(self.reference.id):
             refAln = self.align_reference(BAMentry)
             self.logFailure = np.zeros(len(self.UMI_contexts))
             UMIs = self.id_UMIs(refAln, BAMentry)
-
             if UMIs:
                 self.logList.append([BAMentry.qname, UMIs, 1, 0] + list(map(int, self.logFailure)))
-                BAMentry.qname = BAMentry.qname + '_' + UMIs
-                BAMentry.set_tag('GN', '0', 'H')
-                BAMout.write(BAMentry)
+                new_qname = BAMentry.qname + '_' + UMIs
+                if mode == "bam":
+                    BAMentry.qname = new_qname
+                    BAMentry.set_tag('GN','0','H')
+                    bam_out.write(BAMentry)
+                else:
+                    strand = '+' if not BAMentry.is_reverse else '-'
+                    full = SeqRecord(Seq(BAMentry.query_sequence), id=new_qname, description="strand={strand}")
+                    full.letter_annotations["phred_quality"] = (BAMentry.query_qualities 
+                                                                 if BAMentry.query_qualities 
+                                                                 else [40]*len(BAMentry.query_sequence))
+                    fastq_full.append(full)
+                    umi_rec = SeqRecord(Seq(UMIs), id=new_qname, description=f"strand={strand}")
+                    umi_rec.letter_annotations["phred_quality"] = [35]*len(UMIs)
+                    fastq_umi.append(umi_rec)
             else:
                 self.logList.append([BAMentry.qname, '', 0, 1] + list(map(int, self.logFailure)))
-        
-        BAMin.close()
-        BAMout.close()
-        pysam.index(self.BAMout)
+        bam_in.close()
+        pd.DataFrame(self.logList, columns=cols).to_csv(log_out, index=False)
+        if mode == "bam":
+            bam_out.close()
+            pysam.index(bam_out_path)
+        else:
+            SeqIO.write(fastq_full, kwargs.get("fastq_full_out"), "fastq")
+            SeqIO.write(fastq_umi, kwargs.get("fastq_umi_out"), "fastq")
 
-        logDF = pd.DataFrame(self.logList, columns=columns)
-        logDF.to_csv(self.logOut, index=False)
-
+def main(args):
+    extractor = UMI_Extractor(args.input_bam, args.reference, args.UMI_contexts)
+    if args.mode == "bam":
+        extractor.extract_UMIs("bam", log_out=args.log, bam_out=args.output_bam)
+    else:
+        extractor.extract_UMIs("fastq", log_out=args.log,
+                                 fastq_full_out=args.output_fastq_full,
+                                 fastq_umi_out=args.output_fastq_umi)
 
 if __name__ == '__main__':
-    main()
+    main(args)

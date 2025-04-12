@@ -1,6 +1,7 @@
 ## v0.11.0
 # Major
    - Support for MacOS (ARM)
+   - Switched to UMIcollapse for UMI processing (large speedup for big UMI datasets)
 # Minor
    - Added genotypes distribution plot
    - Added support for .csv input for tags and timepoints

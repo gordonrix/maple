@@ -15,10 +15,10 @@ import medaka.rle
 import medaka.maple_smolecule
 import medaka.smolecule
 import medaka.stitch
+import medaka.tandem
 import medaka.training
 import medaka.variant
 import medaka.vcf
-import medaka.wrappers
 
 
 class ResolveModel(argparse.Action):
@@ -35,9 +35,28 @@ class ResolveModel(argparse.Action):
         try:
             model_fp = medaka.models.resolve_model(val)
         except Exception as e:
+            msg = "Error validating model from '--{}' argument: {}"
+            raise RuntimeError(msg.format(self.dest, str(e)))
+        setattr(namespace, f"{self.dest}_was_given", True)
+        setattr(namespace, self.dest, model_fp)
+
+
+class AutoModel(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        variant, input_file = values
+        if variant not in {'consensus', 'variant', 'consensus_bacteria'}:
+            raise ValueError(
+                "'TYPE' must be one of 'consensus', 'variant',"
+                "or 'consensus_bacteria'.")
+        bacteria = 'bacteria' in variant
+        variant = variant == 'variant'
+        model = medaka.models.model_from_basecaller(
+            input_file, variant=variant, bacteria=bacteria)
+        try:
+            model_fp = medaka.models.resolve_model(model)
+        except Exception as e:
             msg = "Error validating model from '--{}' argument: {}."
             raise RuntimeError(msg.format(self.dest, str(e)))
-        #TODO: verify the file is a model?
         setattr(namespace, self.dest, model_fp)
 
 
@@ -92,7 +111,7 @@ class CheckBam(argparse.Action):
 
         :raises: RuntimeError
         """
-        with pysam.AlignmentFile(fname) as bam:
+        with pysam.AlignmentFile(fname, check_sq=False) as bam:
             # As of 13/12/19 pypi still has no wheel for pysam v0.15.3 so we
             # pinned to v0.15.2. However bioconda's v0.15.2 package
             # conflicts with the libdeflate they have so we are forced
@@ -178,9 +197,13 @@ def _log_level():
 def _model_arg():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
-    parser.add_argument('--model', action=ResolveModel,
-            default=medaka.options.default_models['consensus'],
-            help='Model to use.')
+    grp = parser.add_mutually_exclusive_group()
+    grp.add_argument('--model', action=ResolveModel,
+        default=medaka.options.default_models['consensus'],
+        help="Model to use. Can be a medaka model name or a basecaller model name suffixed with ':consensus' or ':variant'. For example 'dna_r10.4.1_e8.2_400bps_hac@v4.1.0:variant'.")
+    grp.add_argument('--auto_model', nargs=2, action=AutoModel,
+        metavar=("TYPE", "INPUT"), dest='model',
+        help="Automatically choose model according to INPUT. TYPE should be one of 'consensus' or 'variant'.")
     return parser
 
 
@@ -193,11 +216,13 @@ def _min_depth_arg():
 
 
 def _rg_arg():
-
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter, add_help=False)
     rg_group = parser.add_argument_group('read group', 'Filtering alignments the read group (RG) tag, expected to be string value.')
-    rg_group.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+    rg_group_args = rg_group.add_mutually_exclusive_group()
+    rg_group_args.add_argument('--RG', metavar='READGROUP', type=str, help='Read group to select.')
+    rg_group_args.add_argument('--ignore_read_groups', action='store_true', default=False,
+            help='Ignore read groups in bam file.')
     return parser
 
 
@@ -246,18 +271,46 @@ def _chunking_feature_args(batch_size=100, chunk_len=10000, chunk_ovlp=1000):
     return parser
 
 
-def _validate_common_args(args):
+def _validate_common_args(args, parser):
     """Do some common argument validation."""
     logger = medaka.common.get_named_logger('ValidArgs')
-    if hasattr(args, 'bam') and args.bam is not None:
-        RG = args.RG if hasattr(args, 'RG') else None
-        CheckBam.check_read_groups(args.bam, RG)
+
+    # check BAM has some required fields, fail early
+    if getattr(args, 'bam', None) is not None:
+        RG = getattr(args, 'RG', None)
+        if RG is not None or not getattr(args, 'ignore_read_groups', False):
+            CheckBam.check_read_groups(args.bam, RG)
         if RG is not None:
             msg = "Reads will be filtered to only those with RG tag: {}"
-            logger.info(msg.format(RG))
-    # if model is default, resolve to file, save mess in help text
-    if hasattr(args, 'model') and args.model is not None:
-        args.model = medaka.models.resolve_model(args.model)
+            logger.debug(msg.format(RG))
+
+    # rationalise the model
+    if hasattr(args, 'model'):
+        # if --model was not given on the command-line try to guess from the
+        # the input file. otherwise leave alone
+        if (
+                getattr(args, 'bam', None) is not None
+                and not hasattr(args, 'model_was_given')):
+            # try to guess model using the input file, assume consensus
+            # assuming consensus might not be right, but this is not a change
+            # in behaviour from the historic.
+            logger.debug("Guessing model")
+            try:
+                model = medaka.models.model_from_basecaller(
+                    args.bam, variant="consensus")
+                args.model = medaka.models.resolve_model(model)
+            except Exception as e:
+                logger.warning(
+                    "Failed to guess medaka model input file. Using default.")
+            else:
+                logger.debug(
+                    f"Chosen model '{args.model}' for input '{args.bam}'.")
+        elif args.model is not None:
+            # TODO: why is this done? it will have been done in ResolveModel?
+            #       the resolve_model function is idempotent so doesn't really
+            #       matter too much
+            args.model = medaka.models.resolve_model(args.model)
+            logger.debug(f"Model is: {args.model}")
 
 
 def print_model_path(args):
@@ -287,6 +340,12 @@ def get_alignment_params(model):
 
 def print_alignment_params(args):
     print(get_alignment_params(args.model))
+
+
+def get_model_dtypes(args):
+    modelstore = medaka.models.open_model(args.model)
+    encoder = modelstore.get_meta('feature_encoder')
+    print(','.join(encoder.dtypes))
 
 
 def print_all_models(args):
@@ -408,18 +467,22 @@ def medaka_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
-    tparser.add_argument('--train_name', type=str, default='keras_train', help='Name for training run.')
+    tparser.add_argument('--train_name', type=str, default='medaka_train', help='Name for training run.')
     tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
-    tparser.add_argument('--max_samples', type=int, default=float("inf"), help='Only train on max_samples.')
+    tparser.add_argument('--max_samples', type=int, default=None, help='Only train on max_samples.')
+    tparser.add_argument('--max_valid_samples', type=int, default=None, help='Only validate on max_valid_samples.')
     tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
     tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
-    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop'], help='Optimizer to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop','sgd'], help='Optimizer to use.')
     tparser.add_argument('--optim_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
+    tparser.add_argument('--loss_args', action=StoreDict, default=None, nargs='+',
+        metavar="KEY1=VAL1,KEY2=VAL2...", help="Training loss key-word arguments.")
+    tparser.add_argument('--lr_schedule', type=str, default='none', choices=['cosine', 'none'], help="Learning rate scheduler to use.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -428,7 +491,7 @@ def medaka_parser():
     # Consensus from bam input
     # NB: any args added here should be set to default values in smolecule:main()
     #     to avoid attribute errors in that program.
-    cparser = subparsers.add_parser('consensus',
+    cparser = subparsers.add_parser('inference',
         help='Run inference from a trained model and alignments.',
         parents=[_log_level(), _chunking_feature_args(), _regions_or_bed_args(), _model_arg(), _rg_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -446,10 +509,12 @@ def medaka_parser():
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
     tag_group.add_argument('--tag_keep_missing', action='store_true', help='Keep alignments when tag is missing.')
+    tag_group.add_argument('--min_mapq', type=int, default=None, help='Minimum mapping quality. (Default: use model default.')
+    tag_group.add_argument('--full_precision', action='store_true', default=False, help='Run model in full precision (default is half on GPU).')
 
-    # Consensus from single-molecules with subreads, BAM file as input
+    # Consensus from single-molecules with subreads and pre-made reference sequence
     msparser = subparsers.add_parser('maple_smolecule',
-        help='Create consensus sequences from pre-aligned single-molecule reads.',
+        help='Create consensus sequences single-molecule reads and a reference sequence.',
         parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     msparser.set_defaults(func=medaka.maple_smolecule.main)
@@ -457,6 +522,7 @@ def medaka_parser():
     msparser.add_argument('reference', help='fasta file for reference sequence that will be used for alignment.')
     msparser.add_argument('fasta', nargs='+', help='pre-aligned single-molecule reads, sorted and grouped by UMI ID (UG tag in BAM file).')
     msparser.add_argument('--method', choices=['spoa'], default='spoa', help='Pre-medaka consensus generation method.')
+    msparser.add_argument('--spoa_min_coverage', type=int, help='SPOA minimum consensus coverage.')
     msparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
     msparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
     msparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
@@ -476,6 +542,7 @@ def medaka_parser():
     smparser.add_argument('output', help='Output directory.')
     smparser.add_argument('fasta', nargs='+', help='Single-molecule reads, one file per read.')
     smparser.add_argument('--method', choices=['spoa'], default='spoa', help='Pre-medaka consensus generation method.')
+    smparser.add_argument('--spoa_min_coverage', type=int, help='SPOA minimum consensus coverage.')
     smparser.add_argument('--depth', type=int, default=3, help='Minimum subread count.')
     smparser.add_argument('--length', type=int, default=400, help='Minimum median subread length.')
     smparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
@@ -485,6 +552,55 @@ def medaka_parser():
             help='Save features with consensus probabilities.')
     smparser.add_argument('--qualities', action='store_true', default=False,
             help='Output consensus with per-base quality scores (fastq).')
+
+    # Targeted Tandem Repeat calling
+    # TODO reorganise arguments common to predict, smolecule and tr into groups
+    # that can be more easily shared
+    trparser = subparsers.add_parser('tandem',
+        help='Targeted tandem repeat variant calling.',
+        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg(), _rg_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    trparser.set_defaults(func=medaka.tandem.main)
+    trparser.add_argument('bam', help='Input alignments.', action=CheckBam)
+    trparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    trparser.add_argument('regions', action=RegionParser, nargs='+',
+        help='Genomic regions to analyse, or a bed file.')
+    trparser.add_argument('sex', choices={'female', 'male'},
+        help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
+    trparser.add_argument('output', help='Output directory.')
+    trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
+        default='hybrid', help='Phasing method. '
+        'prephased: use HP bam tags. '
+        'abpoa: abpoa diploid clustering. '
+        'hybrid: try prephased, use abpoa when either haplotype has < --depth '
+        'coverage.'
+        'unphased: assume sample is haploid / homozygous in target regions.'
+    )
+    trparser.add_argument('--depth', type=int, default=3,
+        help='Minimum reads per haplotype.')
+    trparser.add_argument('--min_mapq', type=int, default=5,
+        help='Minimum read mapq.')
+    trparser.add_argument('--pad', type=int, default=10,
+        help='Region padding for fetching trimmed reads and reference sequence.')
+    trparser.add_argument('--sex_chroms', metavar='<X> <Y>', default=['chrX', 'chrY'],
+        nargs=2, help='Names of X and Y chromosomes in --ref_fasta.')
+    trparser.add_argument('--PAR_regions', action=RegionParser, nargs='+',
+        help='Pseudoautosomal regions (PARs) to treat as diploid for male and female samples.',
+        default=[medaka.common.Region('chrX', 10000, 2781479),
+                 medaka.common.Region('chrX', 155701382, 156030895),])
+    trparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
+    trparser.add_argument('--poa_threads', type=int, default=1,
+            help='Number of threads used for POA.')
+    trparser.add_argument('--poa_only', action='store_true', default=False,
+            help='Stop after generating POA consensuses.')
+    trparser.add_argument('--check_output', action='store_true', default=False,
+            help='Verify integrity of output file after inference.')
+    trparser.add_argument('--save_features', action='store_true', default=False,
+            help='Save features with consensus probabilities.')
+    trparser.add_argument('--bam_workers', type=int, default=2,
+            help='Number of workers used to prepare data from bam.')
+    trparser.add_argument('--bam_chunk', type=int, default=int(1e6),
+            help='Size of reference chunks each worker parses from bam. (can be used to control memory use).')
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -504,9 +620,9 @@ def medaka_parser():
     rleparser.add_argument('--block_size', action=CheckBlockSize, default=94, type=int,
         help='Block size for hompolymer splitting, e.g. with a value of blocksize=3, AAAA -> A3 A1.')
 
-    # Post-processing of consensus outputs
-    sparser = subparsers.add_parser('stitch',
-        help='Stitch together output from medaka consensus into final output.',
+    # Post-processing of inference outputs
+    sparser = subparsers.add_parser('sequence',
+        help='Stitch together output from medaka inference into a final consensus sequence.',
         parents=[_log_level(), _region_ref_names(), _min_depth_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     sparser.set_defaults(func=medaka.stitch.stitch)
@@ -530,13 +646,13 @@ def medaka_parser():
         help="Output with per-base quality scores (fastq).",
         action='store_true')
 
-    var_parser = subparsers.add_parser('variant',
-        help='Decode probabilities to VCF.',
+    var_parser = subparsers.add_parser('vcf',
+        help='Stitch together output from medaka inference into a final VCF file.',
         parents=[_log_level(), _region_ref_names()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     var_parser.set_defaults(func=medaka.variant.variants_from_hdf)
-    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     var_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
+    var_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
     var_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
     var_parser.add_argument('--verbose', action='store_true',
                             help='Populate VCF info fields.')
@@ -544,21 +660,6 @@ def medaka_parser():
                          help='Decode variants at ambiguous reference positions.')
     var_parser.add_argument('--gvcf', action='store_true',
                          help='Output VCF records for reference loci predicted to be non-variant.')
-
-    # TODO do we still need this?
-    snp_parser = subparsers.add_parser('snp',
-        help='Decode probabilities to SNPs.',
-        parents=[_log_level(), _region_ref_names()],
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    snp_parser.set_defaults(func=medaka.variant.snps_from_hdf)
-    snp_parser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
-    snp_parser.add_argument('inputs', nargs='+', help='Consensus .hdf files.')
-    snp_parser.add_argument('output', help='Output .vcf.', default='medaka.vcf')
-    snp_parser.add_argument('--threshold', default=0.04, type=float,
-                            help='Threshold for considering secondary calls. A value of 1 will result in haploid decoding.')
-    snp_parser.add_argument('--ref_vcf', default=None, help='Reference vcf.')
-    snp_parser.add_argument('--verbose', action='store_true',
-                         help='Populate VCF info fields.')
 
     # Tools
     toolparser = subparsers.add_parser('tools',
@@ -712,6 +813,27 @@ def medaka_parser():
         help='Model(s) to download to cache.')
     dwnldparser.set_defaults(func=download_models)
 
+    tagbamparser = toolsubparsers.add_parser('prepare_tagged_bam',
+        help='Add tags to bam files and merge',
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    tagbamparser.add_argument('input_bams', nargs='+', help='Input bam files')
+    tagbamparser.add_argument(
+        '--output', required=True, type=str, help='Output tagged bam file')
+    tagbamparser.add_argument(
+        '--values', nargs='+', required=True, type=str, help='Tag values')
+    tagbamparser.add_argument('--tag', default='DT', help='Tag identifier')
+    tagbamparser.add_argument('--threads', type=int, default=1,
+        help='Number of threads for parallel execution.')
+    tagbamparser.set_defaults(func=medaka.common.tag_merge_bams)
+
+    # check if feature encoder expects DT tags
+    mdltagparser = toolsubparsers.add_parser('get_model_dtypes',
+        help='Get the expected dtype tags for a model.',
+        parents=[_model_arg()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    mdltagparser.set_defaults(func=get_model_dtypes)
+
     return parser
 
 
@@ -722,15 +844,6 @@ def main():
     parser = medaka_parser()
     args = parser.parse_args()
 
-    # https://github.com/tensorflow/tensorflow/issues/26691
-    # we have local imports of tf generally, but this is pseudo global
-    # however with tf1.14 tensorflow import time looks faster than previous
-    # so we could/should stick to more standard imports
-    import tensorflow as tf
-    import absl.logging
-    logging.root.removeHandler(absl.logging._absl_handler)
-    absl.logging._warn_preinit_stderr = False
-
     logging.basicConfig(format='[%(asctime)s - %(name)s] %(message)s', datefmt='%H:%M:%S', level=logging.INFO)
     logger = logging.getLogger(__package__)
     logger.setLevel(args.log_level)
@@ -740,5 +853,6 @@ def main():
         # TODO: is there a cleaner way to access this?
         parser.__dict__['_actions'][1].choices['tools'].print_help()
     else:
-        _validate_common_args(args)
+        # perform some post processing on the values, then run entry point
+        _validate_common_args(args, parser)
         args.func(args)

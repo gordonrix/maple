@@ -12,9 +12,10 @@ import warnings
 
 import mappy
 import numpy as np
+import parasail
 import pysam
+import spoa
 
-from medaka import parasail, spoa
 import medaka.align
 import medaka.common
 import medaka.medaka
@@ -26,12 +27,12 @@ Alignment = namedtuple('Alignment', 'rname qname flag rstart seq cigar')
 class Read(object):
     """Functionality to extract information from a read with subreads."""
 
-    def __init__(self, name, reference, subreads, initialize=False):
+    def __init__(self, name, reference, subreads):
         """Initialize repeat read analysis.
 
         :param name: read name.
+        :param reference: reference sequence.
         :param subreads: list of subreads.
-        :param initialize: initialize subread alignments.
 
         """
         self.name = name
@@ -49,6 +50,31 @@ class Read(object):
         self._initialized = False
         # has a consensus been run
         self.consensus_run = False
+        # enable use of alternative aligners by changing name.
+        # parasail align functions not pickleable so cause issues with
+        # multiprocessing if set as a direct attribute.
+        # instead, create the aligner on demand.
+        self.parasail_aligner_name = 'sw_trace_striped_16'
+
+    @property
+    def parasail_aligner_name(self):
+        """Return parasail alignment function name (str)."""
+        return self._parasail_aligner_name
+
+    @parasail_aligner_name.setter
+    def parasail_aligner_name(self, value):
+        if hasattr(parasail, value) and callable(getattr(parasail, value)):
+            self._parasail_aligner_name = value
+        else:
+            raise ValueError(f'{value} is not a valid parasail function.')
+
+    @property
+    def parasail_aligner(self):
+        """Return functools.partial-wrapped parasail alignment function."""
+        return functools.partial(
+            getattr(parasail, self.parasail_aligner_name),
+            open=8, extend=4, matrix=parasail.dnafull
+        )
 
     def initialize(self):
         """Calculate initial alignments of subreads to scaffold read."""
@@ -93,6 +119,7 @@ class Read(object):
             above this value.
 
         """
+        logger = medaka.common.get_named_logger("FastReader")
         depth_filter = max(1, depth_filter)
         if take_all and read_id is None:
             read_id = os.path.splitext(os.path.basename(fastx))[0]
@@ -103,14 +130,25 @@ class Read(object):
             for entry in fh:
                 if not take_all:
                     cur_read_id = entry.name.split("_")[0]
+                    if read_id is None:
+                        read_id = cur_read_id
                     if cur_read_id != read_id:
                         if len(subreads) >= depth_filter:
                             med_length = np.median(
                                 [len(x.seq) for x in subreads])
                             if med_length > length_filter:
                                 yield cls(read_id, reference, subreads)
+                            else:
+                                logger.debug(
+                                    "Read {} has too short subreads.".format(
+                                        read_id))
+                        else:
+                            logger.debug(
+                                "Read {} has too few subreads.".format(
+                                    read_id))
                         read_id = cur_read_id
                         subreads = []
+
                 if len(entry.sequence) > 0:
                     subreads.append(Subread(entry.name, entry.sequence))
 
@@ -118,6 +156,11 @@ class Read(object):
                 med_length = np.median([len(x.seq) for x in subreads])
                 if med_length > length_filter:
                     yield cls(read_id, reference, subreads)
+                else:
+                    logger.debug(
+                        "Read {} has too short subreads.".format(read_id))
+            else:
+                logger.debug("Read {} has too few subreads.".format(read_id))
 
     @property
     def seqs(self):
@@ -156,24 +199,37 @@ class Read(object):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    def poa_consensus(self, additional_seq=None, method='spoa'):
-        """Create a consensus sequence for the read."""
-        self.initialize()
-        if method == 'spoa':
-            seqs = list()
-            for orient, subread in zip(*self.interleaved_subreads):
-                if orient:
-                    seq = subread.seq
-                else:
-                    seq = medaka.common.reverse_complement(subread.seq)
-                seqs.append(seq)
-            consensus_seq, _ = spoa.poa(seqs, genmsa=False)
-        else:
-            raise ValueError('Unrecognised method: {}.'.format(method))
-        self.consensus = consensus_seq
-        self._alignments_valid = False
-        self.consensus_run = True
-        return consensus_seq
+    # def poa_consensus(self, method='spoa', spoa_min_coverage=None):
+    #     """Create a consensus sequence for the read."""
+    #     self.initialize()
+    #     seqs = list()
+    #     if self.consensus_run:
+    #         # running POA for the second time: use the output from
+    #         # the previous run as first read in the list
+    #         seqs.append(self.consensus)
+    #     for orient, subread in zip(*self.interleaved_subreads):
+    #         if orient:
+    #             seq = subread.seq
+    #         else:
+    #             seq = medaka.common.reverse_complement(subread.seq)
+    #         seqs.append(seq)
+    #     if method == 'spoa':
+    #         consensus_seq, _ = spoa.poa(
+    #             seqs,
+    #             genmsa=False,
+    #             min_coverage=spoa_min_coverage
+    #         )
+    #     elif method == 'abpoa':
+    #         import pyabpoa as pa
+    #         abpoa_aligner = pa.msa_aligner(aln_mode='g')
+    #         result = abpoa_aligner.msa(seqs, out_cons=True, out_msa=False)
+    #         consensus_seq = result.cons_seq[0]
+    #     else:
+    #         raise ValueError('Unrecognised method: {}.'.format(method))
+    #     self.consensus = consensus_seq
+    #     self._alignments_valid = False
+    #     self.consensus_run = True
+    #     return consensus_seq
 
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.
@@ -187,10 +243,8 @@ class Read(object):
         alignments = []
         for sr in self.subreads:
             rc_seq = medaka.common.reverse_complement(sr.seq)
-            result_fwd = parasail.sw_trace_striped_16(
-                sr.seq, self.consensus, 8, 4, parasail.dnafull)
-            result_rev = parasail.sw_trace_striped_16(
-                rc_seq, self.consensus, 8, 4, parasail.dnafull)
+            result_fwd = self.parasail_aligner(sr.seq, self.consensus)
+            result_rev = self.parasail_aligner(rc_seq, self.consensus)
             is_fwd = result_fwd.score > result_rev.score
             self._orient.append(is_fwd)
             result = result_fwd if is_fwd else result_rev
@@ -223,8 +277,8 @@ class Read(object):
                 seq = sr.seq
             else:
                 seq = medaka.common.reverse_complement(sr.seq)
-            result = parasail.sw_trace_striped_16(
-                seq, template, 8, 4, parasail.dnafull)
+            result = self.parasail_aligner(seq, template)
+
             if result.cigar.beg_ref >= result.end_ref or \
                     result.cigar.beg_query >= result.end_query:
                 # unsure why this can happen
@@ -285,22 +339,27 @@ def write_bam(fname, alignments, header, bam=True):
 
     """
     mode = 'wb' if bam else 'w'
+    if isinstance(header, dict):
+        header = pysam.AlignmentHeader.from_dict(header)
     with pysam.AlignmentFile(fname, mode, header=header) as fh:
-        for ref_id, subreads in enumerate(alignments):
+        for subreads in alignments:
             for aln in sorted(subreads, key=lambda x: x.rstart):
                 a = medaka.align.initialise_alignment(
-                    aln.qname, ref_id, aln.rstart, aln.seq,
+                    aln.qname, header.get_tid(aln.rname),
+                    aln.rstart, aln.seq,
                     aln.cigar, aln.flag)
                 fh.write(a)
     if mode == 'wb':
         pysam.index(fname)
 
 
-def _read_worker(read, align=True, method='spoa'):
+def _read_worker(read, align=True, method='spoa', spoa_min_coverage=None):
     read.initialize()
-#    if read.nseqs > 2:  # skip if there is only one subread
-#        for it in range(2):
-#            read.poa_consensus(method=method)
+    # if read.nseqs > 2:  # skip if there is only one subread
+    #     for it in range(2):
+    #         read.poa_consensus(
+    #             method=method, spoa_min_coverage=spoa_min_coverage
+    #         )
     aligns = None
     if align:
         aligns = read.mappy_to_template(
@@ -318,7 +377,7 @@ def ignore_exception(func, *args, **kwargs):
     return None
 
 
-def poa_workflow(reads, threads, method='spoa'):
+def poa_workflow(reads, threads, method='spoa', spoa_min_coverage=None):
     """Worker function for processing repetitive reads.
 
     :param reads: list of `Read` s.
@@ -332,7 +391,12 @@ def poa_workflow(reads, threads, method='spoa'):
     consensuses = []
     alignments = []
 
-    worker = functools.partial(ignore_exception, _read_worker, method=method)
+    worker = functools.partial(
+        ignore_exception,
+        _read_worker,
+        method=method,
+        spoa_min_coverage=spoa_min_coverage,
+    )
     with ProcessPoolExecutor(max_workers=threads) as executor:
         for res in executor.map(worker, reads):
             if res is None:
@@ -373,9 +437,10 @@ class MyArgs:
 
 def main(args):
     """Entry point for repeat read consensus creation."""
+    print(args)
     parser = medaka.medaka.medaka_parser()
     defaults = parser.parse_args([
-        "consensus", medaka.medaka.CheckBam.fake_sentinel,
+        "inference", medaka.medaka.CheckBam.fake_sentinel,
         "fake_out"])
 
     args = MyArgs(args, defaults)
@@ -413,7 +478,11 @@ def main(args):
         "Running {} pre-medaka consensus for all reads.".format(args.method))
     t0 = now()
     header, consensuses, alignments = poa_workflow(
-        reads, args.threads, method=args.method)
+        reads,
+        args.threads,
+        method=args.method,
+        spoa_min_coverage=args.spoa_min_coverage,
+    )
     t1 = now()
 
     logger.info(
