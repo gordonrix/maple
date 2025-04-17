@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import re
 import pysam
+import tempfile
+import os
 
 from common import dist_to_DF
 
@@ -424,7 +426,15 @@ class MutationAnalysis:
             desiredGenotypeIDs = [int(ID) for ID in str(self.desiredGenotypeIDs).split(', ') if int(ID) <= len(genotypesDFcondensed)]
             genotypeAlignmentsOutDF = pd.concat( [genotypeAlignmentsOutDF, genotypesDFcondensed.iloc[desiredGenotypeIDs,]] )
         with open(self.outputList[0], 'w') as txtOut:
-            nameIndexedBAM = pysam.IndexedReads(bamFile)
+            
+            # create a temporary sorted BAM file for quick retrieval by query_name
+            with tempfile.NamedTemporaryFile(suffix='bam', delete=False) as temp_bam:
+                sorted_bam_path = temp_bam.name
+            pysam.sort('-n', '-o', sorted_bam_path, self.BAMin)
+            sorted_bam = pysam.AlignmentFile(sorted_bam_path, 'rb')
+
+            bamFile.reset()  # Reset pointer to the beginning
+            nameIndexedBAM = pysam.IndexedReads(sorted_bam)
             nameIndexedBAM.build()
             for row in genotypeAlignmentsOutDF.itertuples():
                 if row.genotype_ID=='wildtype':
@@ -433,14 +443,21 @@ class MutationAnalysis:
                 iterator = nameIndexedBAM.find(seqID)
                 for BAMentry in iterator:
                     break
-                x = self.clean_alignment(BAMentry)
-                if self.useReverseComplement:
-                    x = self.clean_alignment_reverse_complement(x)
-                ref, alignString, seq, _, _, _ = x
+                cleanAln = self.clean_alignment(BAMentry)
+                if cleanAln:
+                    if self.useReverseComplement:
+                        cleanAln = self.clean_alignment_reverse_complement(cleanAln)
+                
+                ref, alignString, seq, _, _, _ = cleanAln
+
                 txtOut.write(f'Genotype {row.genotype_ID} representative sequence. Sequence ID: {seqID}\n')
                 for string in [ref, alignString, seq]:
                     txtOut.write(string+'\n')
                 txtOut.write('\n')
+
+            sorted_bam.close()
+            os.remove(sorted_bam_path)
+
             txtOut.write('')
 
         # output to files
