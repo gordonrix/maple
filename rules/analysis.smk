@@ -227,7 +227,8 @@ rule mutation_analysis:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
         AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest',''),
         analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True),
-        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
+        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
+        quality_score_minimum = lambda wildcards: config.get('mutation_analysis_quality_score_minimum', 5)
     script:
         'utils/mutation_analysis.py'
 
@@ -295,11 +296,14 @@ def merge_mut_stats_input(wildcards):
     out = []
 
     for tag in config['runs']:
-        if config['do_demux'][tag]:
-            checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
-            checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
-            checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-            if len(glob_wildcards(checkpoint_demux_files).BCs) > 0:
+        if config['do_NT_mutation_analysis'][tag]:
+            if config['do_demux'][tag]:
+                checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
+                checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
+                checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
+                if len(glob_wildcards(checkpoint_demux_files).BCs) > 0:
+                    out.append(f'mutation_data/{tag}/{tag}_mutation-stats.csv')
+            else:
                 out.append(f'mutation_data/{tag}/{tag}_mutation-stats.csv')
 
     return out
