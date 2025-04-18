@@ -182,8 +182,6 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
     if not labels:
         labels = [str(i) for i in range(0,len(plots))]
     out_dir = file_name[:-5]+'_svg' # remove '.html' from file name and add '_svg'
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
 
     # Unless export is just True, only export plots that contain the export string in the file name or label
     if type(export) == bool:
@@ -237,6 +235,9 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
 
 
     if plots:
+
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
 
         try:
 
