@@ -15,6 +15,9 @@ from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
 from bokeh import palettes
 from colorcet import palette
+import re
+import os
+import xml.etree.ElementTree as ET
 from natsort import natsorted
 
 # define colormaps
@@ -160,7 +163,7 @@ def dist_to_DF(dist, x, y):
 
     return df
 
-def export_svg_plots(plots, file_name, labels=[], export=True):
+def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
     """
     attempts to export individual bokeh plots from a list of holoviews plots
     with the provided file name and the index of the plot in the list.
@@ -172,14 +175,15 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
                     each of the plots, which are exported as separate files
     export:     bool or string. if True, export all plots. if False, export none.
                     if string, export only plots that contain the string in the file name or label
+    dimensions: tuple of ints (width, height), dimensions to use for the plots. if None, use default dimensions
     """
 
     # unless labels are provided, name plots just using their order in the plot list
     if not labels:
         labels = [str(i) for i in range(0,len(plots))]
-    file_name_base = file_name[:-5] # remove '.html' from file name
-
-    pathlib.Path(file_name_base).parent.absolute().mkdir(parents=True, exist_ok=True)
+    out_dir = file_name[:-5]+'_svg' # remove '.html' from file name and add '_svg'
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     # Unless export is just True, only export plots that contain the export string in the file name or label
     if type(export) == bool:
@@ -189,6 +193,48 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
         if export not in file_name:
             labels = [label for label in labels if export in label]
             plots = [plots[i] for i,label in enumerate(labels) if export in label]
+
+    import xml.etree.ElementTree as ET
+
+    # Function to normalize SVG units to standardize the SVG output across different programs
+    # Ensures that svg outputs look the same as html rendering
+    def normalize_svg_units(fName):
+        tree = ET.parse(fName)
+        root = tree.getroot()
+        NS = {'svg': 'http://www.w3.org/2000/svg'}
+
+        # make width/height explicit px
+        w = root.attrib.get('width')
+        h = root.attrib.get('height')
+        if w and not w.endswith('px'):
+            root.set('width',  w + 'px')
+        if h and not h.endswith('px'):
+            root.set('height', h + 'px')
+
+        # esure viewBox matches pixel dimensions
+        if 'viewBox' not in root.attrib and w and h:
+            wi = float(w.rstrip('px'))
+            hi = float(h.rstrip('px'))
+            root.set('viewBox', f"0 0 {int(wi)} {int(hi)}")
+
+        # optionally convert pt→px (1 pt ≈ 1.333px at 96 ppi)
+        for text in root.findall('.//svg:text', NS) + root.findall('.//svg:tspan', NS):
+            fs = text.attrib.get('font-size') or text.attrib.get('style','')
+            # handle style="font-size:16pt;…"
+            if 'pt' in fs:
+                import re
+                def repl(m):
+                    pt = float(m.group(1))
+                    px = pt * 96.0/72.0
+                    return f"{px:.1f}px"
+                newstyle = re.sub(r'(\d+(\.\d+)?)pt', repl, fs)
+                if 'font-size' in text.attrib:
+                    text.set('font-size', newstyle)
+                else:
+                    text.set('style', newstyle)
+
+        tree.write(fName, encoding='utf-8', xml_declaration=True)
+
 
     if plots:
 
@@ -203,12 +249,34 @@ def export_svg_plots(plots, file_name, labels=[], export=True):
             webdriver = wd.Chrome(service=Service(), options=options)
             
             for plot, label in zip(plots, labels):
-                fName = f'{file_name_base}_{label}.svg'
+                fName = os.path.join(out_dir, f'{label}.svg')
                 p = hv.render(plot,backend='bokeh')
+                if dimensions:
+                    p.width = dimensions[0]
+                    p.height = dimensions[1]
                 p.output_backend='svg'
                 export_svgs(p, 
                     filename=fName,
                     webdriver=webdriver)
+                
+                # after export_svgs(…) has written fName:
+                tree = ET.parse(fName)
+                root = tree.getroot()
+
+                # handle SVG namespace
+                ns = {'svg': 'http://www.w3.org/2000/svg'}
+
+                # bokeh svg export draws text twice in different ways, so remove stroke attributes only on text or tspan elements
+                for tag in ('text', 'tspan'):
+                    for elem in root.findall(f'.//svg:{tag}', ns):
+                        for attr in ['stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin']:
+                            if attr in elem.attrib:
+                                del elem.attrib[attr]
+
+                # write back, preserving the XML prolog
+                tree.write(fName, encoding='utf-8', xml_declaration=True)
+
+                normalize_svg_units(fName)
                 
         except:
             print(f"""\n[ERROR] SVG export for {file_name} failed. Pipeline continuing but the SVG version of this plot was not generated. 

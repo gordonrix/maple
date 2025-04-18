@@ -30,7 +30,7 @@ def main(input, output, labels, title, legendLabel, background, raw, export_svgs
     plots = [ plot_cumsum(inputDFs, labels, colors, title, legendLabel, x_range=x_range, y_range=y_range) ] + [
               plot_dist(df, title=f"{legendLabel}: {label}", raw=raw, x_range=x_range, y_range=y_range) for df, label in zip(inputDFs, labels) ]
     if export_svgs:
-        export_svg_plots(plots, output, labels=['cumulative']+labels, export=export_svgs)
+        export_svg_plots(plots, output, labels=['cumulative']+labels, export=export_svgs, dimensions=(800, 600))
     plots = hv.Layout(plots).cols(1)
     hvplot.save(plots, output)
 
@@ -57,13 +57,13 @@ def plot_cumsum(DFlist, labels, colors, title, legendLabel, x_range=False, y_ran
 
         plotList.append( hv.Curve(df, kdims=[x],
                             vdims = [cumsum, proportion, total] + [legendLabel], label=label).opts(
-                                        hv.opts.Curve(tools=['hover'], color=color)) )
+                                        hv.opts.Curve(line_width=3, tools=['hover'], color=color)) )
 
     plot = hv.Overlay(plotList).opts(show_legend=True, legend_position='right', width=800, height=600,
                             title=f"{x} among {y}, cumulative distribution\nsample: {title}",
                             # legend_title = legendLabel, # This doesn't work for some reason, but a legend title would be nice
                             xlabel=x, ylabel='cumulative frequency', ylim=y_range, xlim=x_range,
-                            fontsize={'title':16,'labels':14,'xticks':12,'yticks':12})
+                            fontsize={'title':16,'labels':16,'xticks':14,'yticks':14, 'legend': 14})
 
     return plot
 
@@ -97,7 +97,7 @@ def plot_dist(df, color='grey', title='', raw=False, x_range=None, y_range=None)
     plot = hv.Histogram(hvDF).opts(hv.opts.Histogram(tools=['hover'], color=color, width=800, height=600,
                                     title=f"{x} among {y}\n{title}",
                                     ylabel=ylabel, ylim=y_range, xlim=x_range,
-                                    fontsize={'title':16,'labels':14,'xticks':12,'yticks':12}))
+                                    fontsize={'title':16,'labels':16,'xticks':14,'yticks':14}))
 
     return plot
 

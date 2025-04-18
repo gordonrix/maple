@@ -13,6 +13,7 @@
    - Remove references to Singularity
    - Separate barcode tracking from genotype tracking (currently, breaks merge_enrichment.py)
    - Fixed bug that would cause the 'representative alignment' .txt output from mutation_analysis.py to be incorrect
+   - Fixed aesthetic issues with SVG export
 
 ## v0.10.3
 # Minor
