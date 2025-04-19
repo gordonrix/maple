@@ -328,7 +328,7 @@ def get_timepoint_plots_all_input(wildcards):
     timepoint_rows = [row for row in config['timepointsInfo'] if len(get_demuxed_barcodes_timepoint( config['timepointsInfo'][row]['tag_barcode_tp'].keys() )) > 0] # only include timepoints that have at least one demuxed barcode
     print_flag = False
     plot_types = ['mutation-distribution-violin', 'genotypes-distribution']
-    if config.get('plot_mutation_frequencies', False):
+    if config.get('plot_mutation-frequencies', False):
         plot_types.append('AA-mutation-frequencies')
     if config.get('genotypes2D_plot_groups', False):
         plot_types.append('genotypes2D')
