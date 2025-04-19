@@ -335,7 +335,7 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
                     show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True)
                     
     plot = plot.opts(height=500, width=1000, xrotation=xrotation, tools=['hover'],
-                     cmap=colormap, xlabel='position', fontsize={'title':16,'labels':14,'xticks':10,'yticks':10})
+                     cmap=colormap, xlabel='position', fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16})
     return plot
 
 def dashboard_input(wildcards, config):

@@ -63,7 +63,7 @@ def plot_cumsum(DFlist, labels, colors, title, legendLabel, x_range=False, y_ran
                             title=f"{x} among {y}, cumulative distribution\nsample: {title}",
                             # legend_title = legendLabel, # This doesn't work for some reason, but a legend title would be nice
                             xlabel=x, ylabel='cumulative frequency', ylim=y_range, xlim=x_range,
-                            fontsize={'title':16,'labels':16,'xticks':14,'yticks':14, 'legend': 14})
+                            fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16})
 
     return plot
 
@@ -97,7 +97,7 @@ def plot_dist(df, color='grey', title='', raw=False, x_range=None, y_range=None)
     plot = hv.Histogram(hvDF).opts(hv.opts.Histogram(tools=['hover'], color=color, width=800, height=600,
                                     title=f"{x} among {y}\n{title}",
                                     ylabel=ylabel, ylim=y_range, xlim=x_range,
-                                    fontsize={'title':16,'labels':16,'xticks':14,'yticks':14}))
+                                    fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16}))
 
     return plot
 
