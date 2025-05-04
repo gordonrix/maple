@@ -23,6 +23,7 @@ def targets_input(wildcards):
     if any(config['do_demux'][tag] for tag in config['runs']):
         out.append('demux-stats.csv')
         out.extend([f'plots/{tag}_demux.html' for tag in config['runs'] if config['do_demux'][tag]])
+    
     for tag in config['runs']:
         if config['do_NT_mutation_analysis'][tag]:
             NTorAA = ['NT','AA'] if config['do_AA_mutation_analysis'][tag] else ['NT']
@@ -42,7 +43,7 @@ def targets_input(wildcards):
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
         if config['do_enrichment_analysis'].get(tag, False):
-            out.append(f'plots/{tag}_enrichment-scores.html')            
+            out.append(f'plots/{tag}_enrichment-scores.html')     
         # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
 
     # .done flag files are needed to separate the targets rule from rules that determine inputs from checkpoints (e.g. demux). A consequence of this is that
@@ -63,7 +64,10 @@ def targets_input(wildcards):
             tag, bc = tag_bc.split('_')
             divPlotFilePrefixes.append(f'{tag}/{bc}/{tag_bc}')
             out.extend( expand('plots/{tag_barcodes}_{plotType}', tag_barcodes=divPlotFilePrefixes, plotType=plotType) )
-
+    if config.get('do_aggregate', False):
+        for tag in config['runs']:
+            if config['do_NT_mutation_analysis'].get(tag, False):  # Only aggregate if NT mutation analysis was done
+                out.append(f'mutation_data/{tag}_aggregate.csv')
     if config.get('dashboard_input', False):
         db_input = dashboard_input(wildcards=None, config=config)
         if db_input:
