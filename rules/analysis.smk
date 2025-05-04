@@ -725,46 +725,28 @@ rule plot_pipeline_throughput:
 
 import os
 
-def get_input_files(wildcards):
-    id_dir = f'mutation_data/{wildcards.tag}/'
-    seq_id_files = []
-    genotype_files = []
-    for root, dirs, files in os.walk(id_dir):
-        for file in files:
-            if file.endswith('_seq-IDs.csv'):
-                seq_id_files.append(os.path.join(root, file))
-            elif file.endswith('_genotypes.csv'):
-                genotype_files.append(os.path.join(root, file))
-    return {'seq_ids': seq_id_files, 'genotypes': genotype_files}
 
-import os
-import pandas as pd
-from Bio import SeqIO
-import gzip
-
-def get_input_files(wildcards):
-    id_dir = f'mutation_data/{wildcards.tag}/'
-    seq_id_files = []
-    genotype_files = []
-    for root, dirs, files in os.walk(id_dir):
-        for file in files:
-            if file.endswith('_seq-IDs.csv'):
-                seq_id_files.append(os.path.join(root, file))
-            elif file.endswith('_genotypes.csv'):
-                genotype_files.append(os.path.join(root, file))
-    return {'seq_ids': seq_id_files, 'genotypes': genotype_files}
 def get_name(file_path):
     name =  os.path.basename(file_path)
     name = name.split('_')[1]
     return name
+
 rule aggregate:
     input:
-        unpack(get_input_files),
+        seq_ids = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_seq-IDs.csv',
+                                tag = wildcards.tag,
+                                barcodes = get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {}))),
+        genotypes = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
+                                tag = wildcards.tag,
+                                barcodes = get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {}))),
         seqs = 'sequences/UMI/{tag}_UMIconsensuses.fasta.gz'
     output:
         agg = 'mutation_data/{tag}_aggregate.csv'
     priority: -100
     run:
+        import pandas as pd
+        from Bio import SeqIO
+        import gzip
         # Check if input files exist
         if not input.seq_ids:
             raise ValueError(f"No seq-IDs files found for tag {wildcards.tag}")
