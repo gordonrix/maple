@@ -722,3 +722,95 @@ rule plot_pipeline_throughput:
         csv = 'maple/{tag, [^\/_]*}_pipeline-throughput.csv'
     script:
         'utils/plot_pipeline_throughput.py'
+
+import os
+
+def get_input_files(wildcards):
+    id_dir = f'mutation_data/{wildcards.tag}/'
+    seq_id_files = []
+    genotype_files = []
+    for root, dirs, files in os.walk(id_dir):
+        for file in files:
+            if file.endswith('_seq-IDs.csv'):
+                seq_id_files.append(os.path.join(root, file))
+            elif file.endswith('_genotypes.csv'):
+                genotype_files.append(os.path.join(root, file))
+    return {'seq_ids': seq_id_files, 'genotypes': genotype_files}
+
+import os
+import pandas as pd
+from Bio import SeqIO
+import gzip
+
+def get_input_files(wildcards):
+    id_dir = f'mutation_data/{wildcards.tag}/'
+    seq_id_files = []
+    genotype_files = []
+    for root, dirs, files in os.walk(id_dir):
+        for file in files:
+            if file.endswith('_seq-IDs.csv'):
+                seq_id_files.append(os.path.join(root, file))
+            elif file.endswith('_genotypes.csv'):
+                genotype_files.append(os.path.join(root, file))
+    return {'seq_ids': seq_id_files, 'genotypes': genotype_files}
+def get_name(file_path):
+    name =  os.path.basename(file_path)
+    name = name.split('_')[1]
+    return name
+rule aggregate:
+    input:
+        unpack(get_input_files),
+        seqs = 'sequences/UMI/{tag}_UMIconsensuses.fasta.gz'
+    output:
+        agg = 'mutation_data/{tag}_aggregate.csv'
+    priority: -100
+    run:
+        # Check if input files exist
+        if not input.seq_ids:
+            raise ValueError(f"No seq-IDs files found for tag {wildcards.tag}")
+        if not input.genotypes:
+            raise ValueError(f"No genotypes files found for tag {wildcards.tag}")
+
+        # Read and concatenate all seq_ids files
+        seq_id_dfs = []
+        for file in input.seq_ids:
+            df = pd.read_csv(file)
+            barcode = get_name(file)
+            df['barcode'] = barcode
+            seq_id_dfs.append(df)
+        seq_ids = pd.concat(seq_id_dfs, ignore_index=True)
+        print('debug', seq_ids)
+        # Read and concatenate all genotypes files
+        genotypes_dfs = []
+        for file in input.genotypes:
+            df = pd.read_csv(file)
+            barcode = get_name(file)
+            df['barcode'] = barcode
+            genotypes_dfs.append(df)
+        genotypes = pd.concat(genotypes_dfs, ignore_index=True)
+        print('debug', genotypes)
+        # Read consensus sequences
+        try:
+            with gzip.open(input.seqs, "rt") as handle:
+                records = list(SeqIO.parse(handle, "fasta"))
+            if not records:
+                raise ValueError(f"No sequences found in {input.seqs}")
+        except Exception as e:
+            raise ValueError(f"Error reading consensus sequences file {input.seqs}: {str(e)}")
+
+        seqs_df = pd.DataFrame([
+            {"seq_ID": record.id, "sequence": str(record.seq)}
+            for record in records
+        ])
+
+        # Merge the dataframes
+        try:
+            agg_df = seq_ids.merge(genotypes, on=['barcode'])
+            agg_df = agg_df.merge(seqs_df, on='seq_ID')
+        except Exception as e:
+            raise ValueError(f"Error merging dataframes: {str(e)}")
+
+        # Write the combined DataFrame to a new CSV file
+        agg_df.to_csv(output.agg, index=False)
+
+        print(f"Aggregated data for tag {wildcards.tag} saved to {output.agg}")
