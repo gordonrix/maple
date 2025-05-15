@@ -192,8 +192,6 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
             labels = [label for label in labels if export in label]
             plots = [plots[i] for i,label in enumerate(labels) if export in label]
 
-    import xml.etree.ElementTree as ET
-
     # Function to normalize SVG units to standardize the SVG output across different programs
     # Ensures that svg outputs look the same as html rendering
     def normalize_svg_units(fName):
@@ -251,6 +249,7 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
             
             for plot, label in zip(plots, labels):
                 fName = os.path.join(out_dir, f'{label}.svg')
+                plot = plot.opts(show_legend=False) # legends break svg export with bokeh
                 p = hv.render(plot,backend='bokeh')
                 if dimensions:
                     p.width = dimensions[0]
@@ -371,6 +370,6 @@ def dashboard_input(wildcards, config):
         inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
                     'refFasta': config['runs'][tag]['reference']}
     else:
-        print(f'[NOTICE] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
+        # print(f'[NOTICE] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
         return None
     return inputDict

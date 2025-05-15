@@ -9,7 +9,7 @@
 #  REQUIRES      : none
 #
 # ---------------------------------------------------------------------------------
-import os, sys, site, platform
+import os, sys, site, platform, sysconfig
 
 def get_arch():
     arch = platform.machine()
@@ -19,6 +19,11 @@ def get_arch():
         return "arm64"
     else:
         raise ValueError(f"Unsupported architecture: {arch}")
+
+PYVER = "{0}.{1}".format(*__import__("sys").version_info[:2])
+EXT_SUFFIX = sysconfig.get_config_var("EXT_SUFFIX")
+
+print(f"Performing install for:\n    Python version: {PYVER}\n    architecture: {get_arch()}\n    extension suffix: {EXT_SUFFIX}")
 
 # defaults
 if not 'threads_build' in config:
@@ -33,7 +38,8 @@ rule all:
         "bin/samtools",
         "bin/NGmerge",
         "bin/umicollapse.jar",
-        "bin/medaka"
+        "bin/medaka",
+        f"lib/python{PYVER}/C3POa.py"
 
 rule minimap2:
     output:
@@ -126,33 +132,48 @@ rule NGmerge:
         rm -rf NGmerge
         """
 
-rule C3POa:
+rule abPOA:
     output:
-        C3POa = "lib/python3.10/C3POa.py",
-        conk = "lib/python3.10/site-packages/conk/conk.cpython-39-x86_64-linux-gnu.so"
+        bin = "bin/abPOA"
     threads: config['threads_build']
     shell:
         """
         mkdir -p src && cd src
-        if [ -d C3POa ]; then
-            rm -r -f C3POa
-        fi
-        git clone -b peakFinderCustomSettings https://github.com/gordonrix/C3POa.git
+        rm -rf abPOA
+        wget https://github.com/yangao07/abPOA/releases/download/v1.5.3/abPOA-v1.5.3.tar.gz
+        tar -zxvf abPOA-v1.5.3.tar.gz && cd abPOA-v1.5.3
+        make; ./bin/abpoa ./test_data/seq.fa > cons.fa
+        cp ./bin/abPOA ../../{output.bin}
+        """
 
-        if [ -d conk ]; then
-            rm -r -f conk
-        fi
+rule C3POa:
+    input:
+        "bin/abPOA"
+    output:
+        C3POa = f"lib/python{PYVER}/C3POa.py",
+        conk  = f"lib/python{PYVER}/site-packages/conk/conk{EXT_SUFFIX}"
+    params:
+        pyver      = PYVER,
+        ext_suffix = EXT_SUFFIX
+    threads: config['threads_build']
+    shell:
+        """
+        mkdir -p src && cd src
+        rm -rf C3POa conk
+        
+        # clone & build
+        git clone https://github.com/christopher-vollmers/C3POa.git
         git clone https://github.com/rvolden/conk && cd conk
         python setup.py sdist bdist_wheel
         python -m pip install dist/conk*whl --force-reinstall
         cd ../..
         
-        if [ -d lib/python3.9/bin ]; then
-            mv src/C3POa/bin/* lib/python3.9/bin/
+        if [ -d lib/python{params.pyver}/bin ]; then
+            mv src/C3POa/bin/* lib/python{params.pyver}/bin/
         else
-            mv src/C3POa/bin lib/python3.9
+            mv src/C3POa/bin lib/python{params.pyver}/
         fi
-        mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python3.9
+        mv src/C3POa/C3POa.py src/C3POa/C3POa_postprocessing.py lib/python{params.pyver}
         rm -r -f src/C3POa
         """
 
@@ -188,42 +209,70 @@ rule umicollapse:
         rm -rf src
         """
 
-# rule maple_medaka:
-#     output:
-#         ms = "lib/python3.9/site-packages/medaka/maple_smolecule.py"
-#     shell:
-#         """
-#         mkdir -p src && cd src
-#         if [ -d maple ]; then
-#             rm -r -f maple
-#         fi
-#         git clone https://github.com/gordonrix/maple.git && cd ..
-#         mv src/maple/rules/utils/maple_smolecule.py src/maple/rules/utils/medaka.py lib/python3.9/site-packages/medaka
-#         rm -r -f src/maple
-#         """
-
-
+# perform a build from source as that is required for the maple overrides, then construct a wrapper and move it to bin/
+# also avoids git LFS because that is dependent on nanoporetech account not going over the limit
 rule medaka_wrapper:
     output:
         wrapper="bin/medaka"
+    log: "logs/medaka_wrapper.log"
     threads: config['threads_build']
     shell:
         """
-        mkdir -p src && cd src
-        if [ -d medaka ]; then
-            rm -rf medaka
-        fi
-        git clone https://github.com/nanoporetech/medaka.git --depth=1 && cd medaka
-        make install
+        mkdir -p logs    # make sure the logs/ dir exists
+        exec > {log} 2>&1
 
-        # modify the medaka to use code from maple
+        echo ">>> Working dir: $(pwd)"
+        mkdir -p src && cd src
+
+        echo ">>> Skipping LFS smudge"
+        # 1) Clone the repo without pulling down LFS objects
+        export GIT_LFS_SKIP_SMUDGE=1
+        rm -rf medaka
+        git clone https://github.com/nanoporetech/medaka.git --depth=1 medaka && cd medaka
+
+        echo ">>> Detecting Medaka version"
+        VERSION_TAG=$(git describe --tags --abbrev=0)
+        echo ">>> VERSION_TAG=$VERSION_TAG"
+        VERSION=${{VERSION_TAG#v}}
+        echo ">>> VERSION (no leading v) = $VERSION"
+
+        echo ">>> Downloading the Medaka wheel (no install)…"
+        TMP=$(mktemp -d)
+        pip download medaka==$VERSION --no-deps -d "$TMP" \
+        2>&1 | sed 's/^/   pip: /'
+
+        echo ">>> Unpacking only the data/ folder from the wheel"
+        WHEEL=$(ls "$TMP"/medaka-"$VERSION"-*.whl)
+        unzip -q "$WHEEL" -d "$TMP/pkg"
+
+        echo ">>> Grafting real model blobs into the Python package data/ folder"
+        # make sure the target folder exists
+        mkdir -p medaka/data
+        cp -v "$TMP/pkg/medaka/data/"* medaka/data/ | sed 's/^/   cp: /'
+
+        echo ">>> Removing any remaining LFS‑pointer stubs (tiny text files)"
+        # LFS pointers start with "version https://git-lfs.github.com/spec/v1"
+        grep -rl '^version https://git-lfs.github.com/spec/v1' medaka/data/ \
+        | xargs rm -v | sed 's/^/   rm: /'
+
+        echo ">>> medaka/data/ now contains only real .tar.gz blobs:"
+        ls -1 medaka/data/ | sed 's/^/   /'
+
+        echo ">>> Cleaning up temp wheel dir"
+        rm -rf "$TMP"
+
+        echo ">>> Finally, running make install (check_lfs will now pass)"
+        make install 2>&1 | sed 's/^/   make: /'
+
+        # apply maple overrides
         cd ..
-        if [ -d maple ]; then
-            rm -rf maple
-        fi
-        git clone https://github.com/gordonrix/maple.git
-        mv maple/rules/utils/maple_smolecule.py maple/rules/utils/medaka.py medaka/venv/lib/python3.10/site-packages/medaka
-        rm -rf src/maple
+        rm -rf maple
+        git clone --branch development --single-branch https://github.com/gordonrix/maple.git
+        mv \
+          maple/rules/utils/maple_smolecule.py \
+          maple/rules/utils/medaka.py \
+          medaka/venv/lib/python3.11/site-packages/medaka/
+        rm -rf maple
 
         # Create a directory to hold the Medaka environment.
         mkdir -p ../bin/medaka_env

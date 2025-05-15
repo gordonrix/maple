@@ -11,6 +11,7 @@ import os
 import glob
 import pandas as pd
 import subprocess
+import re
 
 def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
     """
@@ -28,65 +29,54 @@ def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
         List[str]: A list of the full file paths, including the root folder, for all files ending in '.fastq.gz' or 'fq.gz' within all of the subfolders found within the folders.
         If the folder or any of the subfolders were not found, or if the folder was found more than once, or if none of the subfolders were found within the folder, returns an empty list.
     """
-    subfolders = subfolderString.replace(' ','').split(',')
+    subfolders = [s.strip() for s in subfolderString.split(',')]
     filePaths = []
     select_matches = 0
 
+    if not os.path.isdir(rootFolder):
+        print(f"[WARNING] Provided root folder '{rootFolder}' does not exist.")
+        return []
+
     for folder in folderList:
+        # Check for absence of each subfolder and notify
+        for sub in subfolders:
+            sub_match = glob.glob(os.path.join(rootFolder, '**', folder, sub), recursive=True)
+            if not sub_match:
+                print(f"[NOTICE] None of the subfolders '{sub}' were found under folder '{folder}' in '{rootFolder}'.")
 
-        folders_with_seqs = []
-        folderFilePaths = []
+        # Gather FASTQ hits for each subfolder
+        folder_hits = []
+        for sub in subfolders:
+            pat1 = os.path.join(rootFolder, '**', folder, sub, '*.fastq.gz')
+            pat2 = os.path.join(rootFolder, '**', folder, sub, '*.fq.gz')
+            hits = glob.glob(pat1, recursive=True) + glob.glob(pat2, recursive=True)
+            for f in hits:
+                name = os.path.basename(f)
+                if select and name != select:
+                    continue
+                folder_hits.append(f)
+                if select and name == select:
+                    select_matches += 1
 
-        if not os.path.isdir(rootFolder):
-            print(f'[WARNING] Provided root folder "{rootFolder}" does not exist.')
+        if not any(glob.glob(os.path.join(rootFolder, '**', folder), recursive=True)):
+            print(f"[WARNING] Folder '{folder}' not found in root folder '{rootFolder}'.")
+        elif not folder_hits:
+            print(f"[WARNING] No .fastq.gz files found within subfolders {subfolders} within folder '{folder}' in root folder '{rootFolder}'.")
+        elif len(folder_hits) > 1 and select:
+            print(f"[WARNING] More than one file found that matches select '{select}':")
+            for f in folder_hits:
+                print(f"  {f}")
+            print(f"Using all {len(folder_hits)} matching files.")
 
-        # Search for the uniquely named folder within the root folder
-        for root, dirs, _ in os.walk(rootFolder):
-            if folder in dirs:
-                # Search for each subfolder
-                folderPath = os.path.join(root, folder)
-                subfolderCount = 0
-                for subfolder in subfolders:
-                    for _, subdirs, _ in os.walk(folderPath):
-                        if subfolder in subdirs:
-                            # Found the subfolder, now retrieve the file names
-                            subfolderPath = os.path.join(folderPath, subfolder)
-                            for _, _, files in os.walk(subfolderPath):
-                                for file in files:
-                                    if file.endswith('.fastq.gz') or file.endswith('.fq.gz'):
-                                        if os.path.join(root,folder) not in folders_with_seqs:
-                                            folders_with_seqs.append(os.path.join(root,folder))
-                                        subfolderCount += 1 # only care about folders / subfolders that contain the sequences in the right place
-                                        if select: # only grab the file if it matches provided select argument
-                                            if file == select:
-                                                select_matches += 1
-                                            else:
-                                                continue
-                                        folderFilePaths.append(os.path.join(root, folder, subfolder, file))
+        filePaths.extend(folder_hits)
 
-                if subfolderCount == 0:
-                    # None of the subfolders were found, print warning
-                    print(f'[NOTICE] None of the subfolders "{subfolder}" were found in directory "{os.path.join(root, folder)}".')
-
-        if len(folders_with_seqs) > 1:
-            print(f'[NOTICE] Found folder "{folder}" more than once in root folder "{rootFolder}". Merging all sequences within the designated subfolders.')
-
-        if len(folders_with_seqs) == 0:
-            print(f'[WARNING] Folder "{folder}" not found in root folder "{rootFolder}".')
-        elif len(folderFilePaths) == 0:
-            print(f'[WARNING] No .fastq.gz files found within subfolders {subfolderString} within folder "{folder}" within root folder "{rootFolder}".')
-
-        filePaths.extend(folderFilePaths)
-    if select:
-        if select_matches == 0:
-            print('[ERROR] More than one fastq file found that matches user input:\n'+''.join([f'{file}\n' for file in input]))
-        elif select_matches > 1:
-            print(f'[WARNING] More than one file found that matches user input "{select}":\n'+''.join([f'{file}\n' for file in folderFilePaths]))
-
-    if len(filePaths) == 0:
-        print('[NOTICE] Did not find any sequences to import. This is likely because no runname for a tag was specified. If sequence import is necessary then you may have change that.')
+    if select and select_matches == 0:
+        print(f"[ERROR] No fastq file matching '{select}' was found.")
+    if not filePaths:
+        print('[NOTICE] Did not find any sequences to import.')
 
     return filePaths
+    
 
 rule combine_tag: # combine batches of reads into a single file
     input:
@@ -103,21 +93,27 @@ rule combine_tag: # combine batches of reads into a single file
 
 checkpoint basespace_retrieve_project:
     output:
-        flag = "sequences/{bs_project_ID}/.done"
+        flag = "sequences/bs{bs_project_ID}/.done"
     shell:
         """
-        bs download project -i {wildcards.bs_project_ID} -o sequences/{wildcards.bs_project_ID} --extension fastq.gz
+        bs download project -i {wildcards.bs_project_ID} -o sequences/bs{wildcards.bs_project_ID} --extension fastq.gz
         touch {output.flag}
         """
 
 def get_bs_paired_end(tag):
+    """
+    Retrieve paired-end fastq files from BaseSpace for a given tag.
+    Assumes paired end files are located in the following directory structure after a bs project download:
+        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*R1*.fastq.gz
+        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*R2*.fastq.gz
+    """
     project_ID = config['runs'][tag].get('bs_project_ID', None)
     if not project_ID:
         raise ValueError(f"No BaseSpace project ID found for tag {tag}")
     flag = checkpoints.basespace_retrieve_project.get(bs_project_ID=project_ID).output[0]
     project_dir = os.path.dirname(flag)
-    fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"{tag}*R1*.fastq.gz"))
-    rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"{tag}*R2*.fastq.gz"))
+    fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R1*.fastq.gz"))
+    rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R2*.fastq.gz"))
 
     if fwd and rvs:
         return fwd[0], rvs[0]
@@ -129,7 +125,7 @@ rule merge_paired_end:
         fwd = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag].get('runname','')[0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['fwdReads'])[0],
         rvs = lambda wildcards: retrieve_fastqs(config['sequences_dir'], [config['runs'][wildcards.tag].get('runname','')[0]], config['fastq_dir'], select=config['runs'][wildcards.tag]['rvsReads'])[0]
     output:
-        merged = temp("sequences/paired/{tag, [^\/_]*}.fastq.gz"),
+        merged = "sequences/paired/{tag, [^\/_]*}.fastq.gz",
         log = "sequences/paired/{tag, [^\/_]*}_NGmerge.log",
         failedfwd = "sequences/paired/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
         failedrvs = "sequences/paired/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
@@ -146,13 +142,13 @@ rule merge_paired_end_from_bs:
         fwd = lambda wildcards: get_bs_paired_end(wildcards.tag)[0],
         rvs = lambda wildcards: get_bs_paired_end(wildcards.tag)[1]
     output:
-        merged = temp("sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}.fastq.gz"),
-        log = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_NGmerge.log",
-        failedfwd = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
-        failedrvs = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
+        merged = "sequences/bs{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}.fastq.gz",
+        log = "sequences/bs{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_NGmerge.log",
+        failedfwd = "sequences/bs{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_1.fastq.gz",
+        failedrvs = "sequences/bs{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge_2.fastq.gz"
     params:
         flags = config['NGmerge_flags'],
-        failed = "sequences/{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge"
+        failed = "sequences/bs{bs_project_ID, [^\/_]*}_merged/{tag, [^\/_]*}_failed-merge"
     shell:
         """
         NGmerge -1 {input.fwd} -2 {input.rvs} -o {output.merged} -l {output.log} -f {params.failed} -z {params.flags}
@@ -161,14 +157,14 @@ rule merge_paired_end_from_bs:
 def get_merged_seqs(tag):
 
     if any([x in config['runs'][tag] for x in ['fwdReads', 'rvsReads']]):
-        return f'sequences/paired/{wildcards.tag}.fastq.gz'
+        return f'sequences/paired/{tag}.fastq.gz'
 
     elif 'runname' in config['runs'][tag]:
-        return f'sequences/{wildcards.tag}_combined.fastq.gz'
+        return f'sequences/{tag}_combined.fastq.gz'
 
     elif 'bs_project_ID' in config['runs'][tag]:
         project_ID = config['runs'][tag]['bs_project_ID']
-        return f'sequences/{project_ID}_merged/{tag}.fastq.gz'
+        return f'sequences/bs{project_ID}_merged/{tag}.fastq.gz'
     
     else:
         return ''

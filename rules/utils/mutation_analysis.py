@@ -13,7 +13,7 @@ from common import dist_to_DF
 ### Asign variables from config file
 config = snakemake.config
 BAMin = str(snakemake.input.bam)
-tag = BAMin.strip('.bam').split('/')[1].split('_')[0]
+tag = BAMin[:-4].split('/')[1].split('_')[0]
 ###
 
 outputDir = 'mutation_data'
@@ -359,7 +359,7 @@ class MutationAnalysis:
                 self.fastq = True
             bamFile.reset()
             break
-        
+
         for bamEntry in bamFile:
             if self.config.get('demux_screen_failures', False):
                 if self.barcodeColumn and ('fail' in bamEntry.get_tag('BC')):
@@ -368,13 +368,17 @@ class MutationAnalysis:
             if cleanAln:
                 if self.useReverseComplement:
                     cleanAln = self.clean_alignment_reverse_complement(cleanAln)
-                seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)                    
+                seqNTmutArray, seqAAmutArray, seqGenotype = self.ID_muts(cleanAln)
             else:
-                failuresList.append([bamEntry.query_name, self.alignmentFailureReason[0], self.alignmentFailureReason[1]])
+                failuresList.append([
+                    bamEntry.query_name,
+                    self.alignmentFailureReason[0],
+                    self.alignmentFailureReason[1]
+                ])
                 continue
 
             seqTotalNTmuts = sum(sum(seqNTmutArray))
-            NTmutArray += seqNTmutArray
+            NTmutArray    += seqNTmutArray
             NTmutDist[seqTotalNTmuts] += 1
             if self.doAAanalysis:
                 AAmutArray += seqAAmutArray
@@ -385,12 +389,11 @@ class MutationAnalysis:
                 avgQscore = -1
             else:
                 avgQscore = np.average(np.array(cleanAln[3]))
-            seqGenotype = [bamEntry.query_name, avgQscore] + seqGenotype
 
+            record = [bamEntry.query_name, avgQscore] + seqGenotype
             if self.barcodeColumn:
-                seqGenotype.append(bamEntry.get_tag('BC'))
-            
-            genotypesList.append(seqGenotype)
+                record.append(bamEntry.get_tag('BC'))
+            genotypesList.append(record)
 
         all_seqs_DF = pd.DataFrame(genotypesList, columns=all_seqs_columns)
         failuresDF = pd.DataFrame(failuresList, columns=failuresColumns)
