@@ -191,32 +191,9 @@ rule plot_enrichment:
         filtered, _ = enrichment_mean_filter(scores_df, SE_filter=params.SE_filter, t0_filter=params.t0_filter, score_filter=params.score_filter, mean_csv=output.mean)
         plot_enrichment(filtered, output.plot)
 
-
-# Mutation analysis will only output AA analysis when a third reference sequence is provided, yielding a dynamic number of output files. Can't use functions in output,
-#   so instead we create a separate rule for which correct input files are only given when AA analysis is not being performed, and give this rule priority. It's not pretty but it works.
-ruleorder: mutation_analysis_NTonly > mutation_analysis
-
-def ma_NTonly_input(wildcards):
-    if config['do_AA_mutation_analysis'][wildcards.tag]:
-        return {'bam':'dummyfilethatshouldneverexist','bai':'dummyfilethatshouldneverexist'}
-    else:
-        if config['do_demux'][wildcards.tag]:
-            return {'bam':expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag), 'bai':expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag)}
-        else:
-            return {'bam':f'alignments/{wildcards.tag}.bam', 'bai':f'alignments/{wildcards.tag}.bam.bai'}
-
-rule mutation_analysis_NTonly:
-    input:
-        unpack(ma_NTonly_input)
-    output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv'])
-    params:
-        NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
-        analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True),
-        mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
-    script:
-        'utils/mutation_analysis.py'
-
+# NOTE: in previous Snakemake versions a workaround that allowed this rule to have a dynamic number of outputs depending on
+#       if AA analysis is performed was used. This is no longer possible so when AA analysis is not performed, empty AA outputs
+#       will be generated
 rule mutation_analysis:
     input:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
@@ -305,7 +282,6 @@ def merge_mut_stats_input(wildcards):
                     out.append(f'mutation_data/{tag}/{tag}_mutation-stats.csv')
             else:
                 out.append(f'mutation_data/{tag}/{tag}_mutation-stats.csv')
-
     return out
 
 rule merge_mut_stats:
