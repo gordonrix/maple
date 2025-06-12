@@ -2,85 +2,88 @@
 #       for each analysis run. Become familiar with these options
 
 # runs to be analyzed, organized into separate run 'tags'. Tags may not contain underscores.
-runs:
+runs: tags.csv
 
-    TrpB:
-        # if sequences to be used are not provided as 'sequences/<yourRunTag>.fastq.gz, then either runname or fwdReads/rvsReads must be provided
+# runs:
+#     TrpB:
+#         # if sequences to be used are not provided as 'sequences/<yourRunTag>.fastq.gz, then either runname or fwdReads/rvsReads must be provided
 
-        # Unique folder name in which batches of sequences are stored, to be merged together and processed together. All sequences from this run will be retrieved, but only those that align to the reference sequence will be used
-        #   Searches 2 directories deep within the 'sequences_dir' (defined below) for the provided runname directories. If multiple runname directories are provided, all will be used
-        runname:
-            - 20220827_1323_MN35267_FAU75463_1d527443
+#         bs_project_ID: '735863131'
 
-        # Alternatively, file names for paired end reads can be used as input. These will be merged with the NGmerge tool prior to analysis
-        # fwdReads: seqsR1.fastq.gz
-        # rvsReads: seqsR2.fastq.gz
+#         # Unique folder name in which batches of sequences are stored, to be merged together and processed together. All sequences from this run will be retrieved, but only those that align to the reference sequence will be used
+#         #   Searches 2 directories deep within the 'sequences_dir' (defined below) for the provided runname directories. If multiple runname directories are provided, all will be used
+#         runname:
+#             - 20220827_1323_MN35267_FAU75463_1d527443
 
-        # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
-        #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
-        #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
-        #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
-        reference: TrpB-ref.fasta
+#         # Alternatively, file names for paired end reads can be used as input. These will be merged with the NGmerge tool prior to analysis
+#         # fwdReads: seqsR1.fastq.gz
+#         # rvsReads: seqsR2.fastq.gz
 
-        # 'splint' sequence for rolling circle amplification consensus sequence construction
-        splint: cggagtcaattaggtcatacNNNYRNNNYRNNNYRNNNCACTCGCACTGACTCGATNNNNNNNCGTCTTTCTGAGACCAGGAGGTCTCAAGGACTGCNNNNNNNCGTGTAGAGACTGCGTAGGNNNYRNNNYRNNNYRNNNgatgacctatacataggaagatctatag
+#         # fasta file that contains reference sequence in two or three forms: first is with barcode and UMI locations present, but marked by 'N's. This sequence is what each read will actually be aligned to
+#         #   second is trimmed such that each base is one for which mutation analysis is desired. For amplicon sequencing, this likely means only bases that were PCR amplified,
+#         #   as bases that are present in primers are likely not informative and will slightly obscure evaluation of certain results such as mutations per base, etc.
+#         #   Third sequence is the protein sequence to be analyzed, and is optional if the complete ORF is present in each read, see `auto_detect_longest_ORF`
+#         reference: TrpB-ref.fasta
 
-        # List of UMI contexts. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
-        UMI_contexts:
-            - NNNYRNNNYRNNNYRNNNCA
-            - GGNNNYRNNNYRNNNYRNNN
+#         # 'splint' sequence for rolling circle amplification consensus sequence construction
+#         splint: cggagtcaattaggtcatacNNNYRNNNYRNNNYRNNNCACTCGCACTGACTCGATNNNNNNNCGTCTTTCTGAGACCAGGAGGTCTCAAGGACTGCNNNNNNNCGTGTAGAGACTGCGTAGGNNNYRNNNYRNNNYRNNNgatgacctatacataggaagatctatag
 
-        # list barcode types to be used for demultiplexing. Demux'd files are named according to these barcodes in the order provided
-        barcodeInfo: # barcode types present within each sequence, distinguished by their location within the reference sequence, which are defined by the N's within the given context
-            rvs: 
-                context: GCNNNNNNN                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
-                fasta: 7merBarcodes.fasta        # fasta file containing barcode sequences, located in references_directory
-                reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as the reverse complement of the top strand (e.g., the defined sequences are present as-is within a reverse primer that was used for PCR)
-                hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
-            fwd:
-                context: TNNNNNNN  
-                fasta: 7merBarcodes.fasta
-                reverseComplement: True
-                hammingDistance: 1                
+#         # List of UMI contexts. Copy and paste from reference fasta sequence. First N and last N will be used to identify UMIs within each sequence.
+#         UMI_contexts:
+#             - NNNYRNNNYRNNNYRNNNCA
+#             - GGNNNYRNNNYRNNNYRNNN
 
-            lineage:
-                context: NNNNNNNNNNNN
-                fasta: lineageBarcodes.fasta
-                reverseComplement: False
-                hammingDistance: 0
-                generate: all                       # Integer or 'all'.  if the fasta file does not already exist, automatically generates a fasta file from the provided sequencing data with this number of barcodes (ordered by prevalence) or all identified barcodes
-                noSplit: True                       # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files,
-                                                        # and cannot be used in barcodeGroups to name output and plots. Default, False
+#         # list barcode types to be used for demultiplexing. Demux'd files are named according to these barcodes in the order provided
+#         barcodeInfo: # barcode types present within each sequence, distinguished by their location within the reference sequence, which are defined by the N's within the given context
+#             rvs: 
+#                 context: GCNNNNNNN                   # copy and paste from reference fasta sequence. Include just enough sequence on one or both sides to distinguish from other barcodes, more than is necessary will result in more barcodes being ignored due to indels
+#                 fasta: 7merBarcodes.fasta        # fasta file containing barcode sequences, located in references_directory
+#                 reverseComplement: False            # set to True if corresponding barcodes in fasta file are defined as the reverse complement of the top strand (e.g., the defined sequences are present as-is within a reverse primer that was used for PCR)
+#                 hammingDistance: 1                  # maximum hamming distance from barcode in fasta file to increase leniency in barcode identification. If any two of barcodes within provided fasta file are within this hamming distance from each other, throws an error. Default, 0
+#             fwd:
+#                 context: TNNNNNNN  
+#                 fasta: 7merBarcodes.fasta
+#                 reverseComplement: True
+#                 hammingDistance: 1                
 
-        # timepoints provided as .csv file that provides the tag and barcode combinations for timepoints of an experiment. This can be used for generating mutation spectrum and mutation rate plots.
-        #   Output files will be labelled with this tag. the timepoints csv can use barcode groups from other tags, but different tags that use the same timepoints csv file
-        #   will only yield one output file of each type.
-        timepoints: timepoints.csv
+#             lineage:
+#                 context: NNNNNNNNNNNN
+#                 fasta: lineageBarcodes.fasta
+#                 reverseComplement: False
+#                 hammingDistance: 0
+#                 generate: all                       # Integer or 'all'.  if the fasta file does not already exist, automatically generates a fasta file from the provided sequencing data with this number of barcodes (ordered by prevalence) or all identified barcodes
+#                 noSplit: True                       # if set to True, the identity of this barcode will be recorded in some outputs such as genotypes, but will not be used to split sequences into distinct files,
+#                                                         # and cannot be used in barcodeGroups to name output and plots. Default, False
 
-        # barcodeGroups provided either as a .csv file or a dictionary. For .csv input, see the example barcodeGroups.csv
-        #   For dictionary import, a commented-out example is provided. All barcode types must be defined in barcodeInfo
-        #   All barcode names must be present in the provided barcode fasta file for a given barcode type
-        #   Barcode group names may not contain underscores.
-        barcodeGroups: barcodeGroups.csv
-        enrichment: TrpB
-        #barcodeGroupName:  
-        #   fwd: bc1
-        #   rvs: bc2
+#         # timepoints provided as .csv file that provides the tag and barcode combinations for timepoints of an experiment. This can be used for generating mutation spectrum and mutation rate plots.
+#         #   Output files will be labelled with this tag. the timepoints csv can use barcode groups from other tags, but different tags that use the same timepoints csv file
+#         #   will only yield one output file of each type.
+#         timepoints: timepoints.csv
+
+#         # barcodeGroups provided either as a .csv file or a dictionary. For .csv input, see the example barcodeGroups.csv
+#         #   For dictionary import, a commented-out example is provided. All barcode types must be defined in barcodeInfo
+#         #   All barcode names must be present in the provided barcode fasta file for a given barcode type
+#         #   Barcode group names may not contain underscores.
+#         barcodeGroups: barcodeGroups.csv
+#         enrichment: TrpB
+#         #barcodeGroupName:  
+#         #   fwd: bc1
+#         #   rvs: bc2
 
 
 ### END REQUIRED CONFIGURATION SECTION. After this point most settings may not need to be changed for a given analysis run,
 #       though you should become familiar with settings in sections for parts of the pipeline you will be using, especially any consensus sequence steps 
 
-
+metadata: metadata   # directory name for metadata files, located in working directory
 
 # path to minknow directory containing nanopore sequencing data. In this example directory we use a relative path, but this should be replaced with an absolute path to a location
 #   where sequences are typically stored so that it does not need to change every time a new working directory is made for a new experiment
 sequences_dir: data
 fastq_dir: fastq_pass, fastq_fail           # comma separated list of folders within the run folder to pull fastq.gz files from. Normally either 'fastq_pass' or 'fastq_pass, fastq_fail' for nanopore data
 
-# plotting
+# plotting settings
 colormap: 'kbc_r'              # colormap to use for plots that use a colormap. options are 'kbc', 'fire', 'bgy', 'bgyw', 'bmy', 'gray', 'rainbow4', and each of these in the opposite direction using '_r' e.g. kbc_r. See colorcet.holoviz.org
-distribution_x_range: False       # comma separated pair of values to use for the x axis of all distribution plots. Best to leave as False unless you are exporting SVGs, whose axes are not adjustable
+distribution_x_range: False       # comma separated pair of values to use for the x axis of all distribution plots. Best to leave as False unless you are exporting SVGs, whose axes are not adjustable. e.g. 0,10
 distribution_y_range: False
 export_SVG: False              # str or Bool. Controls export of plot outputs to SVG format in addition to .html.
                                 #   If False, does not export SVGs. If True, exports all plots that can be exported as SVGs (in addition to the normal .html outputs).
@@ -90,9 +93,13 @@ export_SVG: False              # str or Bool. Controls export of plot outputs to
                                 #   as the .html plots are grouped and are much more feature rich and take up less storage. Note that the resulting .svg
                                 #   files are not tracked by the snakemake pipeline. Also note that colorbars will not show up in the .svg files but will match the corresponding .html files.
 
-nanopore: True      # Set to true if sequencing data is derived from ONT nanopore platform
-
-references_directory: ref   # directory name for reference files, located in working directory
+# enable/disable certain plotting outputs. If set to False, the corresponding plot will not be generated
+plot_demux: True
+plot_mutation-distribution: True
+plot_mutation-frequencies: True
+plot_hamming-distance-distribution: True
+plot_mutation-distribution-violin: True
+plot_genotypes2D: False         # also depends on other options, see below
 
 # threads per processing batch, if given enough threads with -j n multiple
 # batches run in parallel. Also used as resource for cluster jobs.
@@ -159,7 +166,7 @@ genotype_ID_alignments: 0                # similar to above, but a comma separat
 mutations_frequencies_raw: False            # If set to True, outputs mutation frequencies as raw counts, instead of dividing by total sequences
 analyze_seqs_with_indels: True          # Set to True if sequences containing insertions or deletions should be analyzed. Defaults to True.
 mutations_frequencies_number_of_positions: 20              # number of mutations to include in the most/least frequent mutations plots
-mutations_frequencies_heatmap: False           # set to True if the frequencies plot should be a heatmap. will be a stacked bar otherwise
+mutations_frequencies_heatmap: True           # set to True if the frequencies plot should be a heatmap. will be a stacked bar otherwise
 
 # mutation statistics
 unique_genotypes_count_threshold: 5         # minimum number of reads of a particular genotype for that genotype to be included in unique genotypes count
@@ -175,7 +182,7 @@ unique_genotypes_count_threshold: 5         # minimum number of reads of a parti
 #   To use, this barcode group name must be present within all sample tags being analyzed.
 #   This is to prevent using a background sequencing error from a different sequencing run than the sample.
 #   Comment out or set to False if not using
-background: control
+# background: control
 uniques_only: False      # if set to True, only uses unique mutations to determine mutation spectrum
 
 # hamming distance distribution
