@@ -18,7 +18,9 @@ from Bio import SeqIO
 import json
 import yaml
 import pandas as pd
+import numpy as np
 import logging
+from rules.utils.common import load_csv_as_dict, validate_bc, str_to_bool
 
 start_time = datetime.now()
 
@@ -70,17 +72,6 @@ required = ['sequences_dir', 'fastq_dir', 'metadata', 'threads_alignment', 'thre
 if ('minknowDir' in config) and ('sequences_dir' not in config):
     print('[WARNING] "sequences_dir" is a new required config variable that replaces "minknowDir", please replaced "minknowDir" with "sequences_dir" in your config file"')
 
-def str_to_bool(value):
-    """
-    Convert a string to a boolean if possible, raise error if not.
-    """
-    if isinstance(value, str):
-        if value.lower() == 'true':
-            return True
-        elif value.lower() == 'false':
-            return False
-    raise ValueError(f"Invalid boolean string: {value}")
-
 def str_to_number(value):
     """
     Convert a string to a number (int or float) if possible, raise error if not.
@@ -108,116 +99,192 @@ def pretty_print(d, indent=2):
         else:
             print('  ' * (indent + 1) + str(value) + ' ' + type(value).__name__)
 
-def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
+def validate_csv_path(csv_path, metadata_dir, config_key, tag):
     """
-    load the given csv file as a nested dictionary in which the first column is used as the outer key and columns are used as the inner key, with values as the inner values.
-    If a tag is given then the tag column will be used to filter the dataframe, then removed, and the first of the remaining columns will be used as the outer key.
-
-    params:
-        csv_path: str, path to the csv file
-        required: list, optional, list of required column values to check for in each row in the csv file
-        lists: list, optional, list of column names that should be converted to lists using '__' as the delimiter
-        tag: str, optional, the tag to filter the dataframe by. If this is used but no tag column is present,
-            no filtering will be done. This is to allow for the same file to be used by multiple tags
-        defaults: dict, optional, default values to use if a column is not present or if a value is missing
+    Validate that a config value is a string path to a CSV file.
+    Returns tuple: (full_path, error_message or None)
+    """
+    if not isinstance(csv_path, str):
+        return None, f"[ERROR] {config_key} for tag `{tag}` must be a string path to a CSV file, not {type(csv_path).__name__}.\n"
     
-    returns:
-        dict, the csv file as a nested dictionary
-    """
-
-    if os.path.isfile(csv_path):
-        df = pd.read_csv(csv_path, index_col=False, dtype=str)
-        if ('tag' in df.columns) and tag:
-            df = df.loc[df['tag']==tag]
-            df = df.drop(columns='tag')
-        df = df.set_index(df.columns[0])
-        if any([c.startswith('Unnamed: ') for c in df.columns]):
-            print(f"[WARNING] Column name beginning with 'Unnamed: ' detected in csv {csv_path}. This usually results from erroneous whitespace characters.\n")
-        for req in required:
-            if req not in df.columns:
-                print(f"[WARNING] Required value `{req}` not found in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
-                return {}
-            elif df[req].isnull().values.any():
-                print(f"[WARNING] Some rows are missing value for required key `{req}` in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
-                return {}
-        for default in defaults:
-            if default not in df.columns:
-                df[default] = defaults[default]
-            elif df[default].isnull().values.any():
-                df[default] = df[default].fillna(defaults[default])
-        csv_dict = df.to_dict('index')
-        cleaned_dict = {
-            key: {k: v for k, v in csv_dict[key].items() if not pd.isnull(v)}
-            for key in csv_dict
-        }
-        # convert list columns to lists
-        for col in lists:
-            for key in cleaned_dict:
-                if col in cleaned_dict[key]:
-                    cleaned_dict[key][col] = cleaned_dict[key][col].split('__')
-
-        return cleaned_dict
-
+    # Add metadata directory if not already present
+    if not csv_path.startswith(metadata_dir):
+        full_path = os.path.join(metadata_dir, csv_path)
     else:
-        print(f"[WARNING] Provided string `{csv_path}` is not a csv file. Please provide a YAML-formatted dictionary or a csv file with the tag as the index.\n")
-        return {}
+        full_path = csv_path
+    
+    # Check if file exists and is a CSV
+    if not os.path.isfile(full_path):
+        return None, f"[ERROR] {config_key} file `{full_path}` for tag `{tag}` does not exist. {csv_path}\n"
+    
+    if not full_path.endswith('.csv'):
+        return None, f"[ERROR] {config_key} file `{full_path}` for tag `{tag}` does not have .csv extension.\n"
+    
+    return full_path, None
 
-def validate_bc(bc_info_dict, bc):
+
+def validate_barcode_groups_csv(bc_groups_csv, barcode_info_csv, tag, group_type='partition'):
     """
-    Validate the barcodeInfo dictionary for a given barcode type.
+    Validate barcode groups CSV file (either partition or label groups).
+    Returns a list of warnings.
     """
-    if type(bc_info_dict[bc]['reverseComplement']) is str:
-        try:
-            bc_info_dict[bc]['reverseComplement'] = str_to_bool(bc_info_dict[bc]['reverseComplement'])
-        except ValueError:
-            errors.append(f"[ERROR] Invalid boolean string for `reverseComplement` in barcodeInfo for barcode `{bc}`. Please provide a boolean string (True/False).\n")
-    if type(bc_info_dict[bc]['noSplit']) is str:
-        try:
-            bc_info_dict[bc]['noSplit'] = str_to_bool(bc_info_dict[bc]['noSplit'])
-        except ValueError:
-            errors.append(f"[ERROR] Invalid boolean string for `noSplit` in barcodeInfo for barcode `{bc}`. Please provide a boolean string (True/False).\n")
-    if (type(bc_info_dict[bc]['generate']) is str) and (bc_info_dict[bc]['generate'] != 'all'):
-        try:
-            bc_info_dict[bc]['generate'] = str_to_number(bc_info_dict[bc]['generate'])
-        except ValueError:
-            errors.append(f"[ERROR] Invalid string for `generate` in barcodeInfo for barcode `{bc}`. Please input `False`, `all`, or an integer.\n")
+    warnings = []
+    
+    try:
+        groups_df = pd.read_csv(bc_groups_csv)
+    except Exception as e:
+        warnings.append(f"[WARNING] Failed to read {group_type} barcode groups CSV file `{bc_groups_csv}` for tag `{tag}`: {e}\n")
+        return warnings
+    
+    # Filter by tag if tag column exists
+    if 'tag' in groups_df.columns:
+        groups_df = groups_df[groups_df['tag'] == tag]
+    if 'barcode_group' not in groups_df.columns:
+        warnings.append(f"[WARNING] Required column `barcode_group` not found in {group_type} groups CSV `{bc_groups_csv}` for tag `{tag}`.\n")
+        return warnings
+    
+    if len(groups_df) == 0:
+        return warnings  # Empty groups are OK
+    
+    # Load barcode info to check against
+    try:
+        barcode_info_df = pd.read_csv(barcode_info_csv)
+        if 'tag' in barcode_info_df.columns:
+            barcode_info_df = barcode_info_df[barcode_info_df['tag'] == tag]
         
-    return bc_info_dict
+        # Create barcode info lookup
+        barcode_info = {}
+        for _, row in barcode_info_df.iterrows():
+            barcode_info[row['barcode_name']] = {
+                'label_only': row.get('label_only', False),
+                'fasta': row['fasta']
+            }
+    except Exception as e:
+        warnings.append(f"[WARNING] Could not read barcode info CSV for validation of {group_type} groups: {e}\n")
+        return warnings
+    
+    barcode_types = list(groups_df.columns.difference(['barcode_group', 'tag']))
 
-# import any csv-formatted metadata as dictionaries
-
-if type(config.get('runs', False)) is str:
-    full_csv_path = os.path.join(config['metadata'], config['runs'])
-    config['runs'] = load_csv_as_dict(full_csv_path, required=['reference'], lists=['runname', 'UMI_contexts'])
-
-for tag in config['runs']:
-    if 'barcodeInfo' in config['runs'][tag]:
-        defaults = {'generate':False, 'noSplit':False}
-        if type(config['runs'][tag]['barcodeInfo']) is str:
-            full_csv_path = os.path.join(config['metadata'], config['runs'][tag]['barcodeInfo'])
-            config['runs'][tag]['barcodeInfo'] = load_csv_as_dict(full_csv_path, required=['context', 'fasta', 'reverseComplement'], tag=tag, defaults=defaults)
+    # Check each group
+    for _, row in groups_df.iterrows():
+        group_name = row['barcode_group']
         
-        # add default values if they are missing
-        elif type(config['runs'][tag]['barcodeInfo']) is dict:
-            for bc in config['runs'][tag]['barcodeInfo']:
-                for default in defaults:
-                    if default not in config['runs'][tag]['barcodeInfo'][bc]:
-                        config['runs'][tag]['barcodeInfo'][bc][default] = defaults[default]
-                config['runs'][tag]['barcodeInfo'] = validate_bc(config['runs'][tag]['barcodeInfo'].copy(), bc)
-    if 'barcodeGroups' in config['runs'][tag]:
-        if type(config['runs'][tag].get('barcodeGroups', False)) is str:
-            full_csv_path = os.path.join(config['metadata'], config['runs'][tag]['barcodeGroups'])
-            config['runs'][tag]['barcodeGroups'] = load_csv_as_dict(full_csv_path, tag=tag)
-    for bc in config['runs'][tag].get('barcodeInfo', {}):
-        config['runs'][tag]['barcodeInfo'] = validate_bc(config['runs'][tag]['barcodeInfo'].copy(), bc)
+        if '_' in group_name:
+            warnings.append(f"[WARNING] {group_type.capitalize()} barcode group `{group_name}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline.\n")
+        
+        # Check each barcode type in the group
+        for col in barcode_types:
+                
+            if pd.notna(row[col]):
+                barcode_type = col
+                barcode_name = row[col]
+                
+                # Check if barcode type exists
+                if barcode_type not in barcode_info:
+                    warnings.append(f"[WARNING] Barcode type `{barcode_type}` in {group_type} group `{group_name}` for run tag `{tag}` is not defined in barcode info.\n")
+                    continue
+                
+                # Check label_only status
+                is_label_only = barcode_info[barcode_type].get('label_only', False)
+                is_label_only = False if np.isnan(is_label_only) else is_label_only
 
-# keep a list of errors that will be parsed all at once at the end
+                if group_type == 'partition' and is_label_only:
+                    warnings.append(f"[WARNING] Barcode type `{barcode_type}` is marked as label_only but is used in partition group `{group_name}` for tag `{tag}`. Demultiplexing will fail.\n")
+                elif group_type == 'label' and not is_label_only:
+                    warnings.append(f"[WARNING] Barcode type `{barcode_type}` is not marked as label_only but is used in label group `{group_name}` for tag `{tag}`. Demultiplexing will fail.\n")
+    
+    return warnings
+
+# keep a list of errors, warnings, and notices
 errors = []
-# keep a list of all notices
+warnings = []
 notices = []
 # notify user if any notices were not sent to stdout
 notice_of_notices = False
 runs_to_import = []
+
+
+# import and validate any csv metadata files
+
+if type(config.get('runs', False)) is str:
+    full_csv_path = os.path.join(config['metadata'], config['runs'])
+    df = pd.read_csv(full_csv_path, index_col=False)
+    config['runs'] = load_csv_as_dict(full_csv_path, required=['reference'], lists=['runname', 'UMI_contexts'])
+
+for tag in config['runs']:
+    # Check for deprecated barcodeInfo dictionary
+    if 'barcodeInfo' in config['runs'][tag]:
+        if isinstance(config['runs'][tag]['barcodeInfo'], dict):
+            errors.append(f"[ERROR] Dictionary input for barcodeInfo for tag `{tag}` is no longer supported. Please provide a CSV file path with the parameter `barcode_info_csv` instead.\n")
+    
+    # Check for deprecated barcodeGroups dictionary
+    if 'barcodeGroups' in config['runs'][tag]:
+        if isinstance(config['runs'][tag]['barcodeGroups'], dict):
+            errors.append(f"[ERROR] Dictionary input for barcodeGroups for tag `{tag}` is no longer supported. Please provide a CSV file path with the parameter `partition_barcode_groups_csv` instead.\n")
+
+    # Handle barcode_info_csv (validate and convert to full path)
+    barcode_info_csv = config['runs'][tag].get('barcode_info_csv', None)
+    if isinstance(barcode_info_csv, str):
+        csv_path, error = validate_csv_path(
+            config['runs'][tag]['barcode_info_csv'], 
+            config['metadata'], 
+            'barcode_info_csv',
+            tag
+        )
+        if error:
+            errors.append(error)
+        else:
+            config['runs'][tag]['barcode_info_csv'] = csv_path
+
+        # add barcode info as dictionary to config
+        config['runs'][tag]['barcode_info'] = load_csv_as_dict(
+            csv_path,
+            required=['barcode_name', 'context', 'fasta', 'reverse_complement'],
+            tag=tag,
+            defaults={'reverse_complement': False, 'label_only': False, 'generate': False, 'hamming_distance': 0}
+        )
+
+        # Clean up barcode_info: remove empty entries, ensure inputs adhere to expected values
+        barcode_info = config['runs'][tag]['barcode_info']
+        for barcode_name in barcode_info:
+
+            config['runs'][tag]['barcode_info'], bc_errors = validate_bc(
+                config['runs'][tag]['barcode_info'], 
+                barcode_name,
+                metadata_dir=config['metadata'],
+                errors_list=errors  # Pass the global errors list
+            )
+
+    # Handle partition_barcode_groups_csv and label_barcode_groups_csv (validate and convert to full path)
+
+    for group_type in ['partition', 'label']:
+        key = f'{group_type}_barcode_groups_csv'
+        csv = config['runs'][tag].get(key, None)
+        if isinstance(csv, str):
+            csv_full_path, error = validate_csv_path(
+                csv,
+                config['metadata'],
+                key,
+                tag
+            )
+            if error:
+                errors.append(error)
+            else:
+                config['runs'][tag][key] = csv_full_path
+
+            # Validate groups if barcode_info_csv exists
+            if 'barcode_info_csv' in config['runs'][tag]:
+                val_warnings = validate_barcode_groups_csv(
+                    csv_full_path,
+                    config['runs'][tag]['barcode_info_csv'],
+                    tag,
+                    group_type=group_type
+                )
+                for w in val_warnings:
+                    print(w, file=sys.stderr)
+            else:
+                warnings.append(f"[WARNING] {key} provided but no barcode_info_csv provided for tag `{tag}`. Demultiplexing will not be run.\n")
+
 
 # check for sequences
 for tag in config['runs']:
@@ -259,8 +326,10 @@ config['do_AA_mutation_analysis'] = {}
 for tag in config['runs']:
     if 'reference' not in config['runs'][tag]:
         errors.append(f"[ERROR] No reference file provided for tag `{tag}")
-    refName = config['runs'][tag]['reference']
-    refFullPath = os.path.join(config['metadata'], config['runs'][tag]['reference'])
+    refPath = config['runs'][tag]['reference']
+    refName = os.path.basename(refPath)
+    refFullPath = os.path.join(config['metadata'], refPath)
+    ref_parent_dir = os.path.dirname(refFullPath)
     if not (refName.endswith('fasta') or refName.endswith('.fa')):
         print(f'[WARNING] Reference .fasta file for {tag} does not end with `.fasta` or `.fa` (given path: {refFullPath}).', file=sys.stderr)
     config['runs'][tag]['reference'] = refFullPath
@@ -411,85 +480,150 @@ validate_params(potential_param_dicts)
 # Demultiplexing checks
 config['do_demux'] = {}
 for tag in config['runs']:
-    if 'barcodeInfo' not in config['runs'][tag]:
+    if 'barcode_info_csv' not in config['runs'][tag]:
         config['do_demux'][tag] = False
         continue
     else:
         config['do_demux'][tag] = True
-    if len(config['runs'][tag]['barcodeInfo']) == 0:
-        print(f"[WARNING] `barcodeInfo` for run tag `{tag}` does not contain any barcode types. Demultiplexing will fail.\n", file=sys.stderr)
-    if 'barcodeGroups' in config['runs'][tag]:
-        # add barcodeGroups to tag as a dict if declared as a csv file
-        if type(config['runs'][tag]['barcodeGroups']) == str:
-            CSVpath = os.path.join(config['metadata'], config['runs'][tag]['barcodeGroups'])
-            if os.path.isfile(CSVpath):
-                barcodeGroupsCSV = pd.read_csv(CSVpath, index_col=False, header=1, dtype=str)
-                barcodeGroupsCSV = barcodeGroupsCSV.set_index(barcodeGroupsCSV.columns[0]) #can't do this in one line because of a pd.read_csv bug that doesn't allow index to be string
-                if barcodeGroupsCSV.index.name == 'tag':
-                    barcodeGroupsCSV = barcodeGroupsCSV.loc[barcodeGroupsCSV.index==tag].set_index('barcodeGroup')
-                if any([c.startswith('Unnamed: ') for c in barcodeGroupsCSV.columns]):
-                    print(f"[WARNING] Barcode type beginning with 'Unnamed: ' detected for tag {tag} in barcodeGroups csv {CSVpath}. This usually results from erroneous whitespace characters. Demultiplexing may fail.\n", file=sys.stderr)
-                config['runs'][tag]['barcodeGroups'] = barcodeGroupsCSV.to_dict('index')
-            else:
-                print(f"[NOTICE] String provided for `barcodeGroups` in run tag `{tag}`, but file path `{CSVpath}` does not exist. Will use barcode combinations to name demultiplexed files.", file=sys.stderr)
-        if len(config['runs'][tag]['barcodeGroups']) == 0:
-            print(f"[NOTICE] No barcode groups provided for run tag `{tag}`. Outputs will be named as concatemerized barcode names.\n", file=sys.stderr)
+        barcode_info = config['runs'][tag]['barcode_info']
+    
+    # Check partition groups
+    if 'partition_barcode_groups_csv' in config['runs'][tag]:
+        try:
+            groups_df = pd.read_csv(config['runs'][tag]['partition_barcode_groups_csv'])
+            if 'tag' in groups_df.columns:
+                groups_df = groups_df[groups_df['tag'] == tag]
+            if len(groups_df) == 0:
+                print(f"[NOTICE] No partition barcode groups provided for run tag `{tag}`. Will use barcode names to name demultiplexed files.\n", file=sys.stderr)
+        except Exception:
+            pass
     else:
-        notice = f"[NOTICE] `barcodeInfo` supplied but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Will use barcode combinations to name demultiplexed files.\n"
+        notice = f"[NOTICE] `barcode_info_csv` supplied but `partition_barcode_groups_csv` not supplied for run tag `{tag}`. Will use barcode names to name demultiplexed files.\n"
         notices.append(notice)
         notice_of_notices = True
+    
+    # Check label groups
+    if 'label_barcode_groups_csv' in config['runs'][tag]:
+        try:
+            label_df = pd.read_csv(config['runs'][tag]['label_barcode_groups_csv'])
+            if 'tag' in label_df.columns:
+                label_df = label_df[label_df['tag'] == tag]
+            if len(label_df) == 0:
+                print(f"[NOTICE] No label barcode groups provided for run tag `{tag}`. Will use barcode names to label sequences.\n", file=sys.stderr)
+        except Exception:
+            pass
+    
+    # Get reference sequence
     refFasta = config['runs'][tag]['reference']
     alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
-    contexts = []
-    for barcodeType in config['runs'][tag]['barcodeInfo']:
-        for requiredKey in ['context', 'fasta', 'reverseComplement']:
-            if requiredKey not in config['runs'][tag]['barcodeInfo'][barcodeType]:
-                print(f"[WARNING] Tag `{tag}` barcode type `{barcodeType}` does not contain the required key `{requiredKey}`.\n", file=sys.stderr)
-        c = config['runs'][tag]['barcodeInfo'][barcodeType].get('context', False)
-        if c: contexts.append(c)
-        config['runs'][tag]['barcodeInfo'][barcodeType]['context'] = config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper()
-        occurences = str(alignmentSeq.seq).upper().count(config['runs'][tag]['barcodeInfo'][barcodeType]['context'].upper())
-        if occurences == 0:
-            print(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
-        elif occurences > 1:
-            print(f"[WARNING] Barcode type `{barcodeType}` context `{config['runs'][tag]['barcodeInfo'][barcodeType]['context']}` found more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
-        bcFasta = os.path.join(config['metadata'], config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'])
-        config['runs'][tag]['barcodeInfo'][barcodeType]['fasta'] = bcFasta
+    contexts = {'partition': [], 'label': []}  # contexts for partition and label barcodes
+    
+    # Validate each barcode type
+    for barcodeType in barcode_info:
+        barcode_data = barcode_info[barcodeType]
+        
+        # Check context
+        c_given = barcode_data.get('context', False)
+        context = c_given.upper()
+        label_only = barcode_data.get('label_only', False)
+        
+        if context:
+            if label_only:
+                contexts['label'].append(context)
+            else:
+                contexts['partition'].append(context)
+        
+        # Check context in reference
+        occurrences = str(alignmentSeq.seq).upper().count(context)
+        if occurrences == 0:
+            print(f"[WARNING] Barcode type `{barcodeType}` context `{c_given}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
+        elif occurrences > 1:
+            print(f"[WARNING] Barcode type `{barcodeType}` context `{c_given}` found more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
+        
+        # Check barcode fasta
+        bcFasta = barcode_data.get('fasta', '')
+        if not bcFasta.startswith(config['metadata']):
+            bcFasta = os.path.join(config['metadata'], bcFasta)
+        
         if os.path.isfile(bcFasta):
-            if len(list(SeqIO.parse(bcFasta, 'fasta'))) == 0:
-                print(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format\n\n", file=sys.stderr)
-            if any(['_' in bc.id for bc in list(SeqIO.parse(bcFasta, 'fasta'))]):
-                print(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline. Please remove all underscores in sequence IDs.", file=sys.stderr)
-            if type(config['runs'][tag]['barcodeInfo'][barcodeType]['reverseComplement'])!=bool:
-                print(f"[WARNING] Tag `{tag}`, barcode type `{barcodeType}` reverseComplement keyword must be set as True or False\n\n", file=sys.stderr)
-        elif config['runs'][tag]['barcodeInfo'][barcodeType].get('generate', False) == False:
+            try:
+                barcodes = list(SeqIO.parse(bcFasta, 'fasta'))
+                if len(barcodes) == 0:
+                    print(f"[WARNING] Barcode fasta file `{bcFasta}` empty or not fasta format\n", file=sys.stderr)
+                if any(['_' in bc.id for bc in barcodes]):
+                    print(f"[WARNING] Sequence ID(s) in barcode fasta file `{bcFasta}` contain underscore(s), which may disrupt the pipeline.\n", file=sys.stderr)
+                
+                # Check barcode lengths
+                if 'N' in context:
+                    #TODO: use the same logic as in demux and UMI_extract to determine barcode length
+                    barcodeLength = context.rindex('N') - context.index('N') + 1
+                    if any([len(seq.seq) != barcodeLength for seq in barcodes]):
+                        print(f"[WARNING] Barcode fasta file `{bcFasta}` contains barcodes of different lengths than the context `{context}` for barcode type `{barcodeType}` in run tag `{tag}`. Demultiplexing will fail.\n", file=sys.stderr)
+            except Exception as e:
+                print(f"[WARNING] Failed to parse barcode fasta file `{bcFasta}`: {e}\n", file=sys.stderr)
+        
+        elif not barcode_data.get('generate', False):
             print(f"[WARNING] Barcode fasta file `{bcFasta}` does not exist, but is used for barcode type `{barcodeType}` in run tag `{tag}`\n", file=sys.stderr)
-        if 'barcodeGroups' in config['runs'][tag]:
-            for bcGroup in config['runs'][tag]['barcodeGroups']:
-                for bcType in config['runs'][tag]['barcodeGroups'][bcGroup]:
-                    if bcType not in config['runs'][tag]['barcodeInfo']:
-                        print(f"[WARNING] Barcode type `{bcType}` in barcode group `{bcGroup}` for run tag `{tag}` is not defined in 'barcodeInfo'. Demultiplexing will fail.\n", file=sys.stderr)
-                if config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == True:
-                    for bcType in config['runs'][tag]['barcodeGroups'][bcGroup]:
-                        if bcType == barcodeType:
-                            print(f"[WARNING] `noSplit` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for naming in barcode group `{bcGroup}`. Demultiplexing will fail.\n", file=sys.stderr)
-                elif config['runs'][tag]['barcodeInfo'][barcodeType].get('noSplit', False) == False:
-                    if os.path.isfile(bcFasta) and (config['runs'][tag]['barcodeGroups'][bcGroup][barcodeType] not in [seq.id for seq in list(SeqIO.parse(bcFasta, 'fasta'))]):
-                        print(f"[WARNING] Barcode type `{barcodeType}` in barcode group `{bcGroup}` for run tag `{tag}` is not present in the barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` set for this tag.\n", file=sys.stderr)
-        if config['runs'][tag]['barcodeInfo'][barcodeType].get('generate', False):
-            numToGenerate = config['runs'][tag]['barcodeInfo'][barcodeType]['generate']
-            if (numToGenerate != 'all') and type(numToGenerate) != int:
+        
+        # Validate barcode groups (both partition and label)
+        for group_type in ['partition', 'label']:
+
+            csv_key = f"{group_type}_barcode_groups_csv"
+
+            if csv_key in config['runs'][tag]:
+                try:
+                    groups_df = pd.read_csv(config['runs'][tag][csv_key])
+                    if 'tag' in groups_df.columns:
+                        groups_df = groups_df[groups_df['tag'] == tag]
+                    
+                    for _, row in groups_df.iterrows():
+                        group_name = row['barcode_group']
+                        
+                        # Check if barcode types in group are properly defined
+                        bc_types = groups_df.columns.difference(['barcode_group', 'tag'])
+                        for bc_type in bc_types:
+                            if pd.notna(row[bc_type]):
+                                if bc_type not in barcode_info:
+                                    print(f"[WARNING] Barcode type `{col}` in {group_type} group `{group_name}` for run tag `{tag}` is not defined in barcode_info_csv. Demultiplexing will fail.\n", file=sys.stderr)
+                                
+                        # Check if barcode is used in correct group type
+                        if barcodeType in row and pd.notna(row[barcodeType]):
+                            # For partition groups, label_only should be False
+                            # For label groups, label_only should be True
+                            expected_label_only = (group_type == 'label')
+                            
+                            if label_only != expected_label_only:
+                                if group_type == 'partition':
+                                    print(f"[WARNING] `label_only` set to True for barcode type `{barcodeType}` in run tag `{tag}`, but is used for partitioning in group `{group_name}`. Demultiplexing will fail.\n", file=sys.stderr)
+                                else:
+                                    print(f"[WARNING] `label_only` set to False for barcode type `{barcodeType}` in run tag `{tag}`, but is used for labeling in group `{group_name}`. Demultiplexing will fail.\n", file=sys.stderr)
+                            
+                            # Check if barcode name exists in fasta
+                            bcName = row[barcodeType]
+                            if os.path.isfile(bcFasta) and (bcName not in [seq.id for seq in SeqIO.parse(bcFasta, 'fasta')]):
+                                print(f"[WARNING] Barcode {bcName}, barcode type `{barcodeType}` for {group_type} group `{group_name}` for run tag `{tag}` is not present in the barcode fasta file `{bcFasta}`.\n", file=sys.stderr)
+                except Exception as e:
+                    print(f"[WARNING] Failed to validate {group_type} groups for tag `{tag}`: {e}\n", file=sys.stderr)
+        
+        # Check generate option
+        if barcode_data.get('generate', False):
+            num_to_generate = barcode_data['generate']
+            if (num_to_generate != 'all') and not isinstance(num_to_generate, int):
                 print(f"[WARNING] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` is not properly defined. Must be an integer or 'all'.\n", file=sys.stderr)
             if os.path.isfile(bcFasta):
-                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, but barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` exists. Using this file for demultiplexing.\n"
+                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{num_to_generate}`, but barcode fasta file `{bcFasta}` exists. Using this file for demultiplexing.\n"
                 notices.append(notice)
                 notice_of_notices = True
             else:
-                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{numToGenerate}`, and barcode fasta file `{config['runs'][tag]['barcodeInfo'][barcodeType]['fasta']}` does not exist. Generating barcode fasta file containing {numToGenerate} barcodes prior to demultiplexing.\n"
+                notice = f"[NOTICE] `generate` option for barcode type `{barcodeType}` for run tag `{tag}` set to `{num_to_generate}`, and barcode fasta file `{bcFasta}` does not exist. Generating barcode fasta file containing {num_to_generate} barcodes prior to demultiplexing.\n"
                 notices.append(notice)
                 notice_of_notices = True
-        if len(set(contexts)) != len(contexts):
-            print(f"[WARNING] Duplicate barcode contexts provided for run tag `{tag}`.\n", file=sys.stderr)
+    
+    # Check for duplicate contexts (same context can be used for both partition and label barcodes though)
+    for bc_type, context_list in contexts.items():
+        if len(set(context_list)) != len(context_list):
+            print(f"[WARNING] Duplicate {bc_type} barcode contexts provided for run tag `{tag}`.\n", file=sys.stderr)
+
 
 # check that tags and barcodeGroup names don't contain underscores
 for tag in config['runs']:
@@ -500,14 +634,22 @@ for tag in config['runs']:
             if '_' in bcGroup:
                 print(f"[WARNING] Barcode group `{bcGroup}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline. Please remove all underscores in barcode group names.", file=sys.stderr)
 
-# check that 'background' barcodeGroup, if declared, is defined in all tags:
+# Check that 'background' partition group, if declared, is defined in all tags
 if config.get('background', False):
     for tag in config['runs']:
-        if 'barcodeGroups' in config['runs'][tag]:
-            if config['background'] not in config['runs'][tag]['barcodeGroups']:
-                print(f"[WARNING] `background` barcodeGroup declared in config file as {config['background']}, but this barcodeGroup is not defined for `{tag}`. Some pipeline rules will fail.\n", file=sys.stderr)
+        if 'partition_barcode_groups_csv' in config['runs'][tag]:
+            try:
+                groups_df = pd.read_csv(config['runs'][tag]['partition_barcode_groups_csv'])
+                if 'tag' in groups_df.columns:
+                    groups_df = groups_df[groups_df['tag'] == tag]
+                
+                group_names = groups_df['partition_bc_group'].unique()
+                if config['background'] not in group_names:
+                    print(f"[WARNING] `background` partition group declared in config file as {config['background']}, but this group is not defined for `{tag}`. Some pipeline rules will fail.\n", file=sys.stderr)
+            except Exception:
+                print(f"[WARNING] Could not verify background partition group for tag `{tag}`.\n", file=sys.stderr)
         else:
-            print(f"[WARNING] `background` barcodeGroup declared in config file, but `barcodeGroups` not supplied as dict or .CSV file for run tag `{tag}`. Some pipeline rules will fail.\n", file=sys.stderr)
+            print(f"[WARNING] `background` partition group declared in config file, but `partition_barcode_groups_csv` not supplied for run tag `{tag}`. Some pipeline rules will fail.\n", file=sys.stderr)
 
 # add timepoints files to config dictionary in the format {'timepoints':{tag:timepointCSVfile}}.
 #   This is to allow timepoint CSV files to be used once, only for the first tag that uses that file.
@@ -520,17 +662,25 @@ if config.get('background', False):
 #       - a row only uses tags from the same sequencing run or, if it uses different sequencing runs, that a 'background'
 #           barcode group is provided in the config file. This is important because background subtraction is necessary
 #           for accurate rate calculations, and sequencing error can of course differ from run to run.
+
+# Update enrichment analysis section
 config['do_enrichment_analysis'] = {}
 
 if 'timepoints' in config:
-
     for tag in config['runs']:
-        no_split_bcs = [bc for bc in config['runs'][tag].get('barcodeInfo',[]) if config['runs'][tag]['barcodeInfo'][bc].get('noSplit', False) == True]
-        # if a tag is defined with exactly 1 nosplit barcode, and a timepoints file, then enrichment analysis will be performed on that tag
-        if len(no_split_bcs) == 1:
-            config['do_enrichment_analysis'][tag] = True
-        else:
-            config['do_enrichment_analysis'][tag] = False
+        # Check for label-only barcodes
+        label_only_count = 0
+        if 'barcode_info_csv' in config['runs'][tag]:
+            try:
+                barcode_df = pd.read_csv(config['runs'][tag]['barcode_info_csv'])
+                if 'tag' in barcode_df.columns:
+                    barcode_df = barcode_df[barcode_df['tag'] == tag]
+                label_only_count = barcode_df['label_only'].sum() if 'label_only' in barcode_df.columns else 0
+            except Exception:
+                pass
+        
+        # Enrichment analysis requires exactly 1 label-only barcode
+        config['do_enrichment_analysis'][tag] = (label_only_count == 1)
 
     CSVpath = os.path.join(config['metadata'], config['timepoints'])
 
@@ -551,8 +701,10 @@ if 'timepoints' in config:
 
         if len(topRow) > 1:
             print(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {CSVpath}. Only the first cell in this row will be used for labeling timepoint-based plots.\n", file=sys.stderr)
+            units = topRow[0]
         elif len(topRow) == 0: 
             print(f"[NOTICE] No time unit provided in top row of timepoint CSV file {CSVpath}. Default 'generations' will be used.\n", file=sys.stderr)
+            units = 'generations'
         else:
             units = topRow[0]
 
@@ -629,7 +781,6 @@ if (rename_csv := config.get('rename', False)):
         config['rename'] = dict(zip(rename_df.iloc[:, 1], rename_df.iloc[:, 0]))
     else:
         print(f"[WARNING] Rename .CSV file `{rename_csv}` does not exist.\n", file=sys.stderr)
-print(config['rename'])
 
 if notice_of_notices:
     print("[NOTICE] Some notices not printed to terminal. Please see log file for more information.\n", file=sys.stderr)
