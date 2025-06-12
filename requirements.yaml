@@ -8,13 +8,14 @@ channels:
   - bokeh
 dependencies:
   - snakemake
-  - python
+  - python=3.11
   - automake
   - git-lfs
   # - minimap2
   # - samtools
   # - ngmerge
-  - numba=0.56 # pacmap is broken with numba 0.53, medaka is broken with numba 0.57
+  - numba
+  - graphviz # just for vizualizing the pipeline, not strictly required
   - setuptools
   - wget
   - numpy
@@ -25,14 +26,13 @@ dependencies:
   - biopython
   - jupyter
   - jupyter_bokeh
-  - umi_tools
   # - medaka
   - keras-preprocessing # can help with medaka installation
   - natsort
   - hvplot
   - holoviews
   - datashader
-  - bokeh
+  - bokeh==3.6 # pinned until bokeh 14502 is addressed https://github.com/bokeh/bokeh/issues/14502
   - spatialpandas # allows for lasso selections of datashaded plots
   - panel
   - editdistance
@@ -43,8 +43,7 @@ dependencies:
   - openjdk
   - bioconda::umicollapse
   # - blat # for C3POa
-  # - mappy
-  - pymol-open-source # not used by pipeline, but nice to have for SequenceAnalyzer
+  - mappy
   - pip
   - pip:
     # - pyabpoa==1.4.0
