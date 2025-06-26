@@ -101,11 +101,12 @@ rule NanoPlot_alignment:
 
 rule generate_barcode_ref:
     input:
-        'alignments/{tag}.bam'
+        bam = 'alignments/{tag}.bam',
+        barcode_info = lambda wildcards: config['runs'][wildcards.tag].get('barcode_info_csv', [])
     output:
-        'demux/.{tag, [^\/_]*}_generate_barcode_ref.done'
+        flag = touch('demux/.{tag, [^\/_]*}_generate_barcode_ref.done')
     params:
-        lambda wildcards: [config['runs'][wildcards.tag]['barcodeInfo'][barcodeType].get('generate', False) for barcodeType in config['runs'][wildcards.tag]['barcodeInfo']]
+        reference = lambda wildcards: config['runs'][wildcards.tag]['reference']
     script:
         'utils/generate_barcode_ref.py'
 
@@ -113,17 +114,18 @@ checkpoint demultiplex:
     input:
         aln = 'alignments/{tag}.bam',
         bai = 'alignments/{tag}.bam.bai',
+        barcode_info = lambda wildcards: config['runs'][wildcards.tag].get('barcode_info_csv', []),
+        partition_barcode_groups = lambda wildcards: config['runs'][wildcards.tag].get('partition_barcode_groups_csv', []),
+        label_barcode_groups = lambda wildcards: config['runs'][wildcards.tag].get('label_barcode_groups_csv', []),
         flag = 'demux/.{tag}_generate_barcode_ref.done'
     output:
         flag = touch('demux/.{tag, [^\/_]*}_demultiplex.done'),
-        # checkpoint outputs have the following structure: demux/{tag}_{barcodeGroup}.bam'
         stats = 'demux/{tag, [^\/_]*}_demux-stats.csv'
     params:
-        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
-        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', False),
-        screen_no_group = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_no_group', False),
-        screen_failures = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_failures', False),
-        threshold = lambda wildcards: config['runs'][wildcards.tag].get('threshold', False)
+        reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
+        demux_threshold = lambda wildcards: config['runs'][wildcards.tag].get('demux_threshold', config.get('demux_threshold', 0)),
+        demux_screen_failures = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_failures', config.get('demux_screen_failures', True)),
+        demux_screen_no_group = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_no_group', config.get('demux_screen_no_group', True))
     script:
         'utils/demux.py'
 
@@ -154,7 +156,7 @@ rule plot_demux:
     output:
         plot = 'plots/{tag, [^\/]*}_demux.html'
     params:
-        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
+        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcode_info'],
         barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {})
     script:
         'utils/plot_demux.py'
@@ -167,7 +169,7 @@ rule enrichment_scores:
         scores = 'enrichment/{tag, [^\/]*}_enrichment-scores.csv'
     params:
         screen_no_group = lambda wildcards: config['demux_screen_no_group'],
-        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcodeInfo'],
+        barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcode_info'],
         barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {}),
         reference_bc = lambda wildcards: config.get('enrichment_reference_bc', '')
     threads: max(workflow.cores-1,1)
