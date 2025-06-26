@@ -23,6 +23,9 @@ dependencies:
   - scipy
   - scikit-learn
   - statsmodels
+  - pacmap
+  - selenium # for bokeh SVG export, conda installation is broken
+  - nanoplot
   - biopython
   - jupyter
   - jupyter_bokeh
@@ -36,18 +39,17 @@ dependencies:
   - spatialpandas # allows for lasso selections of datashaded plots
   - panel
   - editdistance
-  # - racon # maybe dont need because it will be installed by C3POa?
+  - racon # for c3poa
   - wheel
   - cython
   - tqdm
   - openjdk
   - bioconda::umicollapse
-  # - blat # for C3POa
   - mappy
   - pip
-  - pip:
-    # - pyabpoa==1.4.0
-    - pacmap
-    - selenium # for bokeh SVG export, conda installation is broken
-    - nanoplot
-    # - blat # for C3POa
+  # - pip:
+  #   # - pyabpoa==1.4.0
+  #   - pacmap
+  #   - selenium # for bokeh SVG export, conda installation is broken
+  #   - nanoplot
+  #   # - blat # for C3POa

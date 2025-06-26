@@ -2,6 +2,10 @@
 # Major
    - Support for MacOS (ARM)
    - Switched to UMIcollapse for UMI processing (large speedup for big UMI datasets)
+   - barcodeGroups converted to partition_barcode_groups, added label_barcode groups
+      - label_barcode_groups use barcode groups to label demux output sequences
+      - Can now assign multiple barcode groups to the same partition/label barcode group
+   - demux.py refactor
 # Minor
    - Added genotypes distribution plot
    - Added support for .csv input for tags and timepoints
@@ -15,6 +19,7 @@
    - Fixed bug that would cause the 'representative alignment' .txt output from mutation_analysis.py to be incorrect
    - Fixed aesthetic issues with SVG export
    - Updated package versions to install
+   - Updated to latest Snakemake version, adjusted targets and mutation_analysis rules to accomodate this
 
 ## v0.10.3
 # Minor
