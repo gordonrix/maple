@@ -310,13 +310,29 @@ for tag in config['runs']:
         if read_source_key_count > 1:
             errors.append(f"[ERROR] Multiple sources for reads provided for tag `{tag}`. Please provide only one of (`fwdReads`/`rvsReads`), `runname`, or `bs_project_ID`.\n")
 
-# Check minknow directory
+# Check sequences directory
 if runs_to_import != []:
     for runname in runs_to_import:
         if not os.path.isdir(config['sequences_dir']):
-            print(f"[WARNING] May need to import runname `{runname}`, but the provided minknow directory, `{config['sequences_dir']}`, does not exist.\n", file=sys.stderr)
-        elif all([runname not in dirs for _, dirs, _ in os.walk(config['sequences_dir'].rstrip('/'))]):
-            print(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['sequences_dir']}`.\n", file=sys.stderr)
+            print(f"[WARNING] May need to import runname `{runname}`, but the provided sequences directory, `{config['sequences_dir']}`, does not exist.\n", file=sys.stderr)
+        else:
+            # Check if runname is a fastq file
+            is_fastq = any(runname.endswith(ext) for ext in ['.fastq', '.fastq.gz', '.fq.gz'])
+            
+            if is_fastq:
+                # Search for the specific file
+                import glob
+                pattern = os.path.join(config['sequences_dir'], '**', runname)
+                matches = glob.glob(pattern, recursive=True)
+                
+                if not matches:
+                    print(f"[WARNING] May need to import fastq file `{runname}`, but this could not be located in any directory tree under `{config['sequences_dir']}`.\n", file=sys.stderr)
+                elif len(matches) > 1:
+                    print(f"[WARNING] More than one ({matches}) of fastq file `{runname}` found under `{config['sequences_dir']}`\n", file=sys.stderr)
+            else:
+                # Original folder check
+                if all([runname not in dirs for _, dirs, _ in os.walk(config['sequences_dir'].rstrip('/'))]):
+                    print(f"[WARNING] May need to import runname `{runname}`, but this could not be located in any directory tree under `{config['sequences_dir']}`.\n", file=sys.stderr)
 
 
 # check reference sequences
@@ -666,6 +682,7 @@ if config.get('background', False):
 # Update enrichment analysis section
 config['do_enrichment_analysis'] = {}
 
+#TODO: update enrichment analysis to work for both genotypes and barcodes
 if 'timepoints' in config:
     for tag in config['runs']:
         # Check for label-only barcodes
@@ -683,6 +700,7 @@ if 'timepoints' in config:
         config['do_enrichment_analysis'][tag] = (label_only_count == 1)
 
     CSVpath = os.path.join(config['metadata'], config['timepoints'])
+    config['timepoints'] = CSVpath
 
     timepoints_info_dict = {}
 
@@ -753,7 +771,11 @@ if 'timepoints' in config:
                     for tp in timepointsCSV.columns:
                         if str(row[tp]) == 'nan':
                             continue
-                        tag, barcodeGroup = row[tp].split('_')
+                        tag_barcodeGroup = row[tp].split('_')
+                        if len(tag_barcodeGroup) != 2:
+                            errors.append(f"[ERROR] Timepoint sample `{sample}` in row {rowIndex} of timepoints .CSV file `{CSVpath}` does not have a valid tag_barcodeGroup format. Must be in the format `tag_barcodeGroup`.\n")
+                            continue
+                        tag, barcodeGroup = tag_barcodeGroup
                         if tag in config['runs']:
                             if firstTag in config['runs']:
                                 tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
