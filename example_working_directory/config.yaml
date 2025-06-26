@@ -3,6 +3,7 @@
 
 # runs to be analyzed, organized into separate run 'tags'. Tags may not contain underscores.
 runs: tags.csv
+timepoints: timepoints.csv
 
 # runs:
 #     TrpB:
