@@ -18,7 +18,7 @@ rule RCA_consensus:
         tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
         log = 'log/RCA/{tag, [^\/_]*}_RCA.log'
     params:
-        peakFinderSettings = lambda wildcards: config['peak_finder_settings'],
+        peakFinderSettings = lambda wildcards: config.get('peak_finder_settings', '23,3,35,2'),
         batchSize = lambda wildcards: config['RCA_batch_size']
     threads: workflow.cores
     resources:
@@ -26,9 +26,9 @@ rule RCA_consensus:
     shell:
         """
         rm -r -f sequences/tempOutDir-{wildcards.tag}_RCA-consensus
-        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings} --groupSize {params.batchSize}
+        python3 -m C3POa -r {input.sequence} -o sequences/tempOutDir-{wildcards.tag}_RCA-consensus -s {input.splintRef} -n {threads} -co -z --peakFinderSettings {params.peakFinderSettings}
         mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/splint/R2C2_Consensus.fasta.gz {output.consensus}
-        mkdir log/RCA -p
+        mkdir -p log/RCA
         mv sequences/tempOutDir-{wildcards.tag}_RCA-consensus/c3poa.log {output.log}
         """
 
@@ -261,15 +261,11 @@ rule UMI_group_distribution:
 
         df = pd.read_csv(input.csv)
         df_subset = df[['final_umi_count', 'unique_id']].dropna()
-        count_before = len(df_subset)
         df_unique = df_subset.drop_duplicates()
-        count_after = len(df_unique)
-        if count_before != count_after:
-            raise ValueError(f"drop_duplicates reduced rows from {count_before} to {count_after}")
         UMIcounts = df_unique['final_umi_count'].to_numpy().astype(int)
         dist = np.bincount(UMIcounts)
         outDF = dist_to_DF(dist, 'subreads', 'UMI groups')
-        outDF = outDF.loc[1: , :] # skip first row because there are never 0 subreads
+        outDF = outDF.loc[1:, :] # skip first row because there are never 0 subreads
         outDF.to_csv(output.csv, index=False)
 
 rule plot_distribution_UMI_group:
@@ -324,11 +320,11 @@ else:
 
     rule UMI_consensus:
         input:
-            fasta = 'sequences/UMI/{tag}-temp/{batch}.fasta',
+            fasta = 'sequences/UMI/{tag}-temp/batch{batch}.fasta',
             alnRef = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
         output:
-            outDir = temp(directory('sequences/UMI/{tag, [^\/_]*}-temp/{batch, [^\/_]*}')),
-            consensus = temp('sequences/UMI/{tag, [^\/_]*}-temp/{batch, [^\/_]*}_consensus.fasta')
+            outDir = temp(directory('sequences/UMI/{tag, [^\/_]*}-temp/batch{batch,\\d+}')),
+            consensus = temp('sequences/UMI/{tag, [^\/_]*}-temp/batch{batch,\\d+}_consensus.fasta')
         params:
             depth = lambda wildcards: config['UMI_consensus_minimum'],
             model = lambda wildcards: config['medaka_model'],
