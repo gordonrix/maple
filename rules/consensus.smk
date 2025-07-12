@@ -18,7 +18,7 @@ rule RCA_consensus:
         tempOutDir = temp(directory('sequences/tempOutDir-{tag, [^\/_]*}_RCA-consensus')),
         log = 'log/RCA/{tag, [^\/_]*}_RCA.log'
     params:
-        peakFinderSettings = lambda wildcards: config.get('peak_finder_settings', '23,3,35,2'),
+        peakFinderSettings = lambda wildcards: config.get('peak_finder_settings', '23,3,27,2'),
         batchSize = lambda wildcards: config['RCA_batch_size']
     threads: workflow.cores
     resources:

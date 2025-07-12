@@ -29,14 +29,14 @@ rule sequences_clean:
     output:
         touch('.sequences_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
+        timestamp_dir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
-        mkdir -p {params.timestampDir}
+        mkdir -p {params.timestamp_dir}
         if [ -d sequences ]; then
             if [ -d sequences/UMI ]; then
-                find sequences/UMI -type f \( -name "UMI-extract-summary.csv" \) | xargs cp -t {params.timestampDir}
-                find sequences/UMI -type f \( -name "*.fasta.gz" \) | xargs cp -t {params.timestampDir}
+                find sequences/UMI -type f \( -name "UMI-extract-summary.csv" \) -exec cp {{}} {params.timestamp_dir} \;
+                find sequences/UMI -type f \( -name "*.fasta.gz" \) -exec cp {{}} {params.timestamp_dir} \;
             fi
             if [ -d sequences/paired ]; then
                 find sequences/paired -type f \( -name "*_failed-merge_1.fastq.gz" \) -delete
@@ -64,7 +64,7 @@ rule demux_clean:
     output:
         touch('.demux_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
+        timestamp_dir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         if [ -d demux ]; then
@@ -76,13 +76,13 @@ rule mutation_data_clean:
     output:
         touch('.mutation_data_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs',
+        timestamp_dir = lambda wildcards: config['timestamp'] + '-mapleOutputs',
         keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv', 'maple']]
     shell:
         """
         if [ ! -z "{params.keep}" ]; then
-            mkdir -p {params.timestampDir}
-            mv {params.keep} -t {params.timestampDir}
+            mkdir -p {params.timestamp_dir}
+            mv {params.keep} -t {params.timestamp_dir}
         fi
         """
 
@@ -90,19 +90,20 @@ rule logs_clean:
     output:
         touch('.logs_clean.done')
     params:
-        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
+        timestamp_dir = lambda wildcards: config['timestamp'] + '-mapleOutputs',
+        metadata_dir = lambda wildcards: config['metadata']
     shell:
         """
         if [ -d log ]; then
-            mkdir -p {params.timestampDir}/mapleLogs
-            mv log/* {params.timestampDir}/mapleLogs
+            mkdir -p {params.timestamp_dir}/mapleLogs
+            mv log/* {params.timestamp_dir}/mapleLogs
         fi
         if [ -d .snakemake/log ]; then
-            mkdir -p {params.timestampDir}/snakemakeLogs
-            mv .snakemake/log/* {params.timestampDir}/snakemakeLogs
+            mkdir -p {params.timestamp_dir}/snakemakeLogs
+            mv .snakemake/log/* {params.timestamp_dir}/snakemakeLogs
         fi
-        cp *.yaml {params.timestampDir}
-        cp ref -r {params.timestampDir}
+        cp *.yaml {params.timestamp_dir}
+        cp -r {params.metadata_dir} {params.timestamp_dir}
         """
 
 # clean up everything
@@ -114,9 +115,9 @@ rule clean:
         rules.mutation_data_clean.output,
         rules.logs_clean.output
     params:
-        timestampDir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
+        timestamp_dir = lambda wildcards: config['timestamp'] + '-mapleOutputs'
     shell:
         """
         rm {input}
-        zip -r -m {params.timestampDir}.zip {params.timestampDir}
+        zip -r -m {params.timestamp_dir}.zip {params.timestamp_dir}
         """
