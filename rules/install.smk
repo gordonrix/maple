@@ -140,11 +140,21 @@ rule abPOA:
         """
         mkdir -p src && cd src
         rm -rf abPOA
-        wget https://github.com/yangao07/abPOA/releases/download/v1.5.3/abPOA-v1.5.3.tar.gz
-        tar -zxvf abPOA-v1.5.3.tar.gz && cd abPOA-v1.5.3
-        make; ./bin/abpoa ./test_data/seq.fa > cons.fa
+        git clone --recursive https://github.com/yangao07/abPOA.git
+        cd abPOA; make; ./bin/abpoa ./test_data/seq.fa > cons.fa
         cp ./bin/abPOA ../../{output.bin}
         """
+
+
+    # shell:
+    #     """
+    #     mkdir -p src && cd src
+    #     rm -rf abPOA
+    #     wget https://github.com/yangao07/abPOA/releases/download/v1.5.3/abPOA-v1.5.3.tar.gz
+    #     tar -zxvf abPOA-v1.5.3.tar.gz && cd abPOA-v1.5.3
+    #     make; ./bin/abpoa ./test_data/seq.fa > cons.fa
+    #     cp ./bin/abPOA ../../{output.bin}
+    #     """
 
 rule C3POa:
     input:
@@ -162,7 +172,7 @@ rule C3POa:
         rm -rf C3POa conk
         
         # clone & build
-        git clone https://github.com/christopher-vollmers/C3POa.git
+        git clone https://github.com/gordonrix/C3POa.git
         git clone https://github.com/rvolden/conk && cd conk
         python setup.py sdist bdist_wheel
         python -m pip install dist/conk*whl --force-reinstall
@@ -228,7 +238,7 @@ rule medaka_wrapper:
         # 1) Clone the repo without pulling down LFS objects
         export GIT_LFS_SKIP_SMUDGE=1
         rm -rf medaka
-        git clone https://github.com/nanoporetech/medaka.git --depth=1 medaka && cd medaka
+        git clone https://github.com/nanoporetech/medaka.git --depth=1 --branch=v2.0.1 medaka && cd medaka
 
         echo ">>> Detecting Medaka version"
         VERSION_TAG=$(git describe --tags --abbrev=0)
