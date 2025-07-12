@@ -326,8 +326,8 @@ class MutationAnalysis:
         # if any barcodes are not used to demultiplex, add a column to the seq_IDs output that shows what these barcodes are
         self.barcodeColumn = False
         if self.config['do_demux'][tag]:
-            for bcType in self.config['runs'][tag]['barcodeInfo']:
-                if self.config['runs'][tag]['barcodeInfo'][bcType].get('noSplit', False):
+            for bcType in self.config['runs'][tag]['barcode_info']:
+                if self.config['runs'][tag]['barcode_info'][bcType].get('label_only', False):
                     self.barcodeColumn = True
         if self.barcodeColumn:
             all_seqs_columns.append('barcode(s)')

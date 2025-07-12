@@ -13,69 +13,156 @@ import pandas as pd
 import subprocess
 import re
 
-def retrieve_fastqs(rootFolder, folderList, subfolderString, select=''):
+# Helper functions for retrieve_fastqs
+def _is_fastq_file(filename):
+    """Check if a filename is a FASTQ file."""
+    return filename.endswith(('.fastq', '.fastq.gz', '.fq.gz'))
+
+def _find_fastq_files_in_path(base_path, extensions=('*.fastq.gz', '*.fq.gz', '*.fastq')):
+    """Find all FASTQ files in a given path."""
+    files = []
+    for ext in extensions:
+        pattern = os.path.join(base_path, ext)
+        files.extend(glob.glob(pattern, recursive=True))
+    return files
+
+def _search_for_specific_file(root_folder, filename):
+    """Search for a specific FASTQ file in the root folder structure."""
+    pattern = os.path.join(root_folder, '**', filename)
+    matches = glob.glob(pattern, recursive=True)
+    
+    if len(matches) == 0:
+        raise FileNotFoundError(f"File '{filename}' not found in '{root_folder}'")
+    elif len(matches) > 1:
+        raise ValueError(f"Multiple files found matching '{filename}': {matches}")
+    
+    return matches
+
+def _validate_folder_structure(root_folder, folder, subfolders):
+    """Validate and report on folder structure."""
+    warnings = []
+    
+    # Check if folder exists
+    folder_pattern = os.path.join(root_folder, '**', folder)
+    if not glob.glob(folder_pattern, recursive=True):
+        warnings.append(f"Folder '{folder}' not found in root folder '{root_folder}'")
+        return warnings, False
+    
+    # Check for each subfolder
+    for sub in subfolders:
+        sub_pattern = os.path.join(root_folder, '**', folder, sub)
+        if not glob.glob(sub_pattern, recursive=True):
+            warnings.append(f"Subfolder '{sub}' not found under folder '{folder}' in '{root_folder}'")
+    
+    return warnings, True
+
+def retrieve_fastqs(root_folder, list_of_folders_or_fqs, subfolder_string, select=''):
     """
-    Search for a uniquely named folder within the root folder, and retrieve the file names ending in '.fastq.gz' for all files within a list of subfolders.
+    Search for a uniquely named folder within the root folder, and retrieve the file names 
+    ending in '.fastq.gz' for all files within a list of subfolders.
     
     Parameters:
-        rootFolder (str):       The path to the root folder to search in.
-        folderName (list(str)): A list of folders to search for files within the root directory.
-                                    Each one must appear only once within the root folder
-        subfolderNames (str):   A string of comma separated subfolder names to search for within the uniquely named folder.
-                                    At least one must be present, but all don't need to be
-        select (str):           An optional string to select a specific file name within the subfolders. If not specified, all files ending in '.fastq.gz' will be retrieved.
+        root_folder (str):          The path to the root folder to search in.
+        list_of_folders_or_fqs:     Either a list of folders to search within the root directory,
+                                   or a list of fastq filenames to find directly in the root folder.
+                                   Can also be a single string (folder or fastq filename).
+        subfolder_string (str):     A string of comma separated subfolder names to search for within 
+                                   the uniquely named folder. At least one must be present, but all 
+                                   don't need to be.
+        select (str):              An optional string to select a specific file name within the 
+                                   subfolders. If not specified, all files ending in '.fastq.gz' 
+                                   will be retrieved.
     
     Returns:
-        List[str]: A list of the full file paths, including the root folder, for all files ending in '.fastq.gz' or 'fq.gz' within all of the subfolders found within the folders.
-        If the folder or any of the subfolders were not found, or if the folder was found more than once, or if none of the subfolders were found within the folder, returns an empty list.
+        List[str]: A list of the full file paths for all matching FASTQ files.
     """
-    subfolders = [s.strip() for s in subfolderString.split(',')]
-    filePaths = []
-    select_matches = 0
-
-    if not os.path.isdir(rootFolder):
-        print(f"[WARNING] Provided root folder '{rootFolder}' does not exist.")
+    # Early validation
+    if not os.path.isdir(root_folder):
+        print(f"[WARNING] Provided root folder '{root_folder}' does not exist.")
         return []
+    
+    # Convert single string to list for uniform handling
+    if isinstance(list_of_folders_or_fqs, str):
+        list_of_folders_or_fqs = [list_of_folders_or_fqs]
+    
+    # Check if all items are fastq files
+    if all(_is_fastq_file(item) for item in list_of_folders_or_fqs):
+        # Handle list of fastq files
+        found_files = []
+        for fq_file in list_of_folders_or_fqs:
+            pattern = os.path.join(root_folder, '**', fq_file)
+            matches = glob.glob(pattern, recursive=True)
+            
+            if len(matches) == 0:
+                raise FileNotFoundError(f"File '{fq_file}' not found in '{root_folder}'")
+            elif len(matches) > 1:
+                raise ValueError(f"Multiple files found matching '{fq_file}': {matches}")
+            
+            found_files.extend(matches)
+        
+        # Ensure we found exactly the same number of files as requested
+        if len(found_files) != len(list_of_folders_or_fqs):
+            raise ValueError(f"Expected {len(list_of_folders_or_fqs)} files but found {len(found_files)}")
+        
+        return found_files
+    
+    # If not fastq files, treat as folder names
+    folder_list = list_of_folders_or_fqs
+    
+    # Parse subfolders
+    subfolders = [s.strip() for s in subfolder_string.split(',')]
+    file_paths = []
+    select_matches = 0
+    all_warnings = []
 
-    for folder in folderList:
-        # Check for absence of each subfolder and notify
-        for sub in subfolders:
-            sub_match = glob.glob(os.path.join(rootFolder, '**', folder, sub), recursive=True)
-            if not sub_match:
-                print(f"[NOTICE] None of the subfolders '{sub}' were found under folder '{folder}' in '{rootFolder}'.")
-
-        # Gather FASTQ hits for each subfolder
+    # Process each folder
+    for folder in folder_list:
+        # Validate folder structure
+        warnings, folder_exists = _validate_folder_structure(root_folder, folder, subfolders)
+        for warning in warnings:
+            if "Subfolder" in warning:
+                print(f"[NOTICE] {warning}")
+            else:
+                print(f"[WARNING] {warning}")
+        
+        if not folder_exists:
+            continue
+        
+        # Collect FASTQ files from all subfolders
         folder_hits = []
         for sub in subfolders:
-            pat1 = os.path.join(rootFolder, '**', folder, sub, '*.fastq.gz')
-            pat2 = os.path.join(rootFolder, '**', folder, sub, '*.fq.gz')
-            hits = glob.glob(pat1, recursive=True) + glob.glob(pat2, recursive=True)
-            for f in hits:
-                name = os.path.basename(f)
-                if select and name != select:
-                    continue
-                folder_hits.append(f)
-                if select and name == select:
-                    select_matches += 1
-
-        if not any(glob.glob(os.path.join(rootFolder, '**', folder), recursive=True)):
-            print(f"[WARNING] Folder '{folder}' not found in root folder '{rootFolder}'.")
-        elif not folder_hits:
-            print(f"[WARNING] No .fastq.gz files found within subfolders {subfolders} within folder '{folder}' in root folder '{rootFolder}'.")
-        elif len(folder_hits) > 1 and select:
-            print(f"[WARNING] More than one file found that matches select '{select}':")
-            for f in folder_hits:
-                print(f"  {f}")
-            print(f"Using all {len(folder_hits)} matching files.")
-
-        filePaths.extend(folder_hits)
-
+            # Build search patterns
+            search_paths = glob.glob(os.path.join(root_folder, '**', folder, sub), recursive=True)
+            
+            for search_path in search_paths:
+                files = _find_fastq_files_in_path(search_path)
+                
+                # Apply select filter if specified
+                if select:
+                    files = [f for f in files if os.path.basename(f) == select]
+                    select_matches += len(files)
+                
+                folder_hits.extend(files)
+        
+        # Report findings for this folder
+        if folder_hits:
+            if len(folder_hits) > 1 and select:
+                print(f"[WARNING] More than one file found that matches select '{select}':")
+                for f in folder_hits:
+                    print(f"  {f}")
+                print(f"Using all {len(folder_hits)} matching files.")
+            file_paths.extend(folder_hits)
+        else:
+            print(f"[WARNING] No .fastq.gz files found within subfolders {subfolders} "
+                  f"within folder '{folder}' in root folder '{root_folder}'.")
+    
+    # Final reporting
     if select and select_matches == 0:
         print(f"[ERROR] No fastq file matching '{select}' was found.")
-    if not filePaths:
+    if not file_paths:
         print('[NOTICE] Did not find any sequences to import.')
-
-    return filePaths
+    
+    return file_paths
     
 
 rule combine_tag: # combine batches of reads into a single file
@@ -111,10 +198,12 @@ def get_bs_paired_end(tag):
     if not project_ID:
         raise ValueError(f"No BaseSpace project ID found for tag {tag}")
     flag = checkpoints.basespace_retrieve_project.get(bs_project_ID=project_ID).output[0]
+    sample_ID = config['runs'][tag].get('sample_ID', None)
+    if not sample_ID:
+        raise ValueError(f"[ERROR] Sample ID not provided for tag {tag}, but bs_project_ID is provided.")
     project_dir = os.path.dirname(flag)
     fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R1*.fastq.gz"))
     rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R2*.fastq.gz"))
-
     if fwd and rvs:
         return fwd[0], rvs[0]
     else:

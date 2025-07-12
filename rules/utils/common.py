@@ -11,6 +11,7 @@ import pathlib
 import holoviews as hv
 
 from bokeh.io import export_svgs
+from bokeh.models import HoverTool
 from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
 from bokeh import palettes
@@ -19,6 +20,7 @@ import re
 import os
 import xml.etree.ElementTree as ET
 from natsort import natsorted
+import sys
 
 # define colormaps
 colormaps = {'NT':{'A':palettes.Greens[3][1], #take the middle color from the 3 length color list
@@ -47,6 +49,13 @@ for AAs,colorDict in zip(AAs_by_group,colorDictList):
 amino_acid_colormap.update({'P':'#FA11F2','G':'#FEFBEA','*':'#000000','-':'#d3d3d3'}) # pink and cream for proline and glycine, black for stop, grey for gap
 
 colormaps.update({'AA':amino_acid_colormap})
+
+WILDCARD_CONSTRAINTS = {
+    "tag": "[^\/_]+",
+    "barcodes": "[^\/_]+",
+    "NTorAA": "[^\/_-]+",
+    "timepointsGroup": "[^\/_]+",
+}
 
 def get_demuxed_barcodes(tag, bcGroupsDict):
     """
@@ -316,19 +325,27 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
     df = df[df['position'].isin(positions)]
     df = df.sort_values('position', ascending=True)
     df['WT_position'] = df['wt'] + df['position'].astype(str)
+    
+    df = df.drop_duplicates(subset=['position', 'mutation', 'wt'])
 
     min_proportion, max_proportion = df['proportion_of_seqs'].min(), df['proportion_of_seqs'].max()
 
     df.loc[df['mutation'] == df['wt'], 'proportion_of_seqs'] = -.000001 # set the proportion of the WT to -.000001 to make it white in the plot
 
     if heatmap:
-        AAs = list('AILMPVFWYNQSTDEHKRGC*')
-        order = AAs + [m for m in df['mutation'].unique().tolist() if m not in AAs]
+        if len(df['wt'].unique()) > 5:
+            y_values = list('AILMPVFWYNQSTDEHKRGC*')
+        else:
+            y_values = list('ATGC')
+        
+        all_values = df['wt'].unique().tolist() + df['mutation'].unique().tolist() # allows for additional nonstandard NT or AA
+        order = y_values + [m for m in all_values if m not in y_values]
         df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
         df = df.sort_values(['position','mutation'], ascending=[True,False])
-
+        
         plot = hv.HeatMap(df, kdims=kdims, vdims=vdims).opts(clipping_colors={'min':'white'}, clim=(0,None),
                     colorbar=True, clabel=f"frequency (n={total_seqs})", ylabel="mutation")
+        # plot = plot.aggregate(function=np.sum) # somehow this is needed to ensure unique index values for HeatMap
     else:
         plot = hv.Bars(df, kdims=kdims, vdims=vdims).opts(
                     show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True)
@@ -336,6 +353,222 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
     plot = plot.opts(height=500, width=1000, xrotation=xrotation, tools=['hover'],
                      cmap=colormap, xlabel='position', fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16})
     return plot
+
+def str_to_bool(value):
+    """
+    Convert a string to a boolean if possible, raise error if not.
+    """
+    if isinstance(value, str):
+        if value.lower() == 'true':
+            return True
+        elif value.lower() == 'false':
+            return False
+    raise ValueError(f"Invalid boolean string: {value}")
+
+
+def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
+    """
+    Load the given csv file as a nested dictionary in which the first column is used as the outer key 
+    and columns are used as the inner key, with values as the inner values.
+    If a tag is given then the tag column will be used to filter the dataframe, then removed, 
+    and the first of the remaining columns will be used as the outer key.
+
+    params:
+        csv_path: str, path to the csv file
+        required: list, optional, list of required column values to check for in each row in the csv file
+        lists: list, optional, list of column names that should be converted to lists using '__' as the delimiter
+        tag: str, optional, the tag to filter the dataframe by. If this is used but no tag column is present,
+            no filtering will be done. This is to allow for the same file to be used by multiple tags
+        defaults: dict, optional, default values to use if a column is not present or if a value is missing
+    
+    returns:
+        dict, the csv file as a nested dictionary
+    """
+    if os.path.isfile(csv_path):
+        # Read CSV with object dtype to avoid pandas type inference issues
+        df = pd.read_csv(csv_path, index_col=False, dtype=str)
+        columns = df.columns.tolist()
+        
+        if ('tag' in df.columns) and tag:
+            df = df.loc[df['tag']==tag]
+            df = df.drop(columns='tag')
+            
+        if any([c.startswith('Unnamed: ') for c in df.columns]):
+            print(f"[WARNING] Column name beginning with 'Unnamed: ' detected in csv {csv_path}. This usually results from erroneous whitespace characters.\n")
+            
+        for req in required:
+            if req not in columns:
+                print(f"[WARNING] Required value `{req}` not found in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
+                return {}
+            elif df[req].isnull().values.any():
+                print(f"[WARNING] Some rows are missing value for required key `{req}` in csv `{csv_path}`. Cannot use this file as a dictionary.\n")
+                return {}
+                
+        # Apply defaults before converting to dict to avoid dtype issues
+        for default_col, default_val in defaults.items():
+            if default_col not in columns:
+                df[default_col] = str(default_val)
+            else:
+                # Fill NaN/null values with the default, converting to string
+                df[default_col] = df[default_col].fillna(str(default_val))
+                
+        df = df.set_index(df.columns[0])
+        csv_dict = df.to_dict('index')
+        
+        # Clean up the dictionary and convert types appropriately
+        cleaned_dict = {}
+        for key in csv_dict:
+            row_dict = {}
+            for k, v in csv_dict[key].items():
+                # Skip truly null values (but keep string representations like 'False')
+                if pd.isnull(v) or v == 'nan':
+                    continue
+                    
+                # Convert string representations back to appropriate types
+                if v == 'True':
+                    row_dict[k] = True
+                elif v == 'False':
+                    row_dict[k] = False
+                elif v == 'all':
+                    row_dict[k] = 'all'
+                else:
+                    # Try to convert to numeric if possible, otherwise keep as string
+                    try:
+                        # Try integer first
+                        if '.' not in str(v):
+                            row_dict[k] = int(v)
+                        else:
+                            row_dict[k] = float(v)
+                    except (ValueError, TypeError):
+                        # Keep as string if conversion fails
+                        row_dict[k] = v
+                        
+            cleaned_dict[key] = row_dict
+        
+        # Convert list columns to lists
+        for col in lists:
+            for key in cleaned_dict:
+                if col in cleaned_dict[key]:
+                    cleaned_dict[key][col] = str(cleaned_dict[key][col]).split('__')
+
+        return cleaned_dict
+    else:
+        print(f"[WARNING] Provided string `{csv_path}` is not a csv file. Please provide a YAML-formatted dictionary or a csv file.\n")
+        return {}
+
+
+def validate_bc(bc_info_dict, bc, metadata_dir, errors_list=None):
+    """
+    Validate and convert the barcode info dictionary values for a given barcode type.
+    
+    This function ensures that string representations from CSV files are converted to 
+    appropriate Python types and performs a subset of data validations.
+    
+    Parameters:
+        bc_info_dict (dict): Dictionary containing barcode information for all barcode types
+        bc (str): The specific barcode type name to validate
+        metadata_dir (str): Path to the metadata directory, used to append to fasta file paths
+        errors_list (list): Optional list to append errors to. If None, errors are printed.
+    
+    Returns:
+        tuple: (validated_dict, errors) - The bc_info_dict with validated values and list of errors
+    
+    Validates the following fields:
+        - fasta: appends the provided metadata folder and ensures the file exists
+        - reverse_complement: Must be boolean (converts string "True"/"False" to bool)
+        - label_only: Must be boolean (converts string "True"/"False" to bool)
+        - generate: Must be False, "all", or an integer (converts string representations)
+        - hamming_distance: Must be a non-negative integer (converts string to int)
+    """
+    # Track whether we need to print errors
+    print_errors = errors_list is None
+    
+    # Create a local list to collect errors
+    local_errors = []
+
+    bc_data = bc_info_dict.get(bc, {})
+
+    if not bc_data:
+        error_msg = f"[ERROR] Barcode `{bc}` not found in barcode_info dictionary.\n"
+        local_errors.append(error_msg)
+        if print_errors:
+            print(error_msg, file=sys.stderr)
+        else:
+            errors_list.append(error_msg)
+        return bc_info_dict, (None if print_errors else errors_list)
+    
+    # Handle fasta field
+    if 'fasta' in bc_data and isinstance(bc_data['fasta'], str):
+        bc_fasta = bc_data['fasta']
+        if not bc_fasta.startswith(metadata_dir):
+            bc_fasta = os.path.join(metadata_dir, bc_fasta)
+            bc_data['fasta'] = bc_fasta 
+        if not os.path.isfile(bc_fasta):
+            local_errors.append(f"[ERROR] Fasta file `{bc_fasta}` for barcode `{bc}` does not exist. Please provide a valid fasta file path.\n")
+    
+    # Handle reverse_complement field
+    if 'reverse_complement' in bc_data and isinstance(bc_data['reverse_complement'], str):
+        try:
+            bc_data['reverse_complement'] = str_to_bool(bc_data['reverse_complement'])
+        except ValueError:
+            local_errors.append(f"[ERROR] Invalid boolean string for `reverse_complement` in barcode_info for barcode `{bc}`: {bc_data['reverse_complement']}. Please provide a boolean string (True/False).\n")
+    
+    # Handle label_only field
+    if 'label_only' in bc_data and isinstance(bc_data['label_only'], str):
+        try:
+            bc_data['label_only'] = str_to_bool(bc_data['label_only'])
+        except ValueError:
+            local_errors.append(f"[ERROR] Invalid boolean string for `label_only` in barcode_info for barcode `{bc}`: {bc_data['label_only']}. Please provide a boolean string (True/False).\n")
+    
+    # Handle generate field - can be False, 'all', or an integer
+    if 'generate' in bc_data:
+        gen_value = bc_data['generate']
+        
+        if gen_value is False or gen_value == 'all':
+            pass
+        elif isinstance(gen_value, str):
+            if gen_value.lower() == 'false':
+                bc_data['generate'] = False
+            elif gen_value.lower() == 'all':
+                bc_data['generate'] = 'all'
+            else:
+                try:
+                    bc_data['generate'] = int(gen_value)
+                except ValueError:
+                    local_errors.append(f"[ERROR] Invalid value for `generate` in barcode_info for barcode `{bc}`. Must be False, 'all', or an integer (got '{gen_value}').\n")
+        elif isinstance(gen_value, (int, float)):
+            bc_data['generate'] = int(gen_value)
+        else:
+            errors_list.append(f"[ERROR] Invalid type for `generate` in barcode_info for barcode `{bc}`. Must be False, 'all', or an integer (got type {type(gen_value).__name__}).\n")
+    
+    # Handle hamming_distance field
+    if 'hamming_distance' in bc_data:
+        ham_value = bc_data['hamming_distance']
+        error_msg = None
+        try:
+            # Try to convert to int regardless of type
+            if isinstance(ham_value, (int, float, str)):
+                converted_value = int(ham_value)
+                if converted_value < 0:
+                    error_msg = f"[ERROR] Invalid value for `hamming_distance` in barcode_info for barcode `{bc}`. Must be a non-negative integer (got {ham_value}).\n"
+                else:
+                    bc_data['hamming_distance'] = converted_value
+            else:
+                error_msg = f"[ERROR] Invalid type for `hamming_distance` in barcode_info for barcode `{bc}`. Must be a non-negative integer (got type {type(ham_value).__name__}).\n"
+        except (ValueError, OverflowError):
+            error_msg = f"[ERROR] Invalid value for `hamming_distance` in barcode_info for barcode `{bc}`. Must be a non-negative integer (got '{ham_value}').\n"
+        if error_msg: local_errors.append(error_msg)
+
+    # Handle errors based on whether errors_list was provided
+    if print_errors:
+        # Print all errors to stderr and return None for errors
+        for error in local_errors:
+            print(error, file=sys.stderr)
+        return bc_info_dict, None
+    else:
+        # Append all errors to the provided list
+        errors_list.extend(local_errors)
+        return bc_info_dict, errors_list
 
 def dashboard_input(wildcards, config):
     """
