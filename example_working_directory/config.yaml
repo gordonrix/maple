@@ -119,7 +119,7 @@ nanoplot: False
 nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
 
 # RCA consensus using C3POa. To view available flags and other documentation for this tool, use 'python -m C3POa --help'
-peak_finder_settings: 40,3,9,2  # settings used to identify splint alignment locations for splitting read into subreads
+peak_finder_settings: '23,3,27,2'  # settings used to identify splint alignment locations for splitting read into subreads
 RCA_batch_size: 10000           # number of sequences to batch together in each subprocess. If RCA processing crashes, lowering this number can help
 RCA_consensus_minimum: 3        # inclusive minimum number of complete subreads that will be used to generate an RCA consensus read. C3POa only counts complete repeats (i.e. flanked on both sides by the splint sequence), so filtering is based on both the number of repeats found by C3POa and the length of the original RCA read
 RCA_consensus_maximum: 20       # inclusive maximum number of complete subreads that will be used to generate an RCA consensus read. RCA reads with more than this number of subreads will not be used. Note that this behavior differs slightly from that of UMI_consensus_maximum
@@ -146,7 +146,7 @@ alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --secondary=no'   #
 
 # demultiplexing
 demux_screen_no_group: True   # set to True if demuxed sequences that are not assigned a named barcode group should be blocked from subsequent analysis steps
-demux_screen_failures: True  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. Note that failures for noSplit barcodes will be written to the same demux file and will only be removed during mutation analysis
+demux_screen_failures: False  # Set to true if sequences that fail barcode detection for any of the barcodes should be blocked from subsequent analysis steps. Note that failures for noSplit barcodes will be written to the same demux file and will only be removed during mutation analysis
 demux_threshold: 0.01          # threshold for carrying through to subsequent rules. To be processed further, a demultiplexed file must contain at least this proportion of the total number of reads in the .fastq file being demultiplexed.
 
 # enrichment   # note: to prevent repeated enrichment score calculation, filtering is not applied to the enrichment-scores output itself but is instead applied to subsequent analysis steps.
