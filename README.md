@@ -14,18 +14,19 @@ Analysis is primarily performed by a mix of custom python scripts and several ex
  - [Samtools](http://www.htslib.org/)
  - [NGmerge](https://github.com/harvardinformatics/NGmerge)
  - [NanoPlot](https://github.com/wdecoster/NanoPlot)
- - [C3POa](https://github.com/christopher-vollmers/C3POa)
+ - [C3POa](https://github.com/gordonrix/C3POa) (a faster fork of [the original C3POa](https://github.com/christopher-vollmers/C3POa))
  - [PaCMAP](https://github.com/YingfanWang/PaCMAP)
+ - [UMICollapse](https://github.com/Daniel-Liu-c0deb0t/UMICollapse)
 
 Built in visualizations are performed using the [HoloViz](https://holoviz.org/) ecosystem of python data visualization libraries.
 
 Additionally, some concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/), which was used
 as a starting point for Maple
 
-Note that documentation is still under construction
+Below you'll see an overview of the steps involved in the pipeline. This overview is a non-comprehensive summary. Many of these steps are optional, and which ones
+run will depend on what information is provided in the config file (see 'Usage'). This overview is based on a graph generated for the 'targets' rule, but a similar graph can be generated programmatically for any target file or rule name using the command:
 
-Below you'll see an overview of the steps involved in the pipeline. Note that many of these steps are optional, and which ones
-run will depend on what information is provided in the config file (see 'Usage')
+`snakemake --snakefile PATH/TO/Snakefile RULE_OR_FILE -n -j 1 --dag | sed -n '/^digraph/,$p' | dot -Tpdf > dag.pdf`
 
 ![An overview of the pipeline steps](images/pipeline_overview.png?raw=true)
 
@@ -49,7 +50,7 @@ curl -O https://mac.r-project.org/openmp/openmp-14.0.6-darwin20-Release.tar.gz
 sudo tar fvxz openmp-14.0.6-darwin20-Release.tar.gz -C /
 ```
 
-If you want to retrieve sequences using Illumina's basespace, install and authenticate basespace using [these instructions](https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview)
+If you want to retrieve sequences using Illumina's BaseSpace, install and authenticate BaseSpace using [these instructions](https://developer.basespace.illumina.com/docs/content/documentation/cli/cli-overview)
 
 To get started installing Maple, clone the repository:
 
@@ -92,11 +93,11 @@ look something like this:
 
 ```bash
 ├── config.yaml
-├── ref
+├── metadata
 │   ├── 7merBarcodes.fasta
-│   ├── barcodeGroups.csv
+│   ├── barcode_info.csv
+│   ├── barcode_groups.csv
 │   ├── exampleReferences.fasta
-│   ├── lineageBarcodes.fasta
 │   ├── timepoints.csv
 │   └── example-ref.fasta
 ├── data
@@ -191,6 +192,66 @@ A .yaml file that includes all settings a user might want to change from run to 
 be applied to all datasets analyzed using this config file, while another portion is used to designate information specific to each dataset being analyzed,
 organized by 'tags' which will be applied to all filenames. Detailed information on these settings can be found as inline comments within example_working_directory/config.yaml.
 
+### Sequencing data
+
+.fastq.gz files. Typically, reads are retrieved using the global `sequences_dir` and `fastq_dir` parameters, which define where sequences are typically stored,
+and the tag-specific `runname` parameter, which is either a uniquely named directory within `sequences_dir` that contains the .fastq.gz files for a specific run, or is an individual .fastq or .fastq.gz file
+In the example_working_directory, the `sequences_dir` is set to `data`, the `fastq_dir` is set to `fastq_pass, fastq_fail`, and the tag-specific runname is set to
+`20220827_1323_MN35267_FAU75463_1d527443`, so Maple will crawl the data directory to find the `20220827_1323_MN35267_FAU75463_1d527443` directory, then look for
+folders within that directory named `fastq_pass` and `fastq_fail`, and finally look for .fastq.gz files within those directories. As the first step of Maple,
+all such .fastq.gz will be combined for subsequent analysis. Alternatively, if merging of paired end reads is necessary, the `fwdReads` and `revReads` parameters
+must be provided, and these must correspond to paired end fastq.gz files that can be found in the fastq_dir and should be merged. Note that the `sequences_dir` can be
+a global file path. To ensure data integrity, DO NOT place the only copy of your sequencing data within a Maple working directory (this guideline is not followed for the example only for convenience). Instead, it is recommended that a single directory (that is backed up) be used to store all sequencing data, and that the `sequences_dir` be set to this directory in the config file,
+such that this parameter need not be changed when that config is used as a starting point for new working directories.
+
+### tags CSV
+
+The `metadata/tags.csv` file defines the experimental runs that will be processed by the pipeline. Each row represents a single run/dataset with the following columns:
+
+- **tag**: A unique identifier for the run that will be used in all output filenames
+- **reference**: Reference FASTA filename in the metadata directory
+- one of the following for sequence import:
+    - **runname**: Directory or individual file name containing FASTQ files/sequences, must be within the config-defined `sequences_dir`
+    - **bs_project_ID** and **sample_ID**: For pulling pre-demultiplexed data from Illumina's BaseSpace. Downloads the specified project ID and grabs the fastq.gz for the specified sample ID.
+    - **fwdReads** and **rvsReads**: For paired-end read merging
+- optional columns:
+    - **barcode_info_csv**: CSV file defining barcode types and contexts
+    - **partition_barcode_groups_csv**: CSV file defining names to assign to barcode groups for demultiplexing and partitioning sequences to distinct files
+    - **label_barcode_groups_csv**: CSV file defining names to assign to barcode groups for demultiplexing and labeling sequences (in the 'BC' tag of a sequence in BAM file output)
+    - **splint**: Splint sequence for RCA consensus generation
+    - **UMI_contexts**: Context patterns for UMI extraction
+    - **timepoint**: For time series analysis
+
+Columns values left blank for a specific tag row will not be considered.
+
+### barcode CSVs (optional)
+
+To enable demultiplexing, a barcode_info.csv must be provided:
+
+#### barcode_info.csv
+Defines barcode types and their properties. This is the only required input for demultiplexing. If :
+- **barcode_name**: Identifier for the barcode type (e.g., "fwd", "rvs", "lineage")
+- **context**: Sequence context pattern where N represents barcode positions
+- **fasta**: fasta file containing the barcode sequences
+- optional columns:
+    - **reverse_complement** (`bool`): Set to True if the barcode sequence in an aligned query sequence will be reverse complemented relative to the barcodes in the barcode fasta file. Default, False
+    - **hamming_distance** (`int`): Check for any barcodes that are this hamming distance away from any of the barcodes in the fasta file. Requires that all barcodes in the fasta file are more than this distance apart. Values larger than 1 are not recommended for performance reasons. Default, 0
+    - **generate** (`int` or `'all'` or `False`): If the exact barcode sequences are not predetermined, this option allows for generation of the required fasta file. The provided fasta file must not already exist. Prior to demultiplexing, barcodes for this barcode type will be identified in all sequences and the most abundant N barcodes will be used to generate the barcode fasta file. Default, False
+    - **label_only** (`bool`): Set to True if a barcode type should be used to label a sequence and prevent use of this barcode for naming partitioned sequence outputs. Default, False
+    
+On its own, barcode_info.csv will only name demultiplexed files and sequences according to the individual barcode names (defined in the fasta file). To give files and sequence labels names defined by specific barcode combinations, barcode group CSVs can be provided
+
+#### barcode_groups.csv
+Defines how barcode combinations are grouped for analysis:
+- **barcode_group**: Name for the barcode combination (used in output filenames)
+- **[barcode_name]**: Columns for each barcode type, specifying which barcode from the FASTA file to use
+
+#### Demultiplexing Behavior
+- **Partitioning barcodes** (`label_only=FALSE`): Sequences are separated into different files based on barcode identity
+- **Labeling barcodes** (`label_only=TRUE`): Barcode information is added to sequence headers but sequences remain together
+
+This system allows for flexible multi-barcode demultiplexing with complex experimental designs.
+
 ### Reference sequence
 
 ![Reference sequence overview](images/reference_fasta.png)
@@ -201,17 +262,29 @@ nucleotide mutations will be counted and should be a subsequence of either the f
 The third sequence is used to define the range of the reference sequence in which amino acid mutations will be counted and should be a subsequence of the second
 sequence. If the third sequence is not provided, amino acid mutations will not be tabulated.
 
-### High throughput sequencing data
+### Demultiplexing
 
-.fastq.gz files. Typically, reads are retrieved using the global `sequences_dir` and `fastq_dir` parameters, which define where sequences are typically stored,
-and the tag-specific `runname` parameter, which is a uniquely named directory within `sequences_dir` that contains the .fastq.gz files for a specific run.
-In the example_working_directory, the `sequences_dir` is set to `data`, the `fastq_dir` is set to `fastq_pass, fastq_fail`, and the tag-specific runname is set to
-`20220827_1323_MN35267_FAU75463_1d527443`, so Maple will crawl the data directory to find the `20220827_1323_MN35267_FAU75463_1d527443` directory, then look for
-folders within that directory named `fastq_pass` and `fastq_fail`, and finally look for .fastq.gz files within those directories. As the first step of Maple,
-all such .fastq.gz will be combined for subsequent analysis. Alternatively, if merging of paired end reads is necessary, the `fwdReads` and `revReads` parameters
-must be provided, and these must correspond to paired end fastq.gz files that can be found in the fastq_dir and should be merged. Note that the `sequences_dir` can be
-a global file path. It is recommended that a single directory be used for all sequencing data, and that the `sequences_dir` be set to this directory in the config file,
-such that the `sequences_dir` parameter need not be changed when different working directories are cloned using this config file.
+Maple provides a flexible demultiplexing system that can handle complex barcode schemes with multiple barcode types. The steps in this process are:
+
+1. **Alignment**: Sequence alignment to a reference sequence that contains degenerate bases to represent barcode locations (the same alignment is used for both demultiplexing and mutation analysis
+2. **Barcode Detection**: For each barcode in a query sequence, the barcode in the query sequence that aligns to the barcode context in the reference is identified
+3. **Barcode Combination**: Named barcode groups corresponding to specific combinations of barcodes delineated in either the partition_barcode_groups file or the label_barcode_groups file are used to partition or label sequences
+
+#### Demultiplexing Outcomes:
+- **Partitioning**: Sequences are separated into different BAM files based on barcode identity (default)
+- **Labeling**: Barcode information is added to sequence headers without file separation (`label_only=TRUE`)
+
+#### Quality Control:
+- **Screening**: Failed barcode detection can be filtered out (`demux_screen_failures=TRUE`)
+- **Thresholding**: Barcode groups with insufficient read counts can be excluded (`demux_threshold`)
+- **Validation**: Barcode detection quality is reported in demux statistics files
+
+#### Output Organization:
+- Demultiplexed files: `demux/{tag}_{barcode_group}.bam`
+- Failed detections: `demux/no_subsequent_analysis/{tag}_{barcode}-fail.bam`
+- Statistics: `demux/{tag}_demux-stats.csv` (for a single tag) and `demux-stats.csv` (containing data for all tags)
+
+This system supports experimental designs with multiple barcode types (e.g., forward/reverse, sample/condition) and provides comprehensive quality control and reporting.
 
 # Running the example
 Included in the github repository is an example_working_directory that will allow you to test that everything was properly installed, and will serve as a
@@ -236,26 +309,27 @@ You can then explore the analysis files that have been created, and/or apply thi
 
 Following installation and running the example, the steps required for basic usage of the pipeline are as follows:
 1. Create a directory for the dataset(s) that you wish to analyze by creating a new working directory with the name of your choice (preferably related to
-a specific experiment) and copy the 'ref' directory and 'config.yaml' file from the example_working_directory to this new directory.
+a specific experiment) and copy the 'metadata' directory and 'config.yaml' file from the example_working_directory to this new directory.
 2. Modify the config.yaml file within the new directory as appropriate. Global settings (applied to the working directory using this config file) come after
-the 'runs' key. Most global settings can be kept as default, but pay special attention to the RCA and UMI settings if require consensus sequence generation.
+the 'runs' key. Most global settings can be kept as default, but pay special attention to the RCA and UMI settings if you require consensus sequence generation.
 In contrast, most of the settings for the 'tag'(s) you are analyzing should be changed, such as the sequencing data type/location and the
 different required inputs for different types of analysis that should be performed (e.g. concatemer/UMI consensus, demultiplexing).
 3. Modify the reference sequence and barcode .fasta files (located in the 'ref' directory) as appropriate. Use the exampleReferences.fasta file
 for assistance with determining the appropriate reference sequences.
 4. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
-and designating a number of threads. In most cases, at least 4 threads should be used. Take care to run the pipeline only when in the working
-directory (e.g. example_working_directory), otherwise the --directory flag must be used to specify a directory that contains the appropriate
-files in the correct relative locations (i.e. config.yaml, ref/*, etc.). The path to the maple snakefile must also be modified as appropriate.
-Here I will ask maple to produce the mutation stats summary file for the TrpB tag, which is defined in the config file:
+and designating a number of threads, which allows for parallelization of jobs. Take care to run the pipeline only when in the working
+directory (_e.g._ example_working_directory), otherwise the --directory flag must be used to specify a directory that contains the appropriate
+files in the correct relative locations (i.e. config.yaml, metadata/*, etc.), and all outputs will be sent to whatever directory you issue the command from. The path to the Maple snakefile must also be modified as appropriate.
+Here I will ask maple to produce the mutation stats summary file for the TrpB tag, which is defined in the example config file:
 
+    ```
     conda activate maple
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 TrpB_mutation-stats.csv
+    ```
 
 Use of the '-n' flag is strongly recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
-not executed. Because many checks are performed to identify any potential problems in how things were set up (e.g. checking that reference files
-exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The '-q' flag should also be used so
-that any warnings can be easily read.
+not executed. Because many checks are performed to identify any potential problems in how things were set up (_e.g._ checking that reference files
+exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The '-q' flag can also be used to silence a lot of superfluous information, allowing for more important warnings to be easily read. However, note that a bug in recent versions of Snakemake makes the combination of `-n -q` much less useful than it used to be.
 
 In place of a specific file name, 'targets' can be used to invoke a rule that automatically carries out most of the analysis that maple can do
 for each of the designated tags, as was done above:
