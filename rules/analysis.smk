@@ -131,7 +131,7 @@ checkpoint demultiplex:
 
 rule merge_demux_stats:
     input:
-        expand('demux/{tag}_demux-stats.csv', tag=[tag for tag in config['runs'] if config['do_demux'][tag]])
+        expand('demux/{tag}_demux-stats.csv', tag=[tag for tag in config['runs']])
     output:
         'demux-stats.csv'
     run:

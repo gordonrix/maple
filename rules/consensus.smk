@@ -145,22 +145,8 @@ rule UMI_aligner_sam2bam:
         samtools index {output.bam}
         """
 
-# rule UMI_extract:
-#     input:
-#         bam = 'sequences/UMI/{tag}_noConsensus.bam',
-#         index = "sequences/UMI/{tag}_noConsensus.bam.bai"
-#     output:
-#         extracted = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam'),
-#         index = temp('sequences/UMI/{tag, [^\/_]*}_UMIextract.bam.bai'),
-#         log = 'sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'
-#     params:
-#         reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
-#         UMI_contexts = lambda wildcards: config['runs'][wildcards.tag]['UMI_contexts']
-#     script:
-#         'utils/UMI_extract.py'
-
 # extract UMI sequences from the bam file and save both original sequences and UMI sequences to fastq files
-rule UMI_extract_fastq:
+rule UMI_extract:
     input:
         bam = 'sequences/UMI/{tag}_noConsensus.bam',
         index = "sequences/UMI/{tag}_noConsensus.bam.bai"
@@ -204,20 +190,6 @@ rule UMI_extract_summary:
                         dfSum[col] = 'NA'
             outDF = pd.concat([outDF, dfSum], ignore_index=True)
         outDF.to_csv(output[0])
-
-# rule UMI_group:
-#     input:
-#         bam = 'sequences/UMI/{tag}_UMIextract.bam',
-#         index = 'sequences/UMI/{tag}_UMIextract.bam.bai'
-#     output:
-#         bam = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup.bam'),
-#         log = temp('sequences/UMI/{tag, [^\/_]*}_UMIgroup-log.tsv')
-#     params:
-#         UMI_mismatches = lambda wildcards: config['UMI_mismatches']
-#     shell:
-#         """
-#         umi_tools group -I {input.bam} --group-out={output.log} --output-bam --per-gene --gene-tag=GN --edit-distance-threshold {params.UMI_mismatches} -S {output.bam}
-#         """
 
 rule UMI_group:
     input:
