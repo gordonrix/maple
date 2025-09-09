@@ -404,7 +404,7 @@ def demultiplex_bam(bam_path, output_dir, barcode_info, partition_groups,
         label_groups: List of label group tuples
         tag: Sample tag
         reference_fasta: Reference FASTA file path
-        demux_threshold: Minimum proportion threshold
+        demux_threshold: Minimum threshold for demultiplexing. If greater than 1, it is treated as an absolute count.
         demux_screen_failures: Whether to screen failed barcodes
         demux_screen_no_group: Whether to screen ungrouped files
         
@@ -522,8 +522,9 @@ def demultiplex_bam(bam_path, output_dir, barcode_info, partition_groups,
     stats_df = generate_statistics_dataframe(row_counts, barcode_info, tag, partition_groups, label_groups)
     
     # Filter output files
-    filter_output_files(stats_df, output_dir, tag, barcode_info,
-                       demux_threshold, demux_screen_failures, demux_screen_no_group)
+    if barcode_info:
+        filter_output_files(stats_df, output_dir, tag, barcode_info,
+                        demux_threshold, demux_screen_failures, demux_screen_no_group)
     
     # Save statistics
     stats_df.drop('named_by_group', axis=1, inplace=True)
@@ -733,7 +734,11 @@ def filter_output_files(stats_df, output_dir, tag, barcode_info,
         should_banish = False
         
         # Check threshold
-        if row['demuxed_count'] < demux_threshold * total_sequences:
+        if demux_threshold > 1: 
+            threshold_absolute = demux_threshold
+        else:
+            threshold_absolute = demux_threshold * total_sequences
+        if row['demuxed_count'] < threshold_absolute:
             should_banish = True
         
         # Check for failures - ANY failure in partition barcodes should banish
@@ -803,7 +808,10 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Load inputs
-    barcode_info = load_barcode_info(args.barcode_info, args.tag)
+    if args.barcode_info and os.path.exists(args.barcode_info):
+        barcode_info = load_barcode_info(args.barcode_info, args.tag)
+    else:
+        barcode_info = {}
     partition_groups = load_csv_with_tag_filter(args.partition_barcode_groups, 'barcode_group', args.tag) if args.partition_barcode_groups else []
     label_groups = load_csv_with_tag_filter(args.label_barcode_groups, 'barcode_group', args.tag) if args.label_barcode_groups else []
     

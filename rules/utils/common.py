@@ -411,6 +411,14 @@ def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
             else:
                 # Fill NaN/null values with the default, converting to string
                 df[default_col] = df[default_col].fillna(str(default_val))
+
+        # issue a warning if the first column is not unique
+        if not df[df.columns[0]].is_unique:
+            duplicate_values = df[df.duplicated(subset=[df.columns[0]], keep=False)][df.columns[0]].to_list()
+            dup_string = '\n'.join(duplicate_values)
+            print(f"""[WARNING] The first column `{df.columns[0]}` in csv `{csv_path}` is not unique. This will cause an error.\n
+                  Duplicate values:\n{dup_string}\n
+                  Please ensure that the first column contains unique values.\n""")
                 
         df = df.set_index(df.columns[0])
         csv_dict = df.to_dict('index')

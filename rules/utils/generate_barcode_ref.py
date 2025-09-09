@@ -188,25 +188,31 @@ def main():
         parser.add_argument('--tag', required=True, help='Sample tag')
         parser.add_argument('--output_flag', required=True, help='Output flag file')
         args = parser.parse_args()
+
+    if args.barcode_info:
     
-    # Load barcode information
-    barcode_info = load_csv_as_dict(
-        args.barcode_info,
-        required=['barcode_name', 'context', 'fasta'],
-        tag=args.tag,
-        defaults={'reverse_complement': False, 'generate': False, 'hamming_distance': 0}
-    )
-    
-    # Validate barcode info
-    metadata_dir = Path(args.barcode_info).parts[0]
-    for bc in barcode_info:
-        barcode_info, _ = validate_bc(barcode_info, bc, metadata_dir=metadata_dir)
-    
-    # Find barcodes in BAM file
-    barcode_counts = find_barcodes_in_bam(args.bam, args.reference, barcode_info)
-    
-    # Write barcode FASTA files
-    write_barcode_fasta(barcode_counts, barcode_info, args.output_flag)
+        # Load barcode information
+        barcode_info = load_csv_as_dict(
+            args.barcode_info,
+            required=['barcode_name', 'context', 'fasta'],
+            tag=args.tag,
+            defaults={'reverse_complement': False, 'generate': False, 'hamming_distance': 0}
+        )
+        
+        # Validate barcode info
+        metadata_dir = Path(args.barcode_info).parts[0]
+        for bc in barcode_info:
+            barcode_info, _ = validate_bc(barcode_info, bc, metadata_dir=metadata_dir)
+        
+        # Find barcodes in BAM file
+        barcode_counts = find_barcodes_in_bam(args.bam, args.reference, barcode_info)
+        
+        # Write barcode FASTA files
+        write_barcode_fasta(barcode_counts, barcode_info, args.output_flag)
+
+    else:
+        Path(args.output_flag).touch()
+
 
 
 if __name__ == '__main__':
