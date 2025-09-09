@@ -5,19 +5,6 @@ This document provides a comprehensive reference for all configuration parameter
 ## Required Configuration
 
 <details>
-<summary>metadata</summary>
-
-Directory name for metadata files, located in working directory.
-
-**Type:** String (directory name)  
-**Default:** `metadata`  
-**Example:** `metadata: metadata`
-
-This directory should contain all files that define a Maple run except for the config file and sequencing data. For example, CSV files defining runs or barcode info and fasta files defining barcodes
-
-</details>
-
-<details>
 <summary>runs</summary>
 
 Path to CSV file defining experimental runs to be analyzed.
@@ -52,7 +39,7 @@ Path to directory containing raw sequencing data.
 **Default:** `data`  
 **Example:** `sequences_dir: /path/to/sequences`
 
-This directory will be searched for subdirectories matching the runname values from tags.csv. Can be an absolute path to a central sequence storage location that doesn't need to change between working directories.
+This directory will be searched for subdirectories matching the runname values from tags.csv. Best practice is to set this to be an absolute path to a central sequence storage location that doesn't need to change when a new analysis is being set up.
 
 </details>
 
@@ -66,18 +53,31 @@ Comma-separated list of folders within run directories to pull FASTQ files from.
 **Example:** `fastq_dir: fastq_pass`
 
 Common configurations:
-- `fastq_pass`: Only high-quality reads (Nanopore)
+- `fastq_pass`: Only reads that passed filter (Nanopore)
 - `fastq_pass, fastq_fail`: All reads (Nanopore)
 - `raw`: Custom directory name
+
+</details>
+
+<details>
+<summary>metadata</summary>
+
+Directory name for metadata files, located in working directory.
+
+**Type:** String (directory name)  
+**Default:** `metadata`  
+**Example:** `metadata: metadata`
+
+This directory should contain all files that define a Maple run except for the config file and sequencing data. For example, CSV files defining runs or barcode info and fasta files defining barcodes.
 
 </details>
 
 ## Consensus Generation
 
 <details>
-<summary>RCA Consensus Parameters</summary>
+<summary>RCA Consensus</summary>
 
-Parameters for rolling circle amplification consensus using C3POa.
+Parameters for rolling circle amplification consensus using C3POa. Adding the `splint` parameter to a run tag will trigger RCA consensus generation. To view available flags and other documentation for this tool, use 'python -m C3POa --help'.
 
 **peak_finder_settings**
 - **Type:** String
@@ -94,7 +94,7 @@ Parameters for rolling circle amplification consensus using C3POa.
 **RCA_consensus_minimum**
 - **Type:** Integer
 - **Default:** `3`
-- **Description:** Inclusive minimum number of complete subreads required to generate an RCA consensus read
+- **Description:** Inclusive minimum number of complete subreads required to generate an RCA consensus read. Subreads at the end that do not include the splint will qualify
 - **Example:** `RCA_consensus_minimum: 3`
 
 **RCA_consensus_maximum**
@@ -106,7 +106,7 @@ Parameters for rolling circle amplification consensus using C3POa.
 </details>
 
 <details>
-<summary>UMI Consensus Parameters</summary>
+<summary>UMI Consensus</summary>
 
 Parameters for UMI-based consensus generation using medaka and umicollapse.
 
@@ -125,7 +125,7 @@ Parameters for UMI-based consensus generation using medaka and umicollapse.
 **UMI_consensus_maximum**
 - **Type:** Integer
 - **Default:** None
-- **Description:** Inclusive maximum number of subreads used to generate a UMI consensus read. Groups with more subreads will be downsampled
+- **Description:** Inclusive maximum number of subreads used to generate a UMI consensus read. Groups with more subreads will be downsampled to this number. Note that this behavior differs slightly from that of RCA_consensus_maximum
 - **Example:** `UMI_consensus_maximum: 20`
 
 **UMI_medaka_batches**
@@ -137,7 +137,7 @@ Parameters for UMI-based consensus generation using medaka and umicollapse.
 </details>
 
 <details>
-<summary>Medaka Parameters</summary>
+<summary>Medaka</summary>
 
 Parameters for medaka consensus generation (Nanopore only).
 
@@ -150,7 +150,7 @@ Parameters for medaka consensus generation (Nanopore only).
 **medaka_flags**
 - **Type:** String
 - **Default:** `'--quiet'`
-- **Description:** Additional flags to add to medaka smolecule command. Threads, chunk-len, and model flags are already added
+- **Description:** Additional flags to add to medaka smolecule command. Threads and model flags are already added
 - **Example:** `medaka_flags: '--quiet --chunk-len 10000'`
 
 </details>
@@ -158,14 +158,14 @@ Parameters for medaka consensus generation (Nanopore only).
 ## Alignment and Processing
 
 <details>
-<summary>Alignment Parameters</summary>
+<summary>Alignment</summary>
 
 Parameters for sequence alignment using minimap2 and samtools.
 
 **alignment_minimap2_flags**
 - **Type:** String or Dictionary
 - **Default:** `'-a -A2 -B4 -O4 -E2 --end-bonus=30 --secondary=no'`
-- **Description:** Command line flags for minimap2 DNA alignment. Default options are optimized for targeted sequencing
+- **Description:** Command line flags for minimap2 DNA alignment. Default options are optimized for targeted sequencing. can also supply a dict with tags as keys and flags as values for cases where you want to use different alignment settings for different tags. To view available flags and other documentation for this tool, use 'minimap2 --help'
 - **Example (string):** `alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --secondary=no'`
 - **Example (dict):** 
   ```yaml
@@ -177,7 +177,7 @@ Parameters for sequence alignment using minimap2 and samtools.
 **alignment_samtools_flags**
 - **Type:** String
 - **Default:** `''`
-- **Description:** Additional flags for samtools during alignment processing
+- **Description:** Additional flags for samtools during alignment processing. To view available flags and other documentation for this tool, use 'samtools --help'
 - **Example:** `alignment_samtools_flags: '-F 4'`
 
 </details>
@@ -216,7 +216,7 @@ Thread allocation for different pipeline steps.
 ## Demultiplexing
 
 <details>
-<summary>Demultiplexing Parameters</summary>
+<summary>Demultiplexing</summary>
 
 Parameters controlling barcode detection and sequence sorting.
 
@@ -243,7 +243,7 @@ Parameters controlling barcode detection and sequence sorting.
 ## Paired-End Read Processing
 
 <details>
-<summary>NGmerge Parameters</summary>
+<summary>NGmerge</summary>
 
 Parameters for paired-end read merging using NGmerge.
 
@@ -255,16 +255,16 @@ Parameters for paired-end read merging using NGmerge.
 
 **NGmerge_flags**
 - **Type:** String
-- **Default:** `'-m 10'`
-- **Description:** Command line flags for NGmerge. `-m X` sets minimum allowable overlap to X
-- **Example:** `NGmerge_flags: '-m 15 -u 41 -g'`
+- **Default:** `''`
+- **Description:** Command line flags for NGmerge. `-m X` sets minimum allowable overlap to X. Examine NGmerge documentation for usage if amplicons are shorter than both mates of a paired end read. If you see 'Error! Quality scores outside of set range', then including the flags '-u 41 -g' may help
+- **Example:** `NGmerge_flags: '-m 10'`
 
 </details>
 
 ## Mutation Analysis
 
 <details>
-<summary>Mutation Analysis Parameters</summary>
+<summary>Mutation Analysis</summary>
 
 Parameters controlling mutation detection and analysis.
 
@@ -276,9 +276,9 @@ Parameters controlling mutation detection and analysis.
 
 **sequence_length_threshold**
 - **Type:** Float
-- **Default:** `0.1`
-- **Description:** Proportion of sequence length used as threshold for discarding aberrant-length sequences
-- **Example:** `sequence_length_threshold: 0.2`
+- **Default:** `''`
+- **Description:** Proportion of sequence length used as threshold for discarding aberrant-length sequences. _e.g._ if set to 0.1 and length of trimmed reference sequence is 1000 bp, then all sequences either below 900 or above 1100 bp will not be analyzed
+- **Example:** `sequence_length_threshold: 0.1`
 
 **analyze_seqs_with_indels**
 - **Type:** Boolean
@@ -304,10 +304,16 @@ Parameters controlling mutation detection and analysis.
 - **Description:** If True, frequencies plot will be a heatmap; otherwise a stacked bar chart
 - **Example:** `mutations_frequencies_heatmap: False`
 
+**uniques_only**
+- **Type:** Boolean
+- **Default:** `False`
+- **Description:** If True, only uses unique mutations to determine mutation spectrum
+- **Example:** `uniques_only: True`
+
 </details>
 
 <details>
-<summary>Genotype Analysis Parameters</summary>
+<summary>Genotype Analysis</summary>
 
 Parameters for genotype identification and analysis.
 
@@ -359,7 +365,7 @@ Parameters controlling plot generation and appearance.
 **export_SVG**
 - **Type:** Boolean or String
 - **Default:** `False`
-- **Description:** Controls SVG export. False=no export, True=export all, string=export plots containing string
+- **Description:** Controls SVG export. False=no export, True=export all, string=export plots containing string. Requires a chrome installation on your machine. Plots will be exported individually so may require manually setting x/y ranges. SVG outputs are not tracked by the pipeline. Colorbars are not included in exports.
 - **Example:** `export_SVG: 'mutation'`
 
 </details>
@@ -367,7 +373,7 @@ Parameters controlling plot generation and appearance.
 <details>
 <summary>Plot Enable/Disable</summary>
 
-Boolean flags to enable or disable specific plot types.
+Boolean flags to enable or disable inclusion of specific plot outputs in the `targets` rule.
 
 **plot_demux**
 - **Type:** Boolean
@@ -441,7 +447,7 @@ Parameters for enrichment score calculation and filtering.
 **enrichment_reference_bc**
 - **Type:** String
 - **Default:** `'all_barcodes'`
-- **Description:** Barcode to use as reference for normalization. 'all_barcodes' normalizes to all barcodes
+- **Description:** Barcode to use as reference for normalization. 'all_barcodes' normalizes to all barcodes. If '' or False, a single barcode that is abundant within all samples will be chosen as the reference. If no such barcode exists, the first barcode in the list will be used as the reference
 - **Example:** `enrichment_reference_bc: 'control'`
 
 </details>
@@ -460,7 +466,7 @@ Parameters for 2D genotype visualization using dimensionality reduction.
 **genotypes2D_plot_groups**
 - **Type:** Boolean
 - **Default:** `False`
-- **Description:** Generate 2D genotype plots for groups of samples
+- **Description:** Generate 2D genotype plots for groups of samples (*e.g.* tags, timepoints)
 - **Example:** `genotypes2D_plot_groups: True`
 
 **genotypes2D_plot_downsample**
@@ -538,18 +544,12 @@ Parameters for time series and evolution experiments.
 - **Description:** CSV file providing tag and barcode combinations for experiment timepoints
 - **Example:** `timepoints: my_timepoints.csv`
 
-**uniques_only**
-- **Type:** Boolean
-- **Default:** `False`
-- **Description:** If True, only uses unique mutations to determine mutation spectrum
-- **Example:** `uniques_only: True`
-
 </details>
 
 <details>
 <summary>NanoPlot Integration</summary>
 
-Parameters for NanoPlot quality control visualization.
+Parameters for [NanoPlot](https://github.com/wdecoster/NanoPlot) quality control visualization. To view available flags and other documentation for this tool, use 'NanoPlot --help'
 
 **nanoplot**
 - **Type:** Boolean
@@ -560,78 +560,7 @@ Parameters for NanoPlot quality control visualization.
 **nanoplot_flags**
 - **Type:** String
 - **Default:** `'--plots dot'`
-- **Description:** Command line flags for NanoPlot. `-o` and `-p` are already added
+- **Description:** Command line flags for NanoPlot. `-o` (output) and `-p` (prefix) are already added
 - **Example:** `nanoplot_flags: '--plots kde --format png'`
-
-</details>
-
-## Configuration File Examples
-
-<details>
-<summary>Basic Configuration Example</summary>
-
-```yaml
-# Minimal configuration for simple analysis
-runs: tags.csv
-metadata: metadata
-sequences_dir: data
-fastq_dir: fastq_pass
-
-# Basic plotting
-plot_demux: True
-plot_mutation-distribution: True
-plot_mutation-frequencies: True
-
-# Thread allocation
-threads_alignment: 4
-threads_demux: 2
-```
-
-</details>
-
-<details>
-<summary>Advanced Configuration Example</summary>
-
-```yaml
-# Advanced configuration with consensus and time series
-runs: tags.csv
-timepoints: timepoints.csv
-metadata: metadata
-sequences_dir: /path/to/central/sequences
-fastq_dir: fastq_pass, fastq_fail
-
-# UMI consensus
-UMI_mismatches: 2
-UMI_consensus_minimum: 3
-UMI_consensus_maximum: 10
-
-# RCA consensus
-peak_finder_settings: '23,3,27,2'
-RCA_consensus_minimum: 3
-RCA_consensus_maximum: 20
-
-# Demultiplexing
-demux_screen_failures: True
-demux_threshold: 0.05
-
-# Analysis parameters
-mutation_analysis_quality_score_minimum: 10
-sequence_length_threshold: 0.1
-
-# Plotting
-colormap: 'fire'
-plot_genotypes2D: True
-genotypes2D_plot_all: True
-export_SVG: True
-
-# Dashboard
-dashboard_input: experiment1
-dashboard_port: 8080
-
-# Performance
-threads_alignment: 8
-threads_demux: 4
-threads_medaka: 4
-```
 
 </details>
