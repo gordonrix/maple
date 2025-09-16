@@ -21,9 +21,9 @@ The tags.csv file must be located within the `metadata` directory and contains c
     - `bs_project_ID` and `sample_ID`: For pulling pre-demultiplexed data from Illumina's BaseSpace. Downloads the specified project ID and grabs the fastq.gz for the specified sample ID.
     - `fwdReads` and `rvsReads`: For paired-end read merging
 - optional columns:
-    - `barcode_info_csv`: CSV file defining barcode types and contexts
-    - `partition_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and partitioning sequences to distinct files
-    - `label_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and labeling sequences (in the 'BC' tag of a sequence in BAM file output)
+    - `barcode_info_csv`: CSV file defining barcode types and contexts. See 'Demultiplexing'
+    - `partition_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and partitioning sequences to distinct files. See 'Demultiplexing'
+    - `label_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and labeling sequences (in the 'BC' tag of a sequence in BAM file output). See 'Demultiplexing'
     - `splint`: Splint sequence for RCA consensus generation
     - `UMI_contexts`: Context patterns for UMI extraction, in order of appearance in the reference, separated by `__` (double underscore)
     - `timepoint`: A CSV file used for time series analysis (see below)
@@ -218,7 +218,18 @@ Thread allocation for different pipeline steps.
 <details>
 <summary>Demultiplexing</summary>
 
-Parameters controlling barcode detection and sequence sorting.
+Parameters controlling barcode detection and sequence sorting. Demultiplexing is enabled for a tag by providing, in the runs CSV file, a CSV file in the `barcode_info_csv` column for a tag. This CSV file contains columns that to describe how demultiplexing should be performed:
+- `barcode_name`: str, some descriptive name for the barcode.
+- `context`: str, the nucleotide sequence within the reference fasta sequence that includes the location where the barcode will align. The barcode itself should be replaced with the ambiguous nucleotide `N`. Sufficient additional unambiguous nucleotides should be included to distinguish the barcode from any others. If there is only one barcode, this can just be the ambiguous nucleotides alone. However, if there is more than one barcode, then the ambiguous nucleotides alone will not be sufficient to distinguish the two or more barcode locations, so additional adjacent unambiguous nucleotides should be included.
+- `fasta`: str, a fasta formatted file located in the metadata directory that contains the barcode sequences that you wish to demultiplex. The names of each sequence will be used to name output files if a `partition_barcode_groups_csv` is not provided for the tag. If `generate` is not set to `True`, this fasta file must already exist.
+- optional columns:
+  - `reverse_complement`: Boolean, whether the sequences in the barcode `fasta` are the reverse complement of the barcodes that are expected to be found in the top strand at the `context` position. Defaults to `False` if not provided explicitly
+  - `generate`: `False` (default) or an integer. If set to `False`, the provided `fasta` file must already exist, and that fasta file will be used as the source for barcode sequences to search for during demultiplexing. If set to an integer, then prior to demultiplexing the provided `fasta` file will instead be constructed: barcodes will be extracted from the position defined by `context` and will be added to the `fasta` file, with the most frequently appearing barcodes appearing first. The provided integer is the maximum number of unique barcode sequences to add to the `fasta` file
+  - `label_only`: Boolean, whether the provided barcode should be used to 'label' a sequence (*i.e.*, add the barcode as a label to the BAM file entry for the sequence in the demultiplexed output) and not to partition sequences that differ in this barcode into different output files
+
+To name demultiplexed files and/or label demultiplexed sequences based on combinations of barcodes, a CSV file name should be provided in the `partition_barcode_groups_csv` and/or `label_barcode_groups_csv` columns, respectively in the runs CSV file. These CSV files have identical structure, differing only in whether names are assigned to demultiplexed files or individual sequences in the BAM file outputs:
+- `barcode_group`: string, the name to be assigned to a file or sequence with barcodes that match those defined in the other columns
+- All other columns must match one of the `barcode_name`s defined in the `barcode_info_csv`, and values in each column will be one of the expected barcodes defined in the `fasta` column of the `barcode_info_csv`
 
 **demux_screen_no_group**
 - **Type:** Boolean
