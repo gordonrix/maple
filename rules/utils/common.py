@@ -18,6 +18,7 @@ from bokeh import palettes
 from colorcet import palette
 import re
 import os
+import glob
 import xml.etree.ElementTree as ET
 from natsort import natsorted
 import sys
@@ -177,10 +178,10 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
     attempts to export individual bokeh plots from a list of holoviews plots
     with the provided file name and the index of the plot in the list.
     If it fails, it will print a warning and return without exporting any plots or raising an error.
-    
+
     plots:      list of holoviews bokeh plots
     file_name   file name being used to save the plots. must end in '.html'
-    labels      list of strings to be appended to the end of the file name for 
+    labels      list of strings to be appended to the end of the file name for
                     each of the plots, which are exported as separate files
     export:     bool or string. if True, export all plots. if False, export none.
                     if string, export only plots that contain the string in the file name or label
@@ -292,10 +293,44 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
                     This usually doesn't indicate a consistent issue. Try again by deleting the associated .html file and rerunning snakemake.\n""")
     return
         
-def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', most_common=True, heatmap=False):
+def parse_position_ranges(range_str):
     """
-    produces a bar plot of the most or least frequent mutations
-    
+    Parse position range string like '20-30' or '20-30,50-60' into a list of positions
+
+    Args:
+        range_str (str): Range string like '20-30' or '20-30,50-60'
+
+    Returns:
+        list: List of positions to include
+    """
+    positions = []
+    if not range_str.strip():
+        return positions
+
+    ranges = range_str.split(',')
+    for range_part in ranges:
+        range_part = range_part.strip()
+        if '-' in range_part:
+            try:
+                start, end = range_part.split('-')
+                start, end = int(start.strip()), int(end.strip())
+                positions.extend(range(start, end + 1))
+            except ValueError:
+                print(f"[WARNING] Invalid range '{range_part}' in position_ranges '{range_str}'. Skipping this range.")
+                continue  # Skip invalid ranges
+        else:
+            try:
+                positions.append(int(range_part.strip()))
+            except ValueError:
+                print(f"[WARNING] Invalid position '{range_part}' in position_ranges '{range_str}'. Skipping this position.")
+                continue  # Skip invalid single positions
+
+    return sorted(list(set(positions)))  # Remove duplicates and sort
+
+def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', most_common=True, heatmap=False, fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16}, position_ranges=None, axis_type='categorical'):
+    """
+    produces a plot of the most or least frequent mutations
+
     parameters:
         df (pd.DataFrame):   dataframe of aggregated mutations output by aggregate_mutations
         total_seqs (int):    total number of sequences in the sample, just used for labelling the plot
@@ -303,55 +338,81 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
         colormap (dict):     AA/NT letter : color hex code key:value pairs to use for the stacked bars plot output
                                 or a name of the colormap to use for the heatmap output
         most_common (bool):  if True/False, output the most/least commonly mutated positions
-        
+        position_ranges (str): optional position range string like '20-30' or '20-30,50-60' to filter specific positions
+        axis_type (str): 'numerical' or 'categorical' - determines x-axis type
+
     returns:
         hv.Bars or hv.heatmap object showing the topN most frequently observed mutations
             in the aggregated mutations dataframe
     """
-    # Determine the x-axis dimension based on num_positions
-    if num_positions is None:
-        num_positions = len(df['position'].unique())
-        xrotation = 0            # No rotation needed for numerical labels
+    # Always do the standard data preparation (sorting and grouping)
+    df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
+    df_grouped = df.groupby('position', as_index=False).sum().sort_values(['total_count','position'],ascending=[not most_common, True])
+
+    # Determine which positions to keep based on filtering mode
+    if position_ranges:
+        # Filter by specific position ranges
+        positions_to_keep = parse_position_ranges(position_ranges)
+        positions = df_grouped[df_grouped['position'].isin(positions_to_keep)]['position'] if positions_to_keep else df_grouped['position']
+    elif num_positions is None:
+        # Show all positions
+        positions = df_grouped['position']
+    else:
+        # Show top N most/least common positions
+        positions = df_grouped['position'].iloc[:num_positions]
+
+    # Apply the position filter
+    df = df[df['position'].isin(positions)]
+
+    # Set axis type based on user preference
+    if axis_type == 'numerical':
+        xrotation = 0
         kdims = ['position','mutation'] # Use numerical positions
         vdims = ['proportion_of_seqs', 'total_count', 'WT_position']
-    else:
-        xrotation = 90               # Rotate labels to prevent overlap
+    else:  # categorical
+        xrotation = 90
         kdims = ['WT_position','mutation'] # Use WT_position labels
         vdims = ['proportion_of_seqs', 'total_count']
 
-    df = df.sort_values(['total_count','position'], ascending=[(not most_common),True])
-    df_grouped = df.groupby('position', as_index=False).sum().sort_values(['total_count','position'],ascending=[not most_common, True])
-    positions = df_grouped['position'].iloc[:num_positions]
-    df = df[df['position'].isin(positions)]
     df = df.sort_values('position', ascending=True)
     df['WT_position'] = df['wt'] + df['position'].astype(str)
-    
+
     df = df.drop_duplicates(subset=['position', 'mutation', 'wt'])
 
-    min_proportion, max_proportion = df['proportion_of_seqs'].min(), df['proportion_of_seqs'].max()
+    # Determine if this is NT or AA data based on wildtype alphabet size
+    is_AA = len(df['wt'].unique()) > 5
+
+    # Filter out ambiguous characters and deletions from plot
+    if is_AA:
+        df = df[~df['mutation'].isin(['X', '-'])]
+    else:
+        df = df[~df['mutation'].isin(['N', '-'])]
 
     df.loc[df['mutation'] == df['wt'], 'proportion_of_seqs'] = -.000001 # set the proportion of the WT to -.000001 to make it white in the plot
 
     if heatmap:
-        if len(df['wt'].unique()) > 5:
+        if is_AA:
             y_values = list('AILMPVFWYNQSTDEHKRGC*')
         else:
             y_values = list('ATGC')
-        
-        all_values = df['wt'].unique().tolist() + df['mutation'].unique().tolist() # allows for additional nonstandard NT or AA
+
+        # Get all unique values from both wt and mutation columns, avoiding duplicates
+        all_values = list(set(df['wt'].unique().tolist() + df['mutation'].unique().tolist()))
         order = y_values + [m for m in all_values if m not in y_values]
         df['mutation'] = pd.Categorical(df['mutation'], categories=order, ordered=True)
         df = df.sort_values(['position','mutation'], ascending=[True,False])
-        
+
+        # Ensure unique index by dropping duplicates before creating HeatMap
+        df = df.drop_duplicates(subset=kdims)
+
         plot = hv.HeatMap(df, kdims=kdims, vdims=vdims).opts(clipping_colors={'min':'white'}, clim=(0,None),
                     colorbar=True, clabel=f"frequency (n={total_seqs})", ylabel="mutation")
-        # plot = plot.aggregate(function=np.sum) # somehow this is needed to ensure unique index values for HeatMap
     else:
         plot = hv.Bars(df, kdims=kdims, vdims=vdims).opts(
-                    show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True)
-                    
+                    show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True, ylim=(-0.01, None))
+
     plot = plot.opts(height=500, width=1000, xrotation=xrotation, tools=['hover'],
-                     cmap=colormap, xlabel='position', fontsize={'title':18,'labels':18,'xticks':16,'yticks':16, 'legend': 16})
+                     cmap=colormap, xlabel='position', fontsize=fontsize)
     return plot
 
 def str_to_bool(value):
@@ -588,7 +649,7 @@ def dashboard_input(wildcards, config):
         config (dict):                  dictionary of config file contents
 
     returns:
-        inputDict (dict):               dictionary of input files for the dashboard, genotypes and refFasta
+        inputDict (dict):               dictionary of input files for the dashboard, genotypes and refFasta, and optionally pdbFile
     """
     sample = config.get('dashboard_input', False)
     # use the first run tag as the sample for the dashboard if no sample is provided by user
@@ -599,18 +660,174 @@ def dashboard_input(wildcards, config):
         if 'enrichment' in config['runs'][sample]:
             genotypes = genotypes[:-4] + '-enrichment.csv'
         inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
+        # Add PDB file if it exists in the tags, otherwise empty string
+        inputDict['pdb'] = config['runs'][sample].get('pdb', '')
     elif sample in config.get('timepointsInfo', ''):
         inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
                     'refFasta': config['timepointsInfo'][sample]['reference']}
         tag = config['timepointsInfo'][sample]['tag']
         if 'enrichment' in config['runs'][tag]:
             inputDict['genotypes'] = inputDict['genotypes'][:-4] + '-enrichment.csv'
+        # Add PDB file if it exists for the first tag in the timepoint, otherwise empty string
+        inputDict['pdb'] = config['runs'][tag].get('pdb', '')
     elif '_' in sample and (sample.split('_')[0] in config['runs']):
         print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
         tag, barcodes = sample.split('_')
         inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
                     'refFasta': config['runs'][tag]['reference']}
+        # Add PDB file if it exists in the tags, otherwise empty string
+        inputDict['pdb'] = config['runs'][tag].get('pdb', '')
     else:
         # print(f'[NOTICE] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
         return None
     return inputDict
+
+def _is_fastq_file(filename):
+    """Check if a filename is a FASTQ file."""
+    return filename.endswith(('.fastq', '.fastq.gz', '.fq.gz'))
+
+def _find_fastq_files_in_path(base_path, extensions=('*.fastq.gz', '*.fq.gz', '*.fastq')):
+    """Find all FASTQ files in a given path."""
+    files = []
+    for ext in extensions:
+        pattern = os.path.join(base_path, ext)
+        files.extend(glob.glob(pattern, recursive=True))
+    return files
+
+def _search_for_specific_file(root_folder, filename):
+    """Search for a specific FASTQ file in the root folder structure."""
+    pattern = os.path.join(root_folder, '**', filename)
+    matches = glob.glob(pattern, recursive=True)
+
+    if len(matches) == 0:
+        raise FileNotFoundError(f"File '{filename}' not found in '{root_folder}'")
+    elif len(matches) > 1:
+        raise ValueError(f"Multiple files found matching '{filename}': {matches}")
+
+    return matches
+
+def _validate_folder_structure(root_folder, folder, subfolders):
+    """Validate and report on folder structure."""
+    warnings = []
+
+    # Check if folder exists
+    folder_pattern = os.path.join(root_folder, '**', folder)
+    if not glob.glob(folder_pattern, recursive=True):
+        warnings.append(f"Folder '{folder}' not found in root folder '{root_folder}'")
+        return warnings, False
+
+    # Check for each subfolder
+    for sub in subfolders:
+        sub_pattern = os.path.join(root_folder, '**', folder, sub)
+        if not glob.glob(sub_pattern, recursive=True):
+            warnings.append(f"Subfolder '{sub}' not found under folder '{folder}' in '{root_folder}'")
+
+    return warnings, True
+
+def retrieve_fastqs(root_folder, list_of_folders_or_fqs, subfolder_string, select=''):
+    """
+    Search for a uniquely named folder within the root folder, and retrieve the file names
+    ending in '.fastq.gz' for all files within a list of subfolders.
+
+    Parameters:
+        root_folder (str):          The path to the root folder to search in.
+        list_of_folders_or_fqs:     Either a list of folders to search within the root directory,
+                                   or a list of fastq filenames to find directly in the root folder.
+                                   Can also be a single string (folder or fastq filename).
+        subfolder_string (str):     A string of comma separated subfolder names to search for within
+                                   the uniquely named folder. At least one must be present, but all
+                                   don't need to be.
+        select (str):              An optional string to select a specific file name within the
+                                   subfolders. If not specified, all files ending in '.fastq.gz'
+                                   will be retrieved.
+
+    Returns:
+        List[str]: A list of the full file paths for all matching FASTQ files.
+    """
+    # Early validation
+    if not os.path.isdir(root_folder):
+        print(f"[WARNING] Provided root folder '{root_folder}' does not exist.")
+        return []
+
+    # Convert single string to list for uniform handling
+    if isinstance(list_of_folders_or_fqs, str):
+        list_of_folders_or_fqs = [list_of_folders_or_fqs]
+
+    # Check if all items are fastq files
+    if all(_is_fastq_file(item) for item in list_of_folders_or_fqs):
+        # Handle list of fastq files
+        found_files = []
+        for fq_file in list_of_folders_or_fqs:
+            pattern = os.path.join(root_folder, '**', fq_file)
+            matches = glob.glob(pattern, recursive=True)
+
+            if len(matches) == 0:
+                raise FileNotFoundError(f"File '{fq_file}' not found in '{root_folder}'")
+            elif len(matches) > 1:
+                raise ValueError(f"Multiple files found matching '{fq_file}': {matches}")
+
+            found_files.extend(matches)
+
+        # Ensure we found exactly the same number of files as requested
+        if len(found_files) != len(list_of_folders_or_fqs):
+            raise ValueError(f"Expected {len(list_of_folders_or_fqs)} files but found {len(found_files)}")
+
+        return found_files
+
+    # If not fastq files, treat as folder names
+    folder_list = list_of_folders_or_fqs
+
+    # Parse subfolders
+    subfolders = [s.strip() for s in subfolder_string.split(',')]
+    file_paths = []
+    select_matches = 0
+    all_warnings = []
+
+    # Process each folder
+    for folder in folder_list:
+        # Validate folder structure
+        warnings, folder_exists = _validate_folder_structure(root_folder, folder, subfolders)
+        for warning in warnings:
+            if "Subfolder" in warning:
+                print(f"[NOTICE] {warning}")
+            else:
+                print(f"[WARNING] {warning}")
+
+        if not folder_exists:
+            continue
+
+        # Collect FASTQ files from all subfolders
+        folder_hits = []
+        for sub in subfolders:
+            # Build search patterns
+            search_paths = glob.glob(os.path.join(root_folder, '**', folder, sub), recursive=True)
+
+            for search_path in search_paths:
+                files = _find_fastq_files_in_path(search_path)
+
+                # Apply select filter if specified
+                if select:
+                    files = [f for f in files if os.path.basename(f) == select]
+                    select_matches += len(files)
+
+                folder_hits.extend(files)
+
+        # Report findings for this folder
+        if folder_hits:
+            if len(folder_hits) > 1 and select:
+                print(f"[WARNING] More than one file found that matches select '{select}':")
+                for f in folder_hits:
+                    print(f"  {f}")
+                print(f"Using all {len(folder_hits)} matching files.")
+            file_paths.extend(folder_hits)
+        else:
+            print(f"[WARNING] No .fastq.gz files found within subfolders {subfolders} "
+                  f"within folder '{folder}' in root folder '{root_folder}'.")
+
+    # Final reporting
+    if select and select_matches == 0:
+        print(f"[ERROR] No fastq file matching '{select}' was found.")
+    if not file_paths:
+        print('[NOTICE] Did not find any sequences to import.')
+
+    return file_paths
