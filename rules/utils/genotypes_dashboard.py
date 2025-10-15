@@ -1,697 +1,1939 @@
-#
-#  DESCRIPTION   : Custom python script used in the maple snakemake pipeline.
-#                   Runs an interactive dashboard for visualizing genotypes.
-#
-#  RESTRICTIONS  : none
-#
-#  AUTHOR(S)     : Gordon Rix
-#
+#!/usr/bin/env python3
+"""
+Maple Genotypes Dashboard - 2025 Rebuild
+Modern reactive architecture using Panel 1.7+ and HoloViews
+"""
 
+import argparse
+import datetime
+import os
 import pathlib
+import pickle
+import traceback
+
+import datashader as ds
+import holoviews as hv
+import hvplot.pandas
+import numpy as np
 import pandas as pd
 import panel as pn
-import holoviews as hv
-import numpy as np
-import datashader as ds
-import colorcet as cc
-import argparse
-
-pn.extension('tabulator', template='material')
-
-import hvplot.pandas # noqa
-
-from holoviews.streams import Selection1D
-from holoviews.selection import link_selections
-from holoviews.operation.datashader import datashade, rasterize, dynspread
-from datashader.colors import Sets1to3
-from bokeh.models import HoverTool
+import param
+import spatialpandas as spd
 from bokeh.models import LinearColorMapper, ColorBar, Label
 from bokeh.plotting import figure
-import matplotlib
-from colorcet import palette
+from holoviews.operation.datashader import datashade as hv_datashade, rasterize, dynspread
+from holoviews.selection import link_selections
+from holoviews.streams import Selection1D
+from holoviews.util.transform import dim
+from natsort import natsorted, index_natsorted
 
-from common import conspicuous_mutations, colormaps, export_svg_plots, cmap_dict
+# Import existing utilities
 from SequenceAnalyzer import SequenceAnalyzer
-from plot_distribution import plot_dist
+from common import cmap_dict, conspicuous_mutations, colormaps, export_svg_plots
+from structure_heatmap import create_structure_pane
 
-from Bio import SeqIO
-from Bio.Seq import Seq
+# Configure Panel
+pn.extension('tabulator')
 
-from timeit import default_timer as now
-import datetime
+# Plot styling constants (matching original dashboard font sizes)
+PLOT_FONT_SIZES = {
+    'title': 18,
+    'labels': 17,
+    'xticks': 13,  # Reduced as requested
+    'yticks': 13,  # Reduced as requested
+    'legend': 13,  # Reduced to 13 as requested
+    'clabel': 13
+}
 
-parser = argparse.ArgumentParser()
+def create_histogram_plot(data, hist_column, bins, alpha):
+    """Helper function to create histogram plots with consistent styling"""
+    return data.hvplot.hist(
+        y=hist_column,
+        bins=bins,
+        width=500,
+        height=400,
+        xlabel=hist_column,
+        ylabel='Total sequences',
+        color='grey',
+        alpha=alpha,
+        fontsize=PLOT_FONT_SIZES
+    )
 
-parser.add_argument('--genotypes', type=str, help='Name of the csv file that describes genotypes')
-parser.add_argument('--reference', type=str, help='Name of the fasta file that contains alignment, nucleotide, and ORF sequenes')
-parser.add_argument('--exclude_indels', action='store_true', help='''Whether to use sequences with indels or not.
-                        Default behavior is to include sequences that have indels, though insertions will not influence the 
-                        location of a sequence in the 2D plot''')
-args = parser.parse_args()
 
-# Use SequenceAnalyzer to handle the data
-all_data = SequenceAnalyzer(reference_fasta=args.reference, genotypesCSV=args.genotypes, exclude_indels=args.exclude_indels)
-do_AA_analysis = all_data.do_AA_analysis
-if 'NT_muts_of_interest' not in all_data.genotypes.columns:
-    all_data.genotypes['NT_muts_of_interest'] = 'none'
-if do_AA_analysis:
-    if 'AA_muts_of_interest' not in all_data.genotypes.columns:
-        all_data.genotypes['AA_muts_of_interest'] = 'none'
+def process_selection(selection_expr, dashboard_instance):
+    """
+    Process selection for all dashboard components.
+    Handles both datashaded (HoloViews dim) and non-datashaded (list) selections.
+    Updates analyzer.selected_idx for mutation analysis and table components.
+    Returns indices for histogram component.
+    """
+    # Check type first to avoid weird comparison issues with dim objects
+    # Datashaded: HoloViews dim expression
+    if str(type(selection_expr)) == "<class 'holoviews.util.transform.dim'>":
+        # Get current data for conversion
+        current_data = getattr(dashboard_instance, 'current_data', dashboard_instance.data_manager.genotypes)
+        dataset = hv.Dataset(current_data)
+        selected_df = dataset.select(selection_expr).data
 
-## Convert into a hv.Dataset, then use some widgets to downsample data and add a column for the size of points
-
-ds_checkbox = pn.widgets.Checkbox(name='datashade (unticking may impede performance)', value=True)
-
-size_column_select = pn.widgets.Select(name='point size column', options=['NT_substitutions_count', 'AA_substitutions_nonsynonymous_count', 'count'], disabled=ds_checkbox.value)
-size_range_slider = pn.widgets.IntRangeSlider(name='point size range',
-                                    start=1,
-                                    end=100,
-                                    step=1,
-                                    value=(10,60),
-                                    disabled=ds_checkbox.value)
-
-# size of points can be controlled only when datashading is off
-def ds_widget_callback(widget, event):
-    do_ds = event.new
-    widget.disabled  = do_ds
-
-ds_checkbox.link(size_column_select, callbacks={'value':ds_widget_callback})
-ds_checkbox.link(size_range_slider, callbacks={'value':ds_widget_callback})
-
-downsample_slider = pn.widgets.IntSlider(name='downsample',
-                                        start=1000,
-                                        end=len(all_data.genotypes),
-                                        step=1000,
-                                        value=len(all_data.genotypes) )
-
-num_barcodes_slider = pn.widgets.IntSlider(name='maximum number of barcodes',
-                                            start = 1,
-                                            end = 100,
-                                            step = 1,
-                                            value = 10,
-                                            disabled = not 'barcode(s)' in all_data.genotypes.columns)
-
-def initialize_ds(dataset, all_data, downsample, size_column, size_range, num_barcodes, NT_muts, AA_muts, max_groups):
-    idx = all_data.downsample(downsample)['df'].index
-    df = dataset.data.loc[idx]
-    
-    # add a size column scaled to user provided point size values
-    minSize, maxSize = size_range   
-    sizeCol = df[size_column]
-    maxSizeCol = sizeCol.max()
-    minSizeCol = sizeCol.min()
-    if minSizeCol==maxSizeCol:
-        df.loc[idx, 'size'] = minSize
-    else:
-        df.loc[idx, 'size'] = ( (sizeCol-minSizeCol) / (maxSizeCol-minSizeCol) ) * (maxSize-minSize) + minSize
-
-    # add a new column for the subset of the most common barcodes
-    if not num_barcodes_slider.disabled:
-        barcode_counts = df['barcode(s)'].value_counts()
-        if len(barcode_counts) > num_barcodes:
-            top_barcodes = barcode_counts[:num_barcodes].index
-            barcodes_col = df['barcode(s)'].where(df['barcode(s)'].isin(top_barcodes), 'other')
+        if len(selected_df) > 0:
+            indices = selected_df.index.tolist()
+            # Update analyzer for mutation analysis and table
+            selected_data = dashboard_instance.data_manager.analyzer.select(idx=indices)
+            dashboard_instance.data_manager.analyzer.selected_idx = selected_data['df'].index.tolist()
+            # Return indices for histogram
+            return indices
         else:
-            barcodes_col = df['barcode(s)']
-        df.loc[idx, 'barcode(s)_subset'] = barcodes_col
-        all_data.genotypes.loc[idx, 'barcode(s)_subset'] = barcodes_col
+            # Empty selection
+            dashboard_instance.data_manager.analyzer.selected_idx = None
+            return None
 
-    # add new columns for mutations of interest
-    df.loc[df.index,'NT_muts_of_interest'] = all_data.get_mutations_of_interest('NT', NT_muts, max_groups, idx=df.index)
-    df.loc[df.index,'AA_muts_of_interest'] = all_data.get_mutations_of_interest('AA', AA_muts, max_groups, idx=df.index)
-    return hv.Dataset(df)
+    # Non-datashaded: list of indices
+    elif isinstance(selection_expr, list) and len(selection_expr) > 0:
+        # Update analyzer for mutation analysis and table
+        selected_data = dashboard_instance.data_manager.analyzer.select(idx=selection_expr)
+        dashboard_instance.data_manager.analyzer.selected_idx = selected_data['df'].index.tolist()
+        # Return indices for histogram
+        return selection_expr
 
-
-## add columns for coloring by nucleotide or amino acid mutations of interest
-
-NT_muts_text = pn.widgets.TextInput(name='NT muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"')
-AA_muts_text = pn.widgets.TextInput(name='AA muts of interest', placeholder='Input comma separated list of muts e.g. "A100T, 150, G_, _C"', disabled=not do_AA_analysis)
-max_mut_combos_slider = pn.widgets.IntSlider(name='maximum number of mutation of interest combinations',
-                                        start=1,
-                                        end=100,
-                                        step=1,
-                                        value=10)
-
-downsampled_MOI = hv.Dataset(all_data.genotypes).apply(initialize_ds,
-                                all_data=all_data,
-                                downsample=downsample_slider,
-                                size_column=size_column_select,
-                                size_range=size_range_slider,
-                                num_barcodes=num_barcodes_slider,
-                                NT_muts=NT_muts_text,
-                                AA_muts=AA_muts_text,
-                                max_groups=max_mut_combos_slider)
-
-
-## define some widgets for filtering and apply filters
-
-# filter by any numeric columns (muts of interest are classified as numeric sometimes, not sure why)
-numerical_columns = [x for x in list(all_data.genotypes.select_dtypes(include=['number']).columns) if 'muts_of_interest' not in x]
-filter_by_select = pn.widgets.Select(name='filter column', options=numerical_columns, value='NT_substitutions_count')
-
-filter_range_slider = pn.widgets.RangeSlider(name='NT mutations range',
-                                    start=round(all_data.genotypes['NT_substitutions_count'].min()),
-                                    end=round(all_data.genotypes['NT_substitutions_count'].max()),
-                                    step=1,
-                                    value=( round(all_data.genotypes['NT_substitutions_count'].min()),round(all_data.genotypes['NT_substitutions_count'].max()) ))
-
-# update the range of the filter based on which column is selected
-def range_widget_callback(RangeSlider, event):
-    column = event.new
-    col_dtype = all_data.genotypes[column].dtype
-    if np.issubdtype(col_dtype, np.integer):
-        step = 1
-    elif np.issubdtype(col_dtype, np.floating):
-        step = 0.1
-    minVal = all_data.genotypes[column].min()
-    maxVal = all_data.genotypes[column].max()
-    RangeSlider.name  = column + ' range'
-    RangeSlider.start = minVal
-    RangeSlider.end   = maxVal
-    RangeSlider.value = (minVal, maxVal)
-    RangeSlider.step  = step
-    
-filter_by_select.link(filter_range_slider, callbacks={'value':range_widget_callback})
-
-count_range_slider = pn.widgets.IntRangeSlider(name='genotype count range',
-                                    start=round(all_data.genotypes['count'].min()),
-                                    end=max(round(all_data.genotypes['count'].max()), round(all_data.genotypes['count'].min())+1),
-                                    step=1,
-                                    value=( round(all_data.genotypes['count'].min()),round(all_data.genotypes['count'].max()) ))
-
-# multi select widget that depends on the kind of genotypes CSV file columns
-for choice in ['barcode_group','timepoint']:
-    if choice in all_data.genotypes.columns:
-        choice_col = choice
-group_choice = pn.widgets.MultiChoice( name=f'select {choice_col}', value=list(all_data.genotypes[choice_col].unique()),
-                                        options=list(all_data.genotypes[choice_col].unique()) )
-
-def filter_dataset(dataset, filter_by, filter_range, count_range, group):
-    df = dataset.data
-    df = df[
-        (df['count'] >= count_range[0]) &
-        (df['count'] <= count_range[1])]
-
-    df = df[
-        (df[filter_by] >= filter_range[0]) &
-        (df[filter_by] <= filter_range[1])]
-    
-    df = df[df[choice_col].isin(group)]
-
-    return hv.Dataset(df)
-
-filtered = downsampled_MOI.apply(filter_dataset,
-                            filter_by=filter_by_select,
-                            filter_range=filter_range_slider,
-                            count_range=count_range_slider,
-                            group=group_choice)
-
-
-## define widgets for the static points plot, then make a points plot that will be used for tracking selections, but
-#   will just show grey empty circles which will remain when a subset are selected. selected points will then
-#   be used to further filter the data via a selection stream, and this selected data will be used by other plots
-
-color_options = ['NT_substitutions_count', 'NT_muts_of_interest', choice_col] + [col for col in numerical_columns if col != 'NT_substitutions_count']
-if do_AA_analysis:
-    color_options.append('AA_muts_of_interest')
-
-if 'barcode(s)' in all_data.genotypes.columns:
-    color_options.append('barcode(s)_subset')
-
-embedding_options = [col.split('_')[0] for col in list(all_data.genotypes.columns) if col.endswith('_PaCMAP1')]
-points_x_select = pn.widgets.Select(name='column for x axis', options=numerical_columns, value=embedding_options[0] + '_PaCMAP1')
-points_y_select = pn.widgets.Select(name='column for y axis', options=numerical_columns, value=embedding_options[0] + '_PaCMAP2')
-
-#TODO: add toggle switch for hover
-# hover = HoverTool(tooltips=[('index','@index'),('count','@count'),('NT mutations count','@NT_substitutions_count'),('AA mutations count','@AA_substitutions_nonsynonymous_count'),
-#                             ('NT mutations','@NT_substitutions'),('AA mutations','@AA_substitutions_nonsynonymous')])
-tools = ['box_select', 'lasso_select']
-
-def points(dataset, x_column, y_column, tools, link=None):
-    # dim1, dim2 = f"{embedding}_PaCMAP1", f"{embedding}_PaCMAP2"
-    # ticks outside range to hide them
-    plot = dataset.data.hvplot(kind='points', x=x_column, y=y_column, hover_cols=color_options ).opts(
-        xlabel=x_column, ylabel=y_column, tools=tools, height=600, width=770)
-    
-    return plot
-
-downsampled_points = downsampled_MOI.apply(points, x_column=points_x_select, y_column=points_y_select, tools=tools)
-
-ls = link_selections.instance()
-
-# filter dataset by selection if any points are selected and clear selection if no points are selected
-def select_dataset(dataset, selection_expr):
-    idx = dataset.select(selection_expr).data.index
-    if len(idx) == 0:
-        print('clearing selection')
-        ls.selection_expr = None
-    # stores the most recently selected indices in the all_data SequenceAnalyzer object and retrieve the indices, which will be the same as before unless nothing is selected
-    idx = all_data.select(idx=idx)['df'].index
-    return hv.Dataset(dataset.data.loc[idx])
-
-selected = filtered.apply(select_dataset, selection_expr=ls.param.selection_expr)
-
-# make a hv.Table of the selected points, default to randomly sampling 50 sequences
-sample_size_slider = pn.widgets.IntSlider(name='table sample size', start=5, step=1,
-                                        end=500,
-                                        value=50)
-
-## define widgets for the filtered points plot, then use pn.bind to combine this with the unfiltered points plot
-
-color_by_select = pn.widgets.Select(name='color by', options=color_options, value=color_options[0])
-colormap_dict = cmap_dict()
-cmap_selector = pn.widgets.Select(name='colormap', options=list(colormap_dict.keys()), value='kbc_r')
-
-# manual cmap for datashading
-def get_color_key(categories, cmap):
-    """ Returns a dictionary mapping supplied categories to colors from a supplied colormap
-    """
-    all_colors = colormap_dict[cmap]
-    num_categories = len(categories)
-
-    # Create an array of evenly spaced indices for selecting colors from the colormap
-    indices = np.linspace(0, len(all_colors) - 1, num_categories, dtype=int)
-    subset_colors = [all_colors[i] for i in indices]
-
-    cmap_dict = {cat: color for cat, color in zip(categories, subset_colors)}
-    return cmap_dict
-
-def float_to_gray(value):
-    """ converts a float value between 0 and 1 to a hex color between white and grey
-    """
-    grey = (128, 128, 128)  # RGB values for #808080 (grey)
-    white = (255, 255, 255)  # RGB values for #ffffff (white)
-
-    def interpolate_channel(channel1, channel2, value):
-        return int(channel1 + (channel2 - channel1) * value)
-
-    red = interpolate_channel(white[0], grey[0], value)
-    green = interpolate_channel(white[1], grey[1], value)
-    blue = interpolate_channel(white[2], grey[2], value)
-
-    return matplotlib.colors.rgb2hex((red / 255, green / 255, blue / 255))
-
-
-# alpha for selected points, disabled if datashader is on
-selected_alpha_slider = pn.widgets.FloatSlider(name='selected point opacity',
-                                    start=0.01,
-                                    end=1.00,
-                                    step=0.01,
-                                    value=1.0,
-                                    disabled=ds_checkbox.value )
-ds_checkbox.link(selected_alpha_slider, callbacks={'value':ds_widget_callback})
-
-# alpha for unselected points, used to determine shade of grey if datashader is on
-unselected_alpha_slider = pn.widgets.FloatSlider(name='unselected point opacity',
-                                    start=0.00,
-                                    end=1.00,
-                                    step=0.01,
-                                    value=0.1 )
-
-
-# I have to use panel.bind for the dynamic scatter plot because I want to be able to switch between numerical and categorical color labelling, but there's a bug when using apply to do that. see https://github.com/holoviz/holoviews/issues/5591
-def points_bind(link, x_col, y_col, filtered_dataset, points_unfiltered, colorby, cmap, selected_alpha, unselected_alpha, do_datashade, NT_muts, AA_muts, max_muts):
-    # widgets that aren't used in this function are just there to trigger the callback
-
-    if do_datashade:
-        points_unfiltered = datashade(points_unfiltered, aggregator=ds.reductions.any(), cmap=[float_to_gray(unselected_alpha)])
-        points_unfiltered = dynspread(points_unfiltered, threshold=1, max_px=2).opts(height=600, width=600)
-
-        clims = None
-        cnorm = 'eq_hist'
-        min_alpha = 40
-        color_key = None
-        # decide how to aggregate based on if the colorby column is categorical or numerical
-        is_not_numeric = not pd.api.types.is_numeric_dtype(all_data.genotypes[colorby].dtype)
-        if is_not_numeric: # highest per category count within a pixel
-            agg = ds.by(colorby)
-            color_key = get_color_key(all_data.get_selection()['df'][colorby].unique(), cmap)
-            min_alpha = 255 # prevents coloring with non-discrete colors
-        elif colorby == 'count':
-            agg = ds.reductions.sum(colorby)
-        else:          # average value within a pixel
-            agg = ds.reductions.mean(colorby)
-            clims = all_data.genotypes[colorby].min(), all_data.genotypes[colorby].max()
-            cnorm = 'linear'
-
-        points_filtered = filtered_dataset.apply(points, x_column=x_col, y_column=y_col, tools=[])
-        points_filtered = datashade(points_filtered, aggregator=agg, cmap=cmap, color_key=color_key, cnorm=cnorm, clims=clims, min_alpha=min_alpha)
-        if '_PaCMAP' in x_col:
-            points_filtered = points_filtered.opts(xticks=[100])
-        if '_PaCMAP' in y_col:
-            points_filtered = points_filtered.opts(yticks=[100])
-        points_filtered = dynspread(points_filtered, threshold=1, max_px=2).opts(height=600, width=600)
-        plot = points_unfiltered * points_filtered
-
+    # No selection cases (None or empty list)
     else:
-        points_unfiltered.opts(fill_alpha=0, line_alpha=unselected_alpha, nonselection_line_alpha=unselected_alpha, color='grey')
-        points_filtered = filtered_dataset.apply(points, x_column=x_col, y_column=y_col, tools=[]).opts(colorbar=True).apply.opts(alpha=selected_alpha, nonselection_alpha=unselected_alpha, color=colorby, cmap=cmap, colorbar_opts={'title':colorby})
-        if '_PaCMAP' in x_col:
-            points_filtered = points_filtered.opts(xticks=[100])
-        if '_PaCMAP' in y_col:
-            points_filtered = points_filtered.opts(yticks=[100])
-        plot = points_unfiltered * points_filtered
-    
-    if unselected_alpha == 0: # if unselected points are invisible, don't plot them to save compute. to maintain selections, link_selections is applied to the filtered points
-        plot = link(points_filtered)
-    else:
-        link(points_unfiltered)
-    return plot
-
-dynamic_points = pn.bind(points_bind,
-                                link=ls,
-                                x_col=points_x_select,
-                                y_col=points_y_select,
-                                points_unfiltered=downsampled_points,
-                                filtered_dataset=selected,
-                                colorby=color_by_select,
-                                cmap=cmap_selector,
-                                unselected_alpha=unselected_alpha_slider,
-                                selected_alpha=selected_alpha_slider,
-                                do_datashade=ds_checkbox,
-                                NT_muts=NT_muts_text,
-                                AA_muts=AA_muts_text,
-                                max_muts=max_mut_combos_slider)
+        # Use current filtered data indices instead of None (all data)
+        current_data = getattr(dashboard_instance, 'current_data', None)
+        if current_data is not None:
+            # Set to filtered data indices
+            dashboard_instance.data_manager.analyzer.selected_idx = current_data.index.tolist()
+            return current_data.index.tolist()
+        else:
+            # Fallback to None if no current_data
+            dashboard_instance.data_manager.analyzer.selected_idx = None
+            return None
 
 
-# datashader requires some help to make the colorbar for numerical data
-def colorbar_bind(colorby, cmap, do_datashade):
+class DataManager:
+    """Handles data loading and basic processing"""
 
-    color_bar = False
-    if ( colorby in all_data.get_selection()['df'].columns) & do_datashade:
-        is_not_numeric = not pd.api.types.is_numeric_dtype(all_data.genotypes[colorby].dtype)
-        if is_not_numeric: # no colorbar for categorical data
-            color_bar = False
-        elif colorby == 'count': # unclear how to set up colorbar for count data
-            color_bar = False
-        else: 
-            color_mapper = LinearColorMapper(palette=colormap_dict[cmap], low=all_data.genotypes[colorby].min(), high=all_data.genotypes[colorby].max())
-            color_bar = ColorBar(color_mapper=color_mapper)
+    def __init__(self, genotypes_file, reference_file, exclude_indels=False):
+        print("Loading data...")
 
-            # Wrap the color_bar in a Bokeh Figure so that Panel can render it
-            p = figure(width=100, height=550, toolbar_location=None, min_border=0)
-            p.add_layout(color_bar, 'right')
-            p.axis.visible = False
-            p.xgrid.grid_line_color = None
-            p.ygrid.grid_line_color = None
-            p.outline_line_color = None
+        # Load data using existing SequenceAnalyzer
+        self.analyzer = SequenceAnalyzer(
+            reference_fasta=reference_file,
+            genotypesCSV=genotypes_file,
+            exclude_indels=exclude_indels
+        )
 
-            label = Label(
-                text=colorby,
-                x=10,
-                y=200,
-                x_units="screen",
-                y_units="screen",
-                angle=0.5 * np.pi,
-                text_align="center",
-                text_baseline="middle",
+        self.genotypes = self.analyzer.genotypes.copy()
+        self.do_AA_analysis = self.analyzer.do_AA_analysis
+
+        # Ensure required columns exist
+        if 'NT_muts_of_interest' not in self.genotypes.columns:
+            self.genotypes['NT_muts_of_interest'] = 'none'
+        if self.do_AA_analysis and 'AA_muts_of_interest' not in self.genotypes.columns:
+            self.genotypes['AA_muts_of_interest'] = 'none'
+
+        # Get column information
+        self.numerical_columns = self.genotypes.select_dtypes(include=[np.number]).columns.tolist()
+        # Get embedding columns, prioritizing AA over NT
+        all_embeddings = [col for col in self.numerical_columns if 'PaCMAP' in col or 'UMAP' in col or 'tSNE' in col]
+        # Sort to put AA_PaCMAP before NT_PaCMAP
+        self.embedding_columns = sorted(all_embeddings, key=lambda x: (0 if x.startswith('AA_') else 1, x))
+
+        print(f"Loaded {len(self.genotypes)} genotypes")
+        print(f"Available embeddings: {self.embedding_columns}")
+
+
+
+class ScatterPlotComponent(pn.viewable.Viewer):
+    """Interactive scatter plot with datashading support"""
+
+    # Parameters for the component
+    x_column = param.String(default='NT_PaCMAP1')
+    y_column = param.String(default='NT_PaCMAP2')
+    color_by = param.String(default='NT_substitutions_count')
+    colormap = param.String(default='kbc_r')
+    datashade = param.Boolean(default=True)
+    point_size = param.Integer(default=5, bounds=(1, 20))
+    alpha = param.Number(default=0.8, bounds=(0, 1))
+
+    def __init__(self, data_manager, filtered_data=None, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
+        self.filtered_data = filtered_data or data_manager.genotypes
+
+        # Set up default columns if they exist
+        if data_manager.embedding_columns:
+            self.x_column = data_manager.embedding_columns[0]
+            if len(data_manager.embedding_columns) > 1:
+                self.y_column = data_manager.embedding_columns[1]
+
+    @param.depends('x_column', 'y_column', 'color_by', 'datashade', 'point_size', 'alpha')
+    def plot(self):
+        """Create the main scatter plot using hvplot - reactive method"""
+
+        # Get current data (reactive or static)
+        if hasattr(self.filtered_data, 'rx'):
+            # Reactive data
+            current_data = self.filtered_data.rx.value
+        else:
+            # Static data
+            current_data = self.filtered_data
+
+        if self.datashade:
+            # Use hvplot with datashader
+            return current_data.hvplot.scatter(
+                x=self.x_column,
+                y=self.y_column,
+                c=self.color_by,
+                datashade=True,
+                width=800,
+                height=600,
+                fontsize=PLOT_FONT_SIZES
             )
-            p.add_layout(label)
+        else:
+            # Regular scatter plot
+            return current_data.hvplot.scatter(
+                x=self.x_column,
+                y=self.y_column,
+                c=self.color_by,
+                size=self.point_size,
+                alpha=self.alpha,
+                width=800,
+                height=600,
+                fontsize=PLOT_FONT_SIZES
+            )
 
-            color_bar = pn.panel(p)
-    
-    if not color_bar:
-        color_bar = pn.Spacer(width=0)
-
-    return color_bar
-
-colorbar = pn.bind(colorbar_bind, colorby=color_by_select, cmap=cmap_selector, do_datashade=ds_checkbox)
-
-
-
-## histogram for a column chosen by a widget. selection will be highlighted by combining a low opacity histogram
-#   of the pre-filter dataset with a high opacity histogram of the selected dataset
-
-hist_col_selector = pn.widgets.Select(name='histogram column', options=numerical_columns, value='NT_substitutions_count')
-hist_bins_slider = pn.widgets.IntSlider(name='histogram bins', start=1, step=1,
-                                        end=round(all_data.genotypes['NT_substitutions_count'].max()),
-                                        value=round(all_data.genotypes['NT_substitutions_count'].max()))
-
-# update the range of bins based on the maximum value of the column
-def bins_widget_callback(IntSlider, event):
-    column = event.new
-    if all_data.genotypes[column].dtype == 'int64':
-        maxVal = round(all_data.genotypes[column].max())
-        IntSlider.end = maxVal
-        IntSlider.value = maxVal
-    elif all_data.genotypes[column].dtype == 'float64':
-        IntSlider.end = 30
-        IntSlider.value = 10
-    
-hist_col_selector.link(hist_bins_slider, callbacks={'value':bins_widget_callback})
-
-def histogram(dataset, histCol, num_bins):
-    # calculate bin range based on maximum value, allowing for bins=max value for integer columns
-    if all_data.genotypes[histCol].dtype == 'int64':
-        max_x_val = all_data.genotypes[histCol].max()
-        min_x_val = 0
-    elif all_data.genotypes[histCol].dtype == 'float64':
-        max_x_val = all_data.genotypes[histCol].max()
-        min_x_val = all_data.genotypes[histCol].min()
-    bins = np.linspace(min_x_val-0.5, max_x_val-0.5, num_bins+1)
-    return dataset.data.hvplot(y=histCol, kind='hist', width=500,height=500, bins=bins, xlabel=histCol, ylabel='total sequences', color='grey')
-
-dynamic_hist = selected.apply(histogram, histCol=hist_col_selector, num_bins=hist_bins_slider).opts(alpha=1)
-static_hist = downsampled_MOI.apply(histogram, histCol=hist_col_selector, num_bins=hist_bins_slider).opts(alpha=0.1)
+    def __panel__(self):
+        """Return the panel object"""
+        return pn.pane.HoloViews(
+            self.plot,
+            linked_axes=False,
+            sizing_mode='stretch_width'
+        )
 
 
+class HistogramComponent(pn.viewable.Viewer):
+    """Interactive histogram with selection overlay"""
 
-## plot that describes mutations aggregated over the selected genotypes
-# Current options:
-#   - bar plot of most frequent mutations
-#   - bar plot of least frequent mutations
-#   - heatmap of most frequent mutations
-#   - heatmap of least frequent mutations
-agg_muts_width_slider = pn.widgets.IntSlider(name='plot width',
-                                start=160,
-                                end=1600,
-                                step=10,
-                                value=500 )
+    # Parameters for the component
+    hist_column = param.String(default='NT_substitutions_count')
+    num_bins = param.Integer(default=20, bounds=(1, 100))
 
-max_positions = all_data.integer_matrix['NT'].shape[1]
-NTorAA_radio_options = ['nucleotide (NT)']
-if do_AA_analysis:
-    NTorAA_radio_options.append('amino acid (AA)')
-    max_positions = all_data.integer_matrix['AA'].shape[1]
-NTorAA_radio = pn.widgets.RadioButtonGroup(
-    name='bar plot mutation type', options=NTorAA_radio_options, value=NTorAA_radio_options[-1], disabled=(not do_AA_analysis), button_type='default')
-agg_plot_type_selector = pn.widgets.Select(name='aggregated mutations plot type', options=['most frequent, heatmap', 'least frequent, heatmap', 'most frequent, bars', 'least frequent, bars'])
-num_positions_slider = pn.widgets.IntSlider(name='number of positions',
-                                    start=5,
-                                    end=max_positions,
-                                    step=1,
-                                    value=10 )
-# link the number of positions slider to the NTorAA radio button
-# update the range of bins based on the maximum value of the column
-def num_positions_callback(IntSlider, event):
-    value = event.new
-    NTorAA = value[-3:-1]
-    max_positions = all_data.integer_matrix[NTorAA].shape[1]
-    IntSlider.end = max_positions
-    
-NTorAA_radio.link(num_positions_slider, callbacks={'value':num_positions_callback})
+    def __init__(self, data_manager, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
 
-def plot_mutations_aggregated(filtered_dataset, all_data, num_positions, NTorAA, plot_type, cmap):
+        # Set default column - prioritize AA_substitutions_nonsynonymous_count, then NT_substitutions_count
+        if 'AA_substitutions_nonsynonymous_count' in data_manager.numerical_columns:
+            self.hist_column = 'AA_substitutions_nonsynonymous_count'
+        elif 'NT_substitutions_count' in data_manager.numerical_columns:
+            self.hist_column = 'NT_substitutions_count'
+        elif data_manager.numerical_columns:
+            self.hist_column = data_manager.numerical_columns[0]
+
+
+class TableComponent(pn.viewable.Viewer):
+    """Interactive data table for displaying selected genotypes"""
+
+    # Parameters
+    sample_size = param.Integer(default=50, bounds=(5, 500), doc="Number of genotypes to display in table")
+
+    def __init__(self, data_manager, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
+
+    @param.depends('sample_size')
+    def table(self):
+        """Create data table - reactive method"""
+        # Get selected data from the analyzer
+        selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
+
+        if selected_idx is not None and len(selected_idx) > 0:
+            # Use selected data
+            df = self.data_manager.genotypes.loc[selected_idx].copy()
+        else:
+            # Use all data if no selection
+            df = self.data_manager.genotypes.copy()
+
+        # Drop unnecessary columns like original dashboard
+        drop_cols = ['size', 'index']  # Hide index column from table
+        # Check if barcode column should be dropped (if num_barcodes control exists and is disabled)
+        if 'barcode(s)_subset' in df.columns:
+            drop_cols.append('barcode(s)_subset')
+
+        df = df.drop(columns=[col for col in drop_cols if col in df.columns], errors='ignore')
+
+        # Sort by timepoint then genotype_ID if timepoint exists, otherwise just genotype_ID
+        if 'timepoint' in df.columns and 'genotype_ID' in df.columns:
+            # Sort by timepoint first, then by genotype_ID within each timepoint
+            df = df.sort_values(['timepoint', 'genotype_ID'], key=lambda x: np.argsort(index_natsorted(x)))
+        elif 'genotype_ID' in df.columns:
+            # Sort by genotype_ID only if no timepoint column
+            df = df.iloc[index_natsorted(df['genotype_ID'])]
+
+        # Take first N rows if larger than sample size
+        if self.sample_size < len(df) and len(df) > 0:
+            df = df.head(self.sample_size)
+
+        # Return empty table if no data
+        if df.empty:
+            return pn.widgets.Tabulator(pd.DataFrame(), width=400, height=600)
+
+        # Reset index to hide original index and create tabulator widget
+        # Width adjusted: 662 + 46 = 708
+        return pn.widgets.Tabulator(
+            df.reset_index(drop=True),
+            width=708,
+            height=600,  # Same height as scatter plot
+            pagination='remote',
+            page_size=20,
+            sizing_mode='fixed',
+            show_index=False  # Don't show the index column
+        )
+
+    def __panel__(self):
+        """Return the panel object"""
+        return self.table
+
+
+class MutationAnalysisComponent(pn.viewable.Viewer):
+    """Component for displaying aggregated mutation analysis"""
+
+    # Parameters
+    most_common = param.Boolean(default=True, doc="Show most common (True) or least common (False) mutations")
+    num_positions = param.Integer(default=20, bounds=(1, None), doc="Number of mutation positions to display")
+    colormap = param.String(default='kbc_r', doc="Colormap for heatmap")
+    NTorAA = param.String(default='NT', doc="Nucleotide (NT) or Amino Acid (AA) analysis")
+    plot_type = param.String(default='heatmap', doc="Plot type: heatmap or bars")
+    position_mode = param.String(default='most common', doc="How to select positions: most common, least common, or range")
+    position_range = param.String(default='', doc="Position range(s) to display, e.g., '20-30' or '20-30,50-60'")
+    axis_type = param.String(default='categorical', doc="Axis type: numerical or categorical")
+    plot_width = param.Integer(default=500, bounds=(300, 1200), doc="Width of the mutation analysis plot")
+
+    def __init__(self, data_manager, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
+
+        # Set default NTorAA to AA if available, otherwise NT
+        if 'NTorAA' not in params:
+            has_aa = (hasattr(data_manager.analyzer, 'integer_matrix') and
+                      'AA' in data_manager.analyzer.integer_matrix)
+            self.NTorAA = 'AA' if has_aa else 'NT'
+
+        # Set max positions based on sequence length
+        self._update_max_positions()
+
+    def _update_max_positions(self):
+        """Update max positions based on current NT/AA selection"""
+        if hasattr(self.data_manager.analyzer, 'integer_matrix') and self.NTorAA in self.data_manager.analyzer.integer_matrix:
+            max_positions = self.data_manager.analyzer.integer_matrix[self.NTorAA].shape[1]
+            self.param.num_positions.bounds = (1, max_positions)
+
+    @param.depends('most_common', 'num_positions', 'colormap', 'NTorAA', 'plot_type', 'position_mode', 'position_range', 'axis_type', 'plot_width')
+    def plot(self):
+        """Create aggregated mutations heatmap - reactive method"""
+
+        # Update max positions when NTorAA changes
+        self._update_max_positions()
+
+        # Use slider width (dynamic width calculation removed since slider is always used)
+        actual_width = self.plot_width
+
+        # Use selected data if available, otherwise use all data
+        # Get selected indices from the data manager's analyzer (updated by dashboard)
+        selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
+
+        # Get aggregated mutations from SequenceAnalyzer
+        try:
+            agg_df = self.data_manager.analyzer.aggregate_mutations(
+                NTorAA=self.NTorAA,  # Use parameter instead of hardcoded
+                idx=selected_idx,    # Use selected sequences or None (all) if no selection
+                unique_only=False
+            )
+
+            total_seqs = self.data_manager.analyzer.get_count(idx=selected_idx)
+
+            # Create the plot using conspicuous_mutations with global font sizes
+            is_heatmap = (self.plot_type == 'heatmap')
+
+            # Use different colormaps for bars vs heatmaps
+            if is_heatmap:
+                colormap_to_use = self.colormap  # Use the selected colormap for heatmaps
+            else:
+                # Use the original dashboard's colormaps for bars
+                colormap_to_use = colormaps[self.NTorAA]
+
+            # Set parameters based on position_mode
+            if self.position_mode == 'range':
+                num_positions_arg = None
+                most_common_arg = True  # Default for range mode
+                position_ranges_arg = self.position_range if self.position_range.strip() else None
+            else:
+                num_positions_arg = self.num_positions
+                most_common_arg = (self.position_mode == 'most common')
+                position_ranges_arg = None
+
+            plot = conspicuous_mutations(
+                df=agg_df,
+                total_seqs=total_seqs,
+                num_positions=num_positions_arg,
+                colormap=colormap_to_use,
+                most_common=most_common_arg,
+                heatmap=is_heatmap,
+                fontsize=PLOT_FONT_SIZES,  # Use global font sizes
+                position_ranges=position_ranges_arg,
+                axis_type=self.axis_type
+            )
+
+            return plot.opts(
+                height=428,
+                width=actual_width
+                # Don't override fontsize - already set in conspicuous_mutations call
+            )
+
+        except Exception as e:
+            # Return error message if something goes wrong
+            return hv.Text(0.5, 0.5, f"Error: {str(e)}").opts(
+                width=600,
+                height=400,
+                xlim=(0, 1),
+                ylim=(0, 1)
+            )
+
+    def __panel__(self):
+        """Return the panel object"""
+        return pn.pane.HoloViews(
+            self.plot,
+            linked_axes=False,
+            sizing_mode='stretch_width'
+        )
+
+
+class StructureHeatmapComponent(pn.viewable.Viewer):
+    """Component for displaying 3D protein structure viewer with mutation frequency coloring"""
+
+    # Parameters
+    colormap = param.String(default='kbc_r', doc="Colormap for structure heatmap")
+    label_step = param.Selector(default=50, objects=[None, 10, 50, 100], doc="Label every Nth residue (None = no labels)")
+    frequency_floor = param.Number(default=0.0, bounds=(0, 1), doc="Minimum frequency threshold for coloring residues")
+
+    def __init__(self, data_manager, pdb_file=None, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
+        self.pdb_file = pdb_file
+
+    def plot(self, position_range=''):
+        """Create structure viewer - method that takes position_range as argument"""
+
+        # Return empty spacer if no PDB file
+        if not self.pdb_file:
+            return pn.Spacer(width=0)
+
+        # Use selected data if available, otherwise use all data
+        selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
+
+        # Get aggregated mutations from SequenceAnalyzer
+        try:
+            agg_df = self.data_manager.analyzer.aggregate_mutations(
+                NTorAA='AA',  # Structure viewer always uses AA
+                idx=selected_idx,
+                unique_only=False
+            )
+
+            # Create structure viewer pane
+            structure_pane = create_structure_pane(
+                pdb_file=self.pdb_file,
+                agg_df=agg_df,
+                colormap=self.colormap,
+                width=500,
+                height=428,
+                label_step=self.label_step,
+                min_identity=0.95,
+                frequency_floor=self.frequency_floor,
+                position_range=position_range
+            )
+
+            return structure_pane
+
+        except Exception as e:
+            # Return error message if something goes wrong
+            return pn.pane.Markdown(f"**Error creating structure viewer:**\n\n{str(e)}", width=800, height=600)
+
+    def __panel__(self):
+        """Return the panel object"""
+        return self.plot
+
+
+class ControlsPanel(pn.viewable.Viewer):
+    """Control widgets for the dashboard"""
+
+    def __init__(self, data_manager, scatter_component, histogram_component, mutation_analysis_component, table_component, downsample_slider, structure_component=None, **params):
+        super().__init__(**params)
+        self.data_manager = data_manager
+        self.scatter = scatter_component
+        self.histogram = histogram_component
+        self.mutation_analysis = mutation_analysis_component
+        self.table = table_component
+        self.downsample_slider = downsample_slider
+        self.structure = structure_component
+
+        # Create control widgets
+        self._create_widgets()
+
+    def _create_widgets(self):
+        """Create all control widgets"""
+
+        # Data controls (downsample_slider passed from main dashboard)
+
+        self.datashade_toggle = pn.widgets.Checkbox(
+            name='Enable Datashading',
+            value=True,
+            width=200
+        )
+
+        # Visualization controls
+        self.x_select = pn.widgets.Select(
+            name='X Column',
+            options=self.data_manager.numerical_columns,
+            value=self.scatter.x_column,
+            width=200
+        )
+
+        self.y_select = pn.widgets.Select(
+            name='Y Column',
+            options=self.data_manager.numerical_columns,
+            value=self.scatter.y_column,
+            width=200
+        )
+
+        # Build color options including numerical columns and mutations of interest
+        color_options = self.data_manager.numerical_columns.copy()
+        color_options.append('NT_muts_of_interest')
+        if self.data_manager.do_AA_analysis:
+            color_options.append('AA_muts_of_interest')
+
+        self.color_select = pn.widgets.Select(
+            name='Color By',
+            options=color_options,
+            value=self.scatter.color_by,
+            width=200
+        )
+
+        # Create colormap selector like original dashboard
+        colormap_dict = cmap_dict()
+        self.colormap_select = pn.widgets.Select(
+            name='Colormap',
+            options=list(colormap_dict.keys()),
+            value=self.scatter.colormap,
+            width=200
+        )
+
+        self.size_slider = pn.widgets.IntSlider(
+            name='Point Size',
+            start=1,
+            end=20,
+            value=self.scatter.point_size,
+            width=200
+        )
+
+        self.alpha_slider = pn.widgets.FloatSlider(
+            name='Opacity',
+            start=0.1,
+            end=1.0,
+            step=0.1,
+            value=self.scatter.alpha,
+            width=200
+        )
+
+        # Histogram controls
+        self.hist_column_select = pn.widgets.Select(
+            name='Histogram Column',
+            options=self.data_manager.numerical_columns,
+            value=self.histogram.hist_column,
+            width=200
+        )
+
+        self.hist_bins_slider = pn.widgets.IntSlider(
+            name='Number of Bins',
+            start=1,
+            end=50,
+            value=self.histogram.num_bins,
+            width=200
+        )
+
+        # Selection opacity controls
+        self.selected_alpha_slider = pn.widgets.FloatSlider(
+            name='Selected Opacity',
+            start=0.0,
+            end=1.0,
+            step=0.1,
+            value=1.0,
+            width=200
+        )
+
+        self.unselected_alpha_slider = pn.widgets.FloatSlider(
+            name='Unselected Opacity',
+            start=0.0,
+            end=1.0,
+            step=0.1,
+            value=0.2,
+            width=200
+        )
+
+        # Mutation analysis controls
+        self.freq_select = pn.widgets.Select(
+            name='Mutation Positions',
+            options=['Most Common', 'Least Common', 'Range'],
+            value='Most Common',
+            width=200
+        )
+
+        # Check if AA analysis is available
+        has_aa = (hasattr(self.data_manager.analyzer, 'integer_matrix') and
+                  'AA' in self.data_manager.analyzer.integer_matrix)
+
+        NTorAA_options = ['NT']
+        if has_aa:
+            NTorAA_options.append('AA')
+
+        # Use the mutation analysis component's default (which is already set correctly)
+        self.NTorAA_toggle = pn.widgets.RadioButtonGroup(
+            name='Analysis Type',
+            options=NTorAA_options,
+            value=self.mutation_analysis.NTorAA,  # Get default from component
+            button_type='default',
+            width=200
+        )
+
+        self.plot_type_toggle = pn.widgets.RadioButtonGroup(
+            name='Plot Type',
+            options=['heatmap', 'bars'],
+            value=self.mutation_analysis.plot_type,
+            button_type='default',
+            width=200
+        )
+
+        self.axis_type_toggle = pn.widgets.RadioButtonGroup(
+            name='Axis Type',
+            options=['numerical', 'categorical'],
+            value=self.mutation_analysis.axis_type,
+            button_type='default',
+            width=200
+        )
+
+        # Get max positions for the current NT/AA selection
+        current_NTorAA = self.NTorAA_toggle.value
+        max_pos = self.data_manager.analyzer.integer_matrix[current_NTorAA].shape[1] if has_aa or current_NTorAA == 'NT' else 50
+
+        self.num_positions_text = pn.widgets.TextInput(
+            name='Number of positions to display',
+            placeholder=f'from 5 to {max_pos}',
+            value=str(self.mutation_analysis.num_positions),
+            width=200
+        )
+
+        self.range_input = pn.widgets.TextInput(
+            name='Range(s)',
+            placeholder='e.g., 20-30 or 20-30,50-60',
+            value='',
+            width=200
+        )
+
+        # Link visibility of widgets to the frequency select and update axis options
+        def update_widget_visibility(event):
+            is_range = event.new == 'Range'
+            self.num_positions_text.visible = not is_range
+            self.range_input.visible = is_range
+            # Reset range input when switching away from Range mode
+            if not is_range:
+                self.range_input.value = ''
+            # Force sync the component parameter after changing axis options
+            self._update_axis_type_options()
+            self.mutation_analysis.param.trigger('axis_type')
+
+        self.freq_select.param.watch(update_widget_visibility, 'value')
+
+        # Watch range input to update axis options when range changes
+        self.range_input.param.watch(lambda event: self._update_axis_type_options(), 'value')
+
+        # Set initial visibility
+        is_range = self.freq_select.value == 'Range'
+        self.num_positions_text.visible = not is_range
+        self.range_input.visible = is_range
+
+        self.plot_width_slider = pn.widgets.IntSlider(
+            name='Plot Width',
+            start=300,
+            end=1200,
+            value=self.mutation_analysis.plot_width,
+            width=200
+        )
+
+        # Table controls
+        self.sample_size_slider = pn.widgets.IntSlider(
+            name='Table Sample Size',
+            start=5,
+            end=500,
+            step=1,
+            value=self.table.sample_size,
+            width=200
+        )
+
+        # Mutations of interest controls
+        self.NT_muts_text = pn.widgets.TextInput(
+            name='NT mutations of interest',
+            placeholder='e.g., A100T, 150, G_, _C',
+            value='',
+            width=200
+        )
+
+        self.AA_muts_text = pn.widgets.TextInput(
+            name='AA mutations of interest',
+            placeholder='e.g., A100T, 150, G_, _C',
+            value='',
+            width=200,
+            disabled=not self.data_manager.do_AA_analysis
+        )
+
+        self.max_mut_combos_slider = pn.widgets.IntSlider(
+            name='Max mutation combinations',
+            start=1,
+            end=20,
+            step=1,
+            value=10,
+            width=200
+        )
+
+        # MultiChoice widgets for filtering by mutations
+        self.NT_muts_multichoice = pn.widgets.MultiChoice(
+            name='Select NT mutations to filter',
+            options=[],  # Will be populated dynamically
+            value=[],
+            width=200
+        )
+
+        self.AA_muts_multichoice = pn.widgets.MultiChoice(
+            name='Select AA mutations to filter',
+            options=[],  # Will be populated dynamically
+            value=[],
+            width=200,
+            disabled=not self.data_manager.do_AA_analysis
+        )
+
+        # Export controls
+        self.selection_name_text = pn.widgets.TextInput(
+            name='Selection name',
+            value='unnamed',
+            width=200
+        )
+
+        self.export_genotypes_button = pn.widgets.Button(
+            name='Genotypes CSV',
+            button_type='primary',
+            width=200
+        )
+
+        self.export_NT_fasta_button = pn.widgets.Button(
+            name='NT FASTA',
+            button_type='primary',
+            width=95
+        )
+
+        self.export_AA_fasta_button = pn.widgets.Button(
+            name='AA FASTA',
+            button_type='primary',
+            width=95,
+            disabled=not self.data_manager.do_AA_analysis
+        )
+
+        self.export_NT_consensus_button = pn.widgets.Button(
+            name='NT consensus',
+            button_type='primary',
+            width=95
+        )
+
+        self.export_AA_consensus_button = pn.widgets.Button(
+            name='AA consensus',
+            button_type='primary',
+            width=95,
+            disabled=not self.data_manager.do_AA_analysis
+        )
+
+        self.export_agg_muts_button = pn.widgets.Button(
+            name='Aggregated mutations CSV',
+            button_type='primary',
+            width=200
+        )
+
+        self.export_plots_button = pn.widgets.Button(
+            name='Plots SVG',
+            button_type='primary',
+            width=200
+        )
+
+        # Data filter controls - two independent numerical column filters
+        numerical_columns = [col for col in self.data_manager.numerical_columns if 'muts_of_interest' not in col]
+
+        # Filter 1
+        self.filter1_column_select = pn.widgets.Select(
+            name='Filter 1 Column',
+            options=numerical_columns,
+            value=numerical_columns[0] if numerical_columns else None,
+            width=200
+        )
+
+        self.filter1_range_slider = pn.widgets.RangeSlider(
+            name='Filter 1 Range',
+            start=0,
+            end=100,
+            value=(0, 100),
+            width=200
+        )
+
+        # Filter 2
+        self.filter2_column_select = pn.widgets.Select(
+            name='Filter 2 Column',
+            options=numerical_columns,
+            value=numerical_columns[1] if len(numerical_columns) > 1 else (numerical_columns[0] if numerical_columns else None),
+            width=200
+        )
+
+        self.filter2_range_slider = pn.widgets.RangeSlider(
+            name='Filter 2 Range',
+            start=0,
+            end=100,
+            value=(0, 100),
+            width=200
+        )
+
+        # Structure viewer controls (only create if structure component exists)
+        if self.structure is not None:
+            self.structure_label_step_select = pn.widgets.Select(
+                name='Residue Label Step',
+                options=[None, 10, 50, 100],
+                value=self.structure.label_step,
+                width=200
+            )
+
+            self.structure_frequency_floor_slider = pn.widgets.FloatSlider(
+                name='Frequency Floor',
+                start=0.0,
+                end=1.0,
+                step=0.05,
+                value=self.structure.frequency_floor,
+                width=200
+            )
+
+        # Initialize range sliders with actual data ranges
+        self._update_filter_ranges()
+
+        # Link widgets to component parameters
+        self._link_widgets()
+
+    def _link_widgets(self):
+        """Link control widgets to component parameters"""
+
+        # Link scatter plot controls
+        self.x_select.link(self.scatter, value='x_column')
+        self.y_select.link(self.scatter, value='y_column')
+        self.color_select.link(self.scatter, value='color_by')
+        self.colormap_select.link(self.scatter, value='colormap')
+        self.datashade_toggle.link(self.scatter, value='datashade')
+        self.size_slider.link(self.scatter, value='point_size')
+        # Opacity is handled directly in plot creation function via selected_alpha/unselected_alpha parameters
+
+        # Link histogram controls
+        self.hist_column_select.link(self.histogram, value='hist_column')
+        self.hist_bins_slider.link(self.histogram, value='num_bins')
+
+        # Link mutation analysis controls
+        # Convert 'Most Common'/'Least Common'/'Range' to position_mode
+        def freq_callback(target, event):
+            if event.new == 'Most Common':
+                target.position_mode = 'most common'
+            elif event.new == 'Least Common':
+                target.position_mode = 'least common'
+            else:  # Range
+                target.position_mode = 'range'
+        self.freq_select.param.watch(lambda event: freq_callback(self.mutation_analysis, event), 'value')
+
+        # Link NTorAA toggle
+        self.NTorAA_toggle.link(self.mutation_analysis, value='NTorAA')
+
+        # Link plot type toggle
+        self.plot_type_toggle.link(self.mutation_analysis, value='plot_type')
+
+        # Link axis type toggle
+        self.axis_type_toggle.link(self.mutation_analysis, value='axis_type')
+
+        # Handle text input for positions with validation
+        def positions_callback(target, event):
+            try:
+                value = int(event.new)
+                bounds = target.param.num_positions.bounds
+                if bounds[0] <= value <= bounds[1]:
+                    target.num_positions = value
+                else:
+                    # Reset to valid range if out of bounds
+                    self.num_positions_text.value = str(target.num_positions)
+            except ValueError:
+                # Reset to current value if not a valid integer
+                self.num_positions_text.value = str(target.num_positions)
+        self.num_positions_text.param.watch(lambda event: positions_callback(self.mutation_analysis, event), 'value')
+
+        # Link range input directly
+        self.range_input.link(self.mutation_analysis, value='position_range')
+
+        # Initial axis type options update
+        self._update_axis_type_options()
+
+    def _update_axis_type_options(self):
+        """Update axis type options based on current position selection mode"""
+        if self.freq_select.value == 'Range':
+            range_str = self.range_input.value.strip()
+            if not range_str or ',' not in range_str:
+                # Empty range or single range - default to numerical, allow both
+                self.axis_type_toggle.value = 'numerical'
+                self.axis_type_toggle.disabled = False
+            else:
+                # Multiple ranges - force categorical and disable
+                self.axis_type_toggle.value = 'categorical'
+                self.axis_type_toggle.disabled = True
+        else:
+            # Most/Least Common modes - force categorical and disable
+            self.axis_type_toggle.value = 'categorical'
+            self.axis_type_toggle.disabled = True
+
+        # Update text input prompt when NTorAA changes
+        def update_positions_prompt(event):
+            new_NTorAA = event.new
+            if hasattr(self.data_manager.analyzer, 'integer_matrix') and new_NTorAA in self.data_manager.analyzer.integer_matrix:
+                max_pos = self.data_manager.analyzer.integer_matrix[new_NTorAA].shape[1]
+                self.num_positions_text.placeholder = f'from 5 to {max_pos}'
+        self.NTorAA_toggle.param.watch(update_positions_prompt, 'value')
+
+        # Link plot width slider directly
+        self.plot_width_slider.link(self.mutation_analysis, value='plot_width')
+        # Set flag to use slider width instead of dynamic calculation
+        self.mutation_analysis._use_slider_width = True
+
+        self.colormap_select.link(self.mutation_analysis, value='colormap')  # Share colormap with scatter plot
+
+        # Link table controls
+        self.sample_size_slider.link(self.table, value='sample_size')
+
+        # Link structure viewer controls (if structure component exists)
+        if self.structure is not None:
+            self.structure_label_step_select.link(self.structure, value='label_step')
+            self.structure_frequency_floor_slider.link(self.structure, value='frequency_floor')
+            self.colormap_select.link(self.structure, value='colormap')  # Share colormap with scatter and mutation plots
+
+        # Set up filter column callbacks to update range sliders
+        def update_filter1_range(event):
+            if event.new and event.new in self.data_manager.genotypes.columns:
+                col_data = self.data_manager.genotypes[event.new]
+                self.filter1_range_slider.start = np.floor(col_data.min())
+                self.filter1_range_slider.end = np.ceil(col_data.max())
+                self.filter1_range_slider.value = (np.floor(col_data.min()), np.ceil(col_data.max()))
+                self.filter1_range_slider.name = f'{event.new} range'
+
+        def update_filter2_range(event):
+            if event.new and event.new in self.data_manager.genotypes.columns:
+                col_data = self.data_manager.genotypes[event.new]
+                self.filter2_range_slider.start = np.floor(col_data.min())
+                self.filter2_range_slider.end = np.ceil(col_data.max())
+                self.filter2_range_slider.value = (np.floor(col_data.min()), np.ceil(col_data.max()))
+                self.filter2_range_slider.name = f'{event.new} range'
+
+        self.filter1_column_select.param.watch(update_filter1_range, 'value')
+        self.filter2_column_select.param.watch(update_filter2_range, 'value')
+
+        # Link export button callbacks (plot export callback will be set by Dashboard)
+        self.export_genotypes_button.on_click(self._export_genotypes)
+        self.export_NT_fasta_button.on_click(self._export_NT_fasta)
+        self.export_AA_fasta_button.on_click(self._export_AA_fasta)
+        self.export_NT_consensus_button.on_click(self._export_NT_consensus)
+        self.export_AA_consensus_button.on_click(self._export_AA_consensus)
+        self.export_agg_muts_button.on_click(self._export_agg_muts)
+
+
+    def _export_genotypes(self, event):
+        """Export selected genotypes to CSV"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_genotypes.csv'
+
+        # Create dashboard directory
+        pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
+
+        # Get selected data from analyzer
+        selected_idx = self.data_manager.analyzer.selected_idx
+        if selected_idx is not None and len(selected_idx) > 0:
+            selected_genotypes = self.data_manager.genotypes.loc[selected_idx]
+        else:
+            selected_genotypes = self.data_manager.genotypes
+
+        # Drop temporary columns
+        drop_cols = ['size', 'index']  # Exclude index column from export
+        if 'barcode(s)_subset' in selected_genotypes.columns:
+            drop_cols.append('barcode(s)_subset')
+        selected_genotypes = selected_genotypes.drop(columns=[col for col in drop_cols if col in selected_genotypes.columns], errors='ignore')
+
+        # Export
+        selected_genotypes.to_csv(filename)
+        print(f'Exported {len(selected_genotypes)} genotypes to {filename}')
+
+    def _export_NT_fasta(self, event):
+        """Export NT sequences to FASTA"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_NT-seqs.fasta'
+
+        selected_idx = self.data_manager.analyzer.selected_idx
+        self.data_manager.analyzer.write_fasta(filename, 'NT', idx=selected_idx)
+        count = len(selected_idx) if selected_idx is not None else len(self.data_manager.genotypes)
+        print(f'Exported {count} NT sequences to {filename}')
+
+    def _export_AA_fasta(self, event):
+        """Export AA sequences to FASTA"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_AA-seqs.fasta'
+
+        selected_idx = self.data_manager.analyzer.selected_idx
+        self.data_manager.analyzer.write_fasta(filename, 'AA', idx=selected_idx)
+        count = len(selected_idx) if selected_idx is not None else len(self.data_manager.genotypes)
+        print(f'Exported {count} AA sequences to {filename}')
+
+    def _export_NT_consensus(self, event):
+        """Export NT consensus sequence to FASTA"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = 'dashboard/dashboard-NT-consensus.fasta'
+
+        selected_idx = self.data_manager.analyzer.selected_idx
+        self.data_manager.analyzer.get_consensus('NT', idx=selected_idx, write_to=filename, append=True,
+                                                   name=f'{self.selection_name_text.value}_{timestamp}')
+        print(f'Appended NT consensus sequence to {filename}')
+
+    def _export_AA_consensus(self, event):
+        """Export AA consensus sequence to FASTA"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = 'dashboard/dashboard-AA-consensus.fasta'
+
+        selected_idx = self.data_manager.analyzer.selected_idx
+        self.data_manager.analyzer.get_consensus('AA', idx=selected_idx, write_to=filename, append=True,
+                                                   name=f'{self.selection_name_text.value}_{timestamp}')
+        print(f'Appended AA consensus sequence to {filename}')
+
+    def _export_agg_muts(self, event):
+        """Export aggregated mutations to CSV"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_mutations-aggregated.csv'
+
+        # Create dashboard directory
+        pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
+
+        # Get selected data and aggregate
+        selected_idx = self.data_manager.analyzer.selected_idx
+        NTorAA = self.NTorAA_toggle.value  # Use current NT/AA toggle setting
+        df = self.data_manager.analyzer.aggregate_mutations(NTorAA=NTorAA, idx=selected_idx)
+
+        # Export
+        df.to_csv(filename, index=False)
+        print(f'Exported aggregated {NTorAA} mutations to {filename}')
+
+
+    def _update_filter_ranges(self):
+        """Initialize filter range sliders with actual data ranges"""
+        # Update filter 1
+        if self.filter1_column_select.value and self.filter1_column_select.value in self.data_manager.genotypes.columns:
+            col_data = self.data_manager.genotypes[self.filter1_column_select.value]
+            self.filter1_range_slider.start = np.floor(col_data.min())
+            self.filter1_range_slider.end = np.ceil(col_data.max())
+            self.filter1_range_slider.value = (np.floor(col_data.min()), np.ceil(col_data.max()))
+            self.filter1_range_slider.name = f'{self.filter1_column_select.value} range'
+
+        # Update filter 2
+        if self.filter2_column_select.value and self.filter2_column_select.value in self.data_manager.genotypes.columns:
+            col_data = self.data_manager.genotypes[self.filter2_column_select.value]
+            self.filter2_range_slider.start = np.floor(col_data.min())
+            self.filter2_range_slider.end = np.ceil(col_data.max())
+            self.filter2_range_slider.value = (np.floor(col_data.min()), np.ceil(col_data.max()))
+            self.filter2_range_slider.name = f'{self.filter2_column_select.value} range'
+
+    def __panel__(self):
+        """Return the controls panel layout"""
+
+        data_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.downsample_slider, self.datashade_toggle),
+                pn.Row(self.filter1_column_select, self.filter1_range_slider),
+                pn.Row(self.filter2_column_select, self.filter2_range_slider)
+            ),
+            title="Data Controls",
+            collapsed=False
+        )
+
+        viz_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.x_select, self.y_select),
+                pn.Row(self.color_select, self.colormap_select),
+                self.size_slider
+            ),
+            title="Plot Controls",
+            collapsed=False
+        )
+
+        muts_of_interest_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.NT_muts_text, self.AA_muts_text),
+                self.max_mut_combos_slider,
+                pn.pane.Markdown("**Filter by mutations:**"),
+                pn.Row(self.NT_muts_multichoice, self.AA_muts_multichoice)
+            ),
+            title="Mutations of Interest Controls",
+            collapsed=True
+        )
+
+        hist_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.hist_column_select, self.hist_bins_slider),
+                pn.Row(self.selected_alpha_slider, self.unselected_alpha_slider)
+            ),
+            title="Histogram Controls",
+            collapsed=False
+        )
+
+        mutation_analysis_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.NTorAA_toggle, self.plot_type_toggle),  # Radio buttons on top
+                pn.Row(self.freq_select, self.axis_type_toggle),    # Position mode and axis type
+                pn.Row(self.num_positions_text, self.range_input, self.plot_width_slider)  # Number positions or range and plot width
+            ),
+            title="Aggregated Mutations Controls",
+            collapsed=False
+        )
+
+        table_controls = pn.Card(
+            self.sample_size_slider,
+            title="Data Table Controls",
+            collapsed=False
+        )
+
+        export_controls = pn.Card(
+            pn.Column(
+                pn.Row(self.selection_name_text, self.export_plots_button),
+                pn.Row(self.export_genotypes_button, self.export_agg_muts_button),
+                pn.Row(self.export_NT_fasta_button, self.export_AA_fasta_button,
+                       self.export_NT_consensus_button, self.export_AA_consensus_button)
+            ),
+            title="Export Controls",
+            collapsed=True
+        )
+
+        # Structure viewer controls (only show if structure component exists)
+        control_columns = [
+            data_controls,
+            viz_controls,
+            muts_of_interest_controls,
+            hist_controls,
+            mutation_analysis_controls,
+            table_controls
+        ]
+
+        if self.structure is not None:
+            structure_controls = pn.Card(
+                pn.Row(
+                    self.structure_label_step_select,
+                    self.structure_frequency_floor_slider
+                ),
+                title="Structure Viewer Controls",
+                collapsed=False
+            )
+            control_columns.append(structure_controls)
+
+        control_columns.append(export_controls)
+
+        return pn.Column(
+            *control_columns,
+            width=500,  # Increased width as requested
+            sizing_mode='stretch_height'
+        )
+
+
+class MapleDashboard:
+    """Main dashboard class orchestrating all components"""
+
+    def __init__(self, genotypes_file, reference_file, exclude_indels=False, initial_downsample=100000, pdb_file=None):
+
+        # Initialize data manager
+        self.data_manager = DataManager(genotypes_file, reference_file, exclude_indels)
+
+        # Store PDB file path
+        self.pdb_file = pdb_file
+
+        # Store genotypes filename for validation
+        self.genotypes_filename = pathlib.Path(genotypes_file).name
+
+        # Cache for saved selection
+        self.saved_selection = None
+
+        # Create downsample slider with command line argument support
+        max_size = len(self.data_manager.genotypes)
+        initial_value = min(initial_downsample, max_size)  # Use min(df.max, downsample_arg) as requested
+
+        self.downsample_slider = pn.widgets.IntSlider(
+            name='Downsample',
+            start=1000,
+            end=max_size,
+            step=1000,
+            value=initial_value,
+            width=200
+        )
+
+        # Create components first
+        self.scatter_component = ScatterPlotComponent(self.data_manager)
+        self.histogram_component = HistogramComponent(self.data_manager)
+        self.mutation_analysis_component = MutationAnalysisComponent(self.data_manager)
+        self.table_component = TableComponent(self.data_manager)
+        self.structure_component = StructureHeatmapComponent(self.data_manager, pdb_file=self.pdb_file)
+        self.controls_panel = ControlsPanel(self.data_manager, self.scatter_component, self.histogram_component, self.mutation_analysis_component, self.table_component, self.downsample_slider, structure_component=self.structure_component)
+
+        # Reactive data pipeline with filtering and downsampling (after controls are created)
+        self.filtered_data = pn.rx(self._get_filtered_data)(
+            self.downsample_slider.param.value,
+            self.controls_panel.filter1_column_select.param.value,
+            self.controls_panel.filter1_range_slider.param.value,
+            self.controls_panel.filter2_column_select.param.value,
+            self.controls_panel.filter2_range_slider.param.value,
+            self.controls_panel.NT_muts_text.param.value,
+            self.controls_panel.AA_muts_text.param.value,
+            self.controls_panel.max_mut_combos_slider.param.value,
+            self.controls_panel.NT_muts_multichoice.param.value,
+            self.controls_panel.AA_muts_multichoice.param.value
+        )
+
+        # Create shared selection state like original dashboard
+        self.ls = link_selections.instance()
+        self.selected_indices = []  # Shared selection state for all plots to use
+
+        # Create selection control buttons
+        self.clear_selection_button = pn.widgets.Button(
+            name='Clear Selection',
+            button_type='primary',
+            width=133
+        )
+        self.clear_selection_button.on_click(self._clear_selection)
+
+        self.save_selection_button = pn.widgets.Button(
+            name='Save Selection',
+            button_type='primary',
+            width=133
+        )
+        self.save_selection_button.on_click(self._save_selection)
+
+        self.load_selection_button = pn.widgets.Button(
+            name='Load Selection',
+            button_type='primary',
+            width=133
+        )
+        self.load_selection_button.on_click(self._load_selection)
+
+        # Create reactive plots with shared selection (pass link as parameter like original)
+        self.reactive_plot = pn.bind(self._create_scatter_plot_with_selection,
+                                   link=self.ls,  # Pass link_selections as parameter
+                                   data=self.filtered_data,
+                                   x_col=self.scatter_component.param.x_column,
+                                   y_col=self.scatter_component.param.y_column,
+                                   color_by=self.scatter_component.param.color_by,
+                                   colormap=self.scatter_component.param.colormap,
+                                   datashade=self.scatter_component.param.datashade,
+                                   point_size=self.scatter_component.param.point_size,
+                                   alpha=self.scatter_component.param.alpha,
+                                   # Make sure opacity changes trigger plot updates
+                                   selected_alpha=self.controls_panel.selected_alpha_slider.param.value,
+                                   unselected_alpha=self.controls_panel.unselected_alpha_slider.param.value)
+
+        # Create reactive mutation analysis that updates with selections and filtered data
+        self.reactive_mutation_analysis = pn.bind(self._create_mutation_analysis_with_selection,
+                                                data=self.filtered_data,
+                                                selection_expr=self.ls.param.selection_expr,
+                                                mutation_component=self.mutation_analysis_component)
+
+        # Create conditional legend for bar charts
+        self.reactive_legend = pn.bind(self._create_mutation_legend,
+                                     plot_type=self.mutation_analysis_component.param.plot_type)
+
+        # Create reactive histogram with selection overlay
+        self.reactive_histogram = pn.bind(self._create_histogram_with_selection,
+                                        data=self.filtered_data,
+                                        hist_column=self.histogram_component.param.hist_column,
+                                        num_bins=self.histogram_component.param.num_bins,
+                                        selected_alpha=self.controls_panel.selected_alpha_slider.param.value,
+                                        unselected_alpha=self.controls_panel.unselected_alpha_slider.param.value,
+                                        selection_expr=self.ls.param.selection_expr)
+
+        # Create colorbar/legend for datashaded plots
+        self.reactive_colorbar = pn.bind(self._create_color_legend,
+                                       color_by=self.scatter_component.param.color_by,
+                                       colormap=self.scatter_component.param.colormap,
+                                       datashade=self.scatter_component.param.datashade,
+                                       NT_muts=self.controls_panel.NT_muts_text.param.value,
+                                       AA_muts=self.controls_panel.AA_muts_text.param.value,
+                                       max_groups=self.controls_panel.max_mut_combos_slider.param.value)
+
+        # Create reactive table that updates with selections and filtered data
+        self.reactive_table = pn.bind(self._create_table_with_selection,
+                                    data=self.filtered_data,
+                                    selection_expr=self.ls.param.selection_expr,
+                                    table_component=self.table_component)
+
+        # Create reactive structure viewer that updates with selections (only if PDB file provided)
+        if self.pdb_file:
+            self.reactive_structure = pn.bind(self._create_structure_with_selection,
+                                            data=self.filtered_data,
+                                            selection_expr=self.ls.param.selection_expr,
+                                            structure_component=self.structure_component,
+                                            position_range=self.mutation_analysis_component.param.position_range,
+                                            colormap=self.structure_component.param.colormap,
+                                            label_step=self.structure_component.param.label_step,
+                                            frequency_floor=self.structure_component.param.frequency_floor)
+        else:
+            self.reactive_structure = pn.Spacer(width=0)
+
+        # Link export plots button callback (button is in ControlsPanel, logic is here)
+        self.controls_panel.export_plots_button.on_click(self._export_plots)
+
+        # Link mutations of interest callbacks to update MultiChoice options
+        self.controls_panel.NT_muts_text.param.watch(self._update_NT_muts_options, 'value')
+        self.controls_panel.AA_muts_text.param.watch(self._update_AA_muts_options, 'value')
+        self.controls_panel.max_mut_combos_slider.param.watch(self._update_NT_muts_options, 'value')
+        self.controls_panel.max_mut_combos_slider.param.watch(self._update_AA_muts_options, 'value')
+
+        # Create the dashboard template
+        self._create_template()
+
+    def _get_filtered_data(self, downsample_size, filter1_col, filter1_range, filter2_col, filter2_range, NT_muts, AA_muts, max_groups, NT_muts_filter, AA_muts_filter):
+        """Get filtered and downsampled data"""
+        # Start with downsampled data
+        df = self.data_manager.analyzer.downsample(downsample_size)['df']
+
+        # Apply filter 1 if column and range are valid
+        if filter1_col and filter1_col in df.columns and filter1_range:
+            df = df[
+                (df[filter1_col] >= filter1_range[0]) &
+                (df[filter1_col] <= filter1_range[1])
+            ]
+
+        # Apply filter 2 if column and range are valid
+        if filter2_col and filter2_col in df.columns and filter2_range:
+            df = df[
+                (df[filter2_col] >= filter2_range[0]) &
+                (df[filter2_col] <= filter2_range[1])
+            ]
+
+        # Add mutations of interest columns
+        df.loc[df.index, 'NT_muts_of_interest'] = self.data_manager.analyzer.get_mutations_of_interest('NT', NT_muts, max_groups, idx=df.index)
+        if self.data_manager.do_AA_analysis:
+            df.loc[df.index, 'AA_muts_of_interest'] = self.data_manager.analyzer.get_mutations_of_interest('AA', AA_muts, max_groups, idx=df.index)
+
+        # Apply mutations of interest filter
+        if NT_muts_filter and len(NT_muts_filter) > 0:
+            df = df[df['NT_muts_of_interest'].isin(NT_muts_filter)]
+
+        if self.data_manager.do_AA_analysis and AA_muts_filter and len(AA_muts_filter) > 0:
+            df = df[df['AA_muts_of_interest'].isin(AA_muts_filter)]
+
+        # Add index as a column for programmatic selection expressions
+        df['index'] = df.index
+
+        return df
+
+    def _get_categorical_color_mapping(self, data, color_by, colormap):
+        """
+        Helper method to generate categorical color mapping.
+        Used by both scatter plot and colorbar/legend creation.
+
+        Returns: (categories, color_key) tuple
+        """
+        categories = sorted(data[color_by].unique())
+
+        # Get colormap colors
+        colormap_dict = cmap_dict()
+        cmap_colors = colormap_dict[colormap]
+
+        # Create color mapping
+        num_categories = len(categories)
+        indices = np.linspace(0, len(cmap_colors) - 1, num_categories, dtype=int)
+        subset_colors = [cmap_colors[i] for i in indices]
+        color_key = {cat: color for cat, color in zip(categories, subset_colors)}
+
+        return categories, color_key
+
+    def _clear_selection(self, event):
+        """Clear all selections manually and reset state"""
+        # Set to empty list instead of None to properly clear visual selection
+        self.ls.selection_expr = []
+        self.selected_indices = []
+        # Clear the analyzer's selected_idx to show all data in mutation analysis
+        self.data_manager.analyzer.selected_idx = None
+        print("Selection manually cleared")
+
+    def _save_selection(self, event):
+        """Save current selection to cache and pickle file"""
+        selection_expr = self.ls.selection_expr
+
+        if selection_expr is None or selection_expr == []:
+            print("No selection to save")
+            return
+
+        # Cache the selection expression
+        self.saved_selection = selection_expr
+
+        # Save to pickle file
+        pathlib.Path('dashboard').mkdir(parents=True, exist_ok=True)
+        save_data = {
+            'filename': self.genotypes_filename,
+            'selection_expr': selection_expr
+        }
+
+        with open('dashboard/selection.pkl', 'wb') as f:
+            pickle.dump(save_data, f)
+
+        # Get count for user feedback
+        selected_idx = self.data_manager.analyzer.selected_idx
+        count = len(selected_idx) if selected_idx else 0
+        print(f"Saved selection with {count} sequences")
+
+    def _load_selection(self, event):
+        """Load selection from cache or pickle file"""
+        # Try cache first
+        if self.saved_selection is not None:
+            print("Loading selection from cache")
+            self._apply_saved_selection(self.saved_selection)
+            return
+
+        # Try pickle file if no cache
+        selection_file = pathlib.Path('dashboard/selection.pkl')
+        if not selection_file.exists():
+            print("No saved selection found (no cache or file)")
+            return
+
+        # Load and validate pickle
+        try:
+            with open(selection_file, 'rb') as f:
+                save_data = pickle.load(f)
+
+            # Validate filename
+            saved_filename = save_data.get('filename')
+            if saved_filename != self.genotypes_filename:
+                print(f"WARNING: Saved selection is from different file!")
+                print(f"  Current: {self.genotypes_filename}")
+                print(f"  Saved:   {saved_filename}")
+                print("Selection NOT loaded")
+                return
+
+            # Load selection expression
+            selection_expr = save_data.get('selection_expr')
+            if selection_expr is not None:
+                print("Loading selection from file")
+                self._apply_saved_selection(selection_expr)
+            else:
+                print("Invalid selection file (no selection_expr)")
+
+        except Exception as e:
+            print(f"Error loading selection file: {e}")
+
+    def _apply_saved_selection(self, selection_expr):
+        """Apply a saved selection expression to the dashboard"""
+        # Update link_selections with the saved expression
+        self.ls.selection_expr = selection_expr
+        print("Selection applied")
+
+    def _update_NT_muts_options(self, event):
+        """Update NT mutations MultiChoice options based on current filtered data"""
+        current_data = self.filtered_data.rx.value
+        if 'NT_muts_of_interest' in current_data.columns:
+            unique_muts = current_data['NT_muts_of_interest'].unique()
+            options = [m for m in unique_muts if m != 'none']
+            self.controls_panel.NT_muts_multichoice.options = sorted(options)
+
+    def _update_AA_muts_options(self, event):
+        """Update AA mutations MultiChoice options based on current filtered data"""
+        current_data = self.filtered_data.rx.value
+        if self.data_manager.do_AA_analysis and 'AA_muts_of_interest' in current_data.columns:
+            unique_muts = current_data['AA_muts_of_interest'].unique()
+            options = [m for m in unique_muts if m != 'none']
+            self.controls_panel.AA_muts_multichoice.options = sorted(options)
+
+
+    def _create_mutation_analysis_with_selection(self, data, selection_expr, mutation_component):
+        """Update mutation analysis component based on current selection and filtered data"""
+        # Store current data for process_selection to use
+        self.current_data = data
+        # Process selection using centralized helper (updates analyzer.selected_idx)
+        process_selection(selection_expr, self)
+
+        # Return the mutation component's plot method (not called) so Panel can track dependencies
+        return mutation_component.plot
+
+    def _create_mutation_legend(self, plot_type):
+        """Create legend image for bar charts, spacer for heatmaps"""
+        if plot_type == 'bars':
+            # Show legend image for bar charts
+            legend_path = os.path.join(os.path.dirname(__file__), '..', '..', 'images', 'AA_NT_colormap.png')
+            if os.path.exists(legend_path):
+                return pn.pane.PNG(legend_path, width=150, height=400)
+            else:
+                return pn.pane.Markdown(f"**Legend image not found**\n\nExpected location:\n`maple/images/AA_NT_colormap.png`", width=150, height=400)
+        else:
+            # Show spacer for heatmaps (they don't need legends)
+            return pn.Spacer(width=0)
+
+    def _create_table_with_selection(self, data, selection_expr, table_component):
+        """Update table component based on current selection and filtered data"""
+        # Store current data for process_selection to use
+        self.current_data = data
+        # Process selection using centralized helper (updates analyzer.selected_idx)
+        process_selection(selection_expr, self)
+
+        # Return the table component's table (which will now use the updated selected_idx)
+        return table_component.table
+
+    def _create_structure_with_selection(self, data, selection_expr, structure_component, position_range, colormap, label_step, frequency_floor):
+        """Update structure viewer component based on current selection and filtered data"""
+        # Store current data for process_selection to use
+        self.current_data = data
+        # Process selection using centralized helper (updates analyzer.selected_idx)
+        process_selection(selection_expr, self)
+
+        # Call plot with position_range argument
+        # colormap, label_step, frequency_floor are in the signature to trigger updates when they change
+        return structure_component.plot(position_range=position_range)
+
+
+    def _create_color_legend(self, color_by, colormap, datashade, NT_muts=None, AA_muts=None, max_groups=None):
+        """Create colorbar for numerical data or legend for categorical data"""
+        # NT_muts, AA_muts, max_groups are just to trigger updates when they change
+        if not datashade:
+            return pn.Spacer(width=0)  # No colorbar for non-datashaded plots
+
+        # Check if column is categorical
+        is_categorical = not pd.api.types.is_numeric_dtype(self.data_manager.genotypes[color_by].dtype)
+
+        if is_categorical:
+            # Create HoloViews-based legend with colored circles (exportable to SVG)
+            current_data = getattr(self, 'current_data', self.data_manager.genotypes)
+            if current_data is None or color_by not in current_data.columns:
+                return pn.Spacer(width=0)
+
+            # Use helper method to get color mapping (same logic as scatter plot)
+            categories, color_key = self._get_categorical_color_mapping(current_data, color_by, colormap)
+
+            # Create HoloViews elements for each category
+            elements = []
+            for i, (cat, color) in enumerate(color_key.items()):
+                # Create point (circle) with no border
+                point = hv.Points([(0, i)]).opts(
+                    color=color,
+                    size=10,
+                    line_color=None,  # Remove border
+                    line_width=0
+                )
+                elements.append(point)
+
+                # Create text label with correct font size
+                label = hv.Text(0.3, i, str(cat)).opts(
+                    text_font_size=f'{PLOT_FONT_SIZES["legend"]}pt',  # Match colorbar label size (13pt)
+                    text_align='left',
+                    text_baseline='middle'
+                )
+                elements.append(label)
+
+            # Calculate height: 33px per line of text (excluding title)
+            legend_height = max(33 * len(categories), 100)  # Minimum 100px
+
+            # Combine all elements into overlay
+            legend = hv.Overlay(elements).opts(
+                width=200,
+                height=legend_height,
+                title=color_by,
+                xlim=(-0.2, 2.5),
+                ylim=(-0.5, len(categories) - 0.5),
+                xaxis=None,
+                yaxis=None,
+                show_frame=False,
+                toolbar=None,  # Disable pan tool
+                fontsize={'title': PLOT_FONT_SIZES['clabel']}  # Match colorbar title size (13pt)
+            )
+
+            return legend
+
+        # Create colorbar using Bokeh for all numerical columns (including count)
+        # Use the same color range as the plot (from downsampled data)
+        if hasattr(self, 'current_color_range') and self.current_color_range:
+            color_min, color_max = self.current_color_range
+        else:
+            # Fallback to full dataset range
+            color_min = self.data_manager.genotypes[color_by].min()
+            color_max = self.data_manager.genotypes[color_by].max()
+
+        # Use the same colormap as the plot like original dashboard
+        colormap_dict = cmap_dict()
+        cmap_colors = colormap_dict[colormap]
+        color_mapper = LinearColorMapper(palette=cmap_colors, low=color_min, high=color_max)
+
+        color_bar = ColorBar(
+            color_mapper=color_mapper,
+            label_standoff=8,
+            major_label_text_font_size=f"{PLOT_FONT_SIZES['yticks']}px"
+        )
+
+        # Wrap in Bokeh figure like original
+        p = figure(width=100, height=550, toolbar_location=None, min_border=0)
+        p.add_layout(color_bar, 'right')
+        p.axis.visible = False
+        p.xgrid.grid_line_color = None
+        p.ygrid.grid_line_color = None
+        p.outline_line_color = None
+        p.background_fill_color = None
+        p.border_fill_color = None
+
+        # Add label for column name with consistent font size (moved 10px left)
+        label = Label(
+            text=color_by,
+            x=10,  # 20 - 10 = 10 pixels from left
+            y=20,
+            x_units="screen",
+            y_units="screen",
+            angle=90,
+            angle_units="deg",
+            text_align="left",
+            text_baseline="middle",
+            text_font_size=f"{PLOT_FONT_SIZES['clabel']}pt"
+        )
+        p.add_layout(label)
+
+        return pn.panel(p)
+
+    def _update_selection_state(self, event):
+        """Update shared selection state when any plot selection changes"""
+        self.selected_indices = event.new if event.new else []
+
+    def _sync_selection_to_ls(self, event):
+        """Sync non-datashaded selection to ls.selection_expr"""
+        if event.new:
+            # Convert index selection to selection_expr format
+            self.ls.selection_expr = event.new
+        else:
+            # Clear selection properly to refresh histogram
+            self.ls.selection_expr = None
+            print("Selection cleared")
+
+    def _create_scatter_plot_with_selection(self, link, data, x_col, y_col, color_by, colormap, datashade, point_size, alpha, selected_alpha, unselected_alpha):
+        """Create scatter plot with selection support - different approaches for datashaded vs non-datashaded"""
+
+        if datashade:
+            # For datashaded: use link_selections approach
+            tools = ['box_select', 'lasso_select', 'reset']
+
+            # Check if categorical using full dataset (not filtered)
+            is_categorical = not pd.api.types.is_numeric_dtype(self.data_manager.genotypes[color_by].dtype)
+
+            if is_categorical:
+                # For categorical: no color range
+                color_range = None
+            else:
+                # For numerical: use FULL dataset min/max to prevent color shifting
+                color_range = (self.data_manager.genotypes[color_by].min(),
+                              self.data_manager.genotypes[color_by].max())
+
+            # Store this range for the colorbar
+            self.current_color_range = color_range
+
+            # Create basic scatter plot first (without datashading)
+            scatter = data.hvplot.scatter(
+                x=x_col,
+                y=y_col,
+                c=color_by,
+                width=800,
+                height=600,
+                tools=tools
+            )
+
+            # Apply datashader with appropriate settings
+            # Get colormap colors from cmap_dict like original dashboard
+            colormap_dict = cmap_dict()
+            cmap_colors = colormap_dict[colormap]
+
+            if is_categorical:
+                # For categorical: use ds.by aggregator with color_key
+                categories, color_key = self._get_categorical_color_mapping(data, color_by, colormap)
+
+                scatter = hv_datashade(scatter,
+                                  aggregator=ds.by(color_by),
+                                  color_key=color_key,
+                                  cnorm='eq_hist',
+                                  min_alpha=255)  # Prevents blending for categorical
+            else:
+                # For numerical: use mean aggregator with fixed clims
+                scatter = hv_datashade(scatter,
+                                  aggregator=ds.reductions.mean(color_by),
+                                  cmap=cmap_colors,
+                                  cnorm='linear',
+                                  clims=color_range)
+
+            # Apply dynspread with point_size controlling spread amount
+            # Convert point_size (1-20) to reasonable max_px range (1-6)
+            max_px = max(1, min(6, int(point_size / 3)))
+            scatter = dynspread(scatter, threshold=1, max_px=max_px)
+
+            # Apply sizing options that were lost when we manually applied datashade
+            scatter = scatter.opts(width=730, height=600, fontsize=PLOT_FONT_SIZES)  # Reduced datashaded plot by 70
+
+            # Apply link_selections inside function like original
+            plot = link(scatter)
+            self.current_data = data
+            return plot
+
+        else:
+            # For non-datashaded: also use link_selections approach for consistency
+            tools = ['box_select', 'lasso_select']  # Remove reset from tools like original
+
+            # Check if categorical
+            is_categorical = not pd.api.types.is_numeric_dtype(self.data_manager.genotypes[color_by].dtype)
+
+            # Get colormap colors from cmap_dict using the widget parameter
+            colormap_dict = cmap_dict()
+            cmap_colors = colormap_dict[colormap]
+
+            if is_categorical:
+                # For categorical: try using points instead of scatter
+                categories, color_map = self._get_categorical_color_mapping(data, color_by, colormap)
+
+                scatter = data.hvplot(
+                    kind='points',
+                    x=x_col,
+                    y=y_col,
+                    c=color_by,
+                    s=point_size,
+                    width=838,
+                    height=600,
+                    tools=tools,
+                    cmap=color_map,  # Pass the category -> color mapping
+                    legend='right',
+                    fontsize=PLOT_FONT_SIZES
+                ).opts(
+                    legend_opts={
+                        'title': color_by,
+                        'title_text_font_size': f'{PLOT_FONT_SIZES["clabel"]}pt'  # Match colorbar title size (13pt)
+                    }
+                )
+            else:
+                # For numerical: use c= parameter for continuous color mapping
+                scatter = data.hvplot(
+                    kind='points',
+                    x=x_col,
+                    y=y_col,
+                    c=color_by,
+                    s=point_size,
+                    width=838,  # Increased by 38px as requested
+                    height=600,
+                    tools=tools,
+                    cmap=cmap_colors,  # Use selected colormap from widget
+                    colorbar=True,  # Add colorbar
+                    fontsize=PLOT_FONT_SIZES  # Add standardized font sizes
+                ).opts(
+                    colorbar_opts={
+                        'title': color_by,
+                        'title_text_font_size': f'{PLOT_FONT_SIZES["legend"]}px',
+                        'major_label_text_font_size': f'{PLOT_FONT_SIZES["legend"]}px'
+                    }
+                )
+            # NOTE: Opacity controls don't work for hvplot scatter plots
+
+            # Apply link_selections inside function like original
+            plot = link(scatter)
+            self.current_data = data
+            return plot
+
+    def _create_histogram_with_selection(self, data, hist_column, num_bins, selected_alpha, unselected_alpha, selection_expr):
+        """Create histogram with selection overlay using modern patterns"""
+        # Calculate bin range based on column type
+        if data[hist_column].dtype == 'int64':
+            max_x_val = data[hist_column].max()
+            min_x_val = 0
+        else:  # float64
+            max_x_val = data[hist_column].max()
+            min_x_val = data[hist_column].min()
+
+        bins = np.linspace(min_x_val - 0.5, max_x_val + 0.5, num_bins + 1)
+
+        # Static histogram - opacity depends on whether there's a selection
+        hist_alpha = unselected_alpha if (selection_expr is not None and selection_expr != []) else selected_alpha
+
+        static_hist = create_histogram_plot(data, hist_column, bins, hist_alpha)
+
+        # Create selected data histogram using centralized helper
+        indices = process_selection(selection_expr, self)
+        if indices is not None:
+            # Use loc instead of iloc since indices are absolute (not positional within filtered data)
+            # Only select indices that exist in the current filtered data
+            valid_indices = [idx for idx in indices if idx in data.index]
+            if len(valid_indices) > 0:
+                selected_data = data.loc[valid_indices]
+                selected_hist = create_histogram_plot(selected_data, hist_column, bins, selected_alpha)
+                return static_hist * selected_hist
+
+        # Return just static histogram if no selection
+        return static_hist
+
+    def _export_plots(self, event):
+        """Export current plots to SVG"""
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        selection_name = self.controls_panel.selection_name_text.value
+        filename = f'dashboard/{selection_name}_{timestamp}_plots.html'
+
+        scatter_plot = self.reactive_plot()
+        histogram_plot = self.reactive_histogram()
+        mutation_plot_method = self.reactive_mutation_analysis()
+        mutation_plot = mutation_plot_method()
+
+        colorbar = self._create_color_legend(
+            color_by=self.scatter_component.color_by,
+            colormap=self.scatter_component.colormap,
+            datashade=True
+        )
+
+        export_svg_plots(
+            [scatter_plot, mutation_plot, histogram_plot, colorbar],
+            filename,
+            ['scatter', 'mutations', 'histogram', 'colorbar']
+        )
+        print(f'Exported plots to {filename[:-5]}_svg/ directory')
+
+    def _create_template(self):
+        """Create the main dashboard template"""
+
+        # Quick start panel in collapsible card
+        quick_start_panel = pn.Card(
+            pn.pane.Markdown("""
+        - Use **datashading** for large datasets (>10k points)
+        - Select **X/Y columns** to change the view
+        - **Color by** different mutation counts
+        - Use **box select** or **lasso select** to highlight points
+        - Refreshing the page or clicking the header resets the dashboard
+        - Note that the datashaded plot might look weird if your screen has an unusual aspect ratio
+        """),
+            title="Quick Start",
+            collapsed=True
+        )
+
+        # Main plot panel with table to the right and colorbar (like original dashboard layout)
+        plot_panel = pn.Row(
+            self.reactive_plot,
+            self.reactive_colorbar,
+            self.reactive_table,
+            sizing_mode='stretch_width'
+        )
+
+
+        # Create Selection Controls card
+        selection_controls_card = pn.Card(
+            pn.Row(
+                self.save_selection_button,
+                self.load_selection_button,
+                self.clear_selection_button
+            ),
+            title="Selection Controls",
+            collapsed=False
+        )
+
+        # Create template with wider sidebar
+        self.template = pn.template.FastListTemplate(
+            title="",  # Remove main title
+            sidebar=[
+                quick_start_panel,
+                self.controls_panel,
+                selection_controls_card
+            ],
+            main=[
+                pn.Column(
+                    plot_panel,
+                    pn.Row(
+                        self.reactive_histogram,
+                        self.reactive_mutation_analysis,
+                        self.reactive_legend,
+                        self.reactive_structure,
+                        sizing_mode='stretch_width'
+                    ),
+                    sizing_mode='stretch_both'
+                )
+            ],
+            header_background='#2596be',
+            accent_base_color='#2596be',
+            sidebar_width=450  # Set sidebar width directly on template
+        )
+
+    def show(self):
+        """Display the dashboard"""
+        self.template.show(autoreload=True)
+        return self.template
+
+    def servable(self, title=None):
+        """Make the dashboard servable"""
+        if title:
+            self.template.title = title
+        return self.template.servable()
+
+
+# Safe argument parsing and dashboard creation
+try:
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Maple Genotypes Dashboard - 2025 Rebuild')
+    parser.add_argument('--genotypes', type=str, required=True,
+                       help='Path to genotypes CSV file')
+    parser.add_argument('--reference', type=str, required=True,
+                       help='Path to reference FASTA file')
+    parser.add_argument('--exclude_indels', action='store_true',
+                       help='Exclude sequences with indels')
+    parser.add_argument('--downsample', type=int, default=100000,
+                       help='Initial downsample value (default: 100000)')
+    parser.add_argument('--pdb', type=str, default='',
+                       help='Path to PDB file for structure viewer (optional)')
+
+    args, unknown = parser.parse_known_args()
+
+    print("Starting Maple Dashboard 2025...")
+    print(f"Genotypes: {args.genotypes}")
+    print(f"Reference: {args.reference}")
+
+    # Create dashboard with downsample argument and optional PDB file
+    dashboard = MapleDashboard(
+        genotypes_file=args.genotypes,
+        reference_file=args.reference,
+        exclude_indels=args.exclude_indels,
+        initial_downsample=args.downsample,
+        pdb_file=args.pdb if args.pdb else None
+    )
+
+    # Make template servable
+    layout = dashboard.servable(title=f'Maple Dashboard: {pathlib.Path(args.genotypes).name}')
+
+except Exception as e:
+    print(f"Error creating dashboard: {e}")
+    traceback.print_exc()
+
+    # Fallback - create error dashboard
+    error_text = f"""
+    # Dashboard Creation Failed
+
+    **Error:** {e}
+
+    **Arguments:** {getattr(locals(), 'args', 'Not parsed')}
+
+    Please check your input files and try again.
     """
-    produces plots that describe aggregated mutations. plot is chosen based on the text in the plot_type input. link is just used to trigger the callback when a selection is made
-    """
 
-    # apply is faster but can't deal with both heatmap and bars, so we wrap within a pn.bind function
-    def apply_plot(dataset, all_data, num_positions, NTorAA, most_common, heatmap, cmap):
-        selected_idx = dataset.data.index
-        # selected_idx = all_data.selected_idx
-        total_seqs = all_data.get_count(selected_idx)
-        df = all_data.aggregate_mutations(
-                                    NTorAA=NTorAA,
-                                    idx=selected_idx)
+    layout = pn.Column(
+        pn.pane.Markdown(error_text),
+        pn.widgets.Button(name="Error occurred", button_type="primary", disabled=True)
+    )
 
-        plot = conspicuous_mutations(df, total_seqs, num_positions=num_positions,
-                                    colormap=cmap, most_common=most_common, heatmap=heatmap)
-        if heatmap: # normally the plot would have n in the clabel but this doesn't get updated after a selection
-            plot.opts(title=str(f'n={total_seqs}'), clabel='frequency', fontsize={'title':10})
-        return plot
-    
-    NTorAA = NTorAA[-3:-1] # get NT or AA from the text in the radio button
-    if plot_type.endswith('heatmap'):
-        heatmap = True
-    elif plot_type.endswith('bars'):
-        heatmap = False
-        cmap = colormaps[NTorAA]
-    if plot_type.startswith('most'):
-        most_common=True
-    elif plot_type.startswith('least'):
-        most_common=False
-    
-    plot = filtered_dataset.apply(apply_plot, all_data=all_data, num_positions=num_positions, NTorAA=NTorAA, most_common=most_common, heatmap=heatmap, cmap=cmap)
-
-    return plot
-
-aggregated_muts_plot = pn.bind(plot_mutations_aggregated,
-                                        filtered_dataset=selected,
-                                        all_data=all_data,
-                                        num_positions=num_positions_slider,
-                                        NTorAA=NTorAA_radio,
-                                        plot_type=agg_plot_type_selector,
-                                        cmap=cmap_selector)
-
-# Create a panel with a slider to control the width of the plot
-aggregated_muts_panel = pn.panel(aggregated_muts_plot, width=agg_muts_width_slider.value)
-def mod_width_callback(muts_panel, event):
-    muts_panel.width=event.new
-agg_muts_width_slider.link(aggregated_muts_panel, callbacks={'value':mod_width_callback})
-
-# make a text input widget for naming exported files
-selection_name_text = pn.widgets.TextInput(name='selection name', value='unnamed')
-
-# make a button that reruns the aggregate_mutations function and exports the resulting dataframe to a csv file
-export_agg_muts_button = pn.widgets.Button(name='export aggregated mutations to .CSV', button_type='primary')
-def export_agg_muts(event):
-    # get date/time for filename to prevent overwriting
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    # get the most recently selected indices
-    selected_idx = all_data.selected_idx
-
-    # get the aggregated mutations dataframe
-    NTorAA = NTorAA_radio.value[-3:-1]
-    df = all_data.aggregate_mutations(NTorAA=NTorAA, idx=selected_idx)
-
-    # export to csv
-    df.to_csv(f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_mutations-aggregated.csv', index=False)
-export_agg_muts_button.on_click(export_agg_muts)
-
-# make a table to display the selected genotypes
-def tabulate(dataset, sample_size):
-    drop_cols = ['size']
-    if not num_barcodes_slider.disabled:
-        drop_cols.append('barcode(s)_subset')
-    df = dataset.data.drop(drop_cols, axis=1)
-    if sample_size < len(df):
-        df = df.sample(n=sample_size, random_state=0)
-    if df.empty:
-        table = hv.Table(pd.DataFrame())
-    else:
-        table = hv.Table(df)
-    table.opts(width=1000, height=450)
-    return table
-
-selected_table = selected.apply(tabulate, sample_size=sample_size_slider)
-
-# add the legend for the bar plots only if the bar plot is being displayed
-def get_bar_legend(agg_plot_type):
-    if agg_plot_type.endswith('heatmap'):
-        return pn.Spacer(width=0)
-    elif agg_plot_type.endswith('bars'):
-        snakemake_dir = pathlib.Path(__file__).parent.parent.parent
-        return pn.panel(pathlib.Path(snakemake_dir/'images'/'AA_NT_colormap.png'),width=200,align='start')
-bars_legend = pn.bind(get_bar_legend, agg_plot_type=agg_plot_type_selector)
-
-# Add a button that exports all three plots to SVG format
-SVG_button = pn.widgets.Button(name='export plots to .SVG', button_type='primary')
-def export_svg(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    points = dynamic_points()
-
-    # get current plots
-    export_svg_plots([points, aggregated_muts_plot().opts(width=agg_muts_width_slider.value), dynamic_hist.last*static_hist.last], f'dashboard/dashboard-plot_{selection_name_text.value}_{timestamp}.html', ['points', 'mutations-frequencies', 'histogram']) # "html" gets clipped and replaced with "SVG"
-    print('plots exported as SVGs to dashboard folder')
-SVG_button.on_click(export_svg)
-
-# add button that exports the selected genotypes to a csv file
-genotypes_CSV_button = pn.widgets.Button(name='export selected genotypes to .csv', button_type='primary')
-def export_csv(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_genotypes.csv'
-    pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
-    selected_genotypes = all_data.get_selection()['df']
-    if not num_barcodes_slider.disabled:
-        selected_genotypes = selected_genotypes.drop(['barcode(s)_subset'], axis=1)
-    selected_genotypes.to_csv(filename)
-    print(f'selected genotypes exported to {filename}')
-genotypes_CSV_button.on_click(export_csv)
-
-# add buttons that write sequences corresponding to selected indices to a fasta file
-NT_fasta_button = pn.widgets.Button(name='export selected NT sequences to .fasta', button_type='primary')
-def export_NT_fasta(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_NT-seqs.fasta'
-    all_data.write_fasta(filename, 'NT', idx=all_data.selected_idx)
-    print(f'wrote {len(all_data.selected_idx)} NT sequences to {filename}')
-NT_fasta_button.on_click(export_NT_fasta)
-
-AA_fasta_button = pn.widgets.Button(name='export selected AA sequences to .fasta', button_type='primary', disabled=(not do_AA_analysis))
-def export_AA_fasta(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f'dashboard/dashboard-{selection_name_text.value}-{timestamp}_AA-seqs.fasta'
-    all_data.write_fasta(filename, 'AA', idx=all_data.selected_idx)
-    print(f'wrote {len(all_data.selected_idx)} AA sequences to {filename}')
-AA_fasta_button.on_click(export_AA_fasta)
-
-# add buttons that aggregates mutations in selected sequences and uses them to produce a consensus sequence, which is then written to a fasta file
-NT_consensus_button = pn.widgets.Button(name='export NT consensus of selected sequences to .fasta', button_type='primary')
-def export_NT_consensus(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = 'dashboard/dashboard-NT-consensus.fasta'
-    all_data.get_consensus('NT', idx=all_data.selected_idx, write_to=filename, append=True, name=f'{selection_name_text.value}_{timestamp}')
-    print(f'appended 1 NT consensus sequence to {filename}')
-NT_consensus_button.on_click(export_NT_consensus)
-
-AA_consensus_button = pn.widgets.Button(name='export AA consensus of selected sequences to .fasta', button_type='primary', disabled=(not do_AA_analysis))
-def export_AA_consensus(event):
-    # get date/time for filename
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = 'dashboard/dashboard-AA-consensus.fasta'
-    all_data.get_consensus('AA', idx=all_data.selected_idx, write_to=filename, append=True, name=f'{selection_name_text.value}_{timestamp}')
-    print(f'appended 1 AA consensus sequence to {filename}')
-AA_consensus_button.on_click(export_AA_consensus)
-
-# make a button to reset all the widgets to their default values
-widgets = [ds_checkbox, size_column_select, size_range_slider, downsample_slider, NT_muts_text, AA_muts_text, max_mut_combos_slider, filter_by_select, filter_range_slider, count_range_slider, group_choice, points_x_select, points_y_select, selected_alpha_slider, unselected_alpha_slider, color_by_select, cmap_selector, NTorAA_radio, agg_plot_type_selector, sample_size_slider, agg_muts_width_slider]
-widgets_default_values = {widget:widget.value for widget in widgets}
-reset_button = pn.widgets.Button(name='reset all widgets', button_type='primary')
-def reset(event):
-    for widget, value in widgets_default_values.items():
-        widget.value = value
-reset_button.on_click(reset)
-
-## build the layout
-layout = pn.Column(
-    pn.Row(
-    pn.Column(
-        pn.Row(downsample_slider, ds_checkbox),
-        pn.Row(selected_alpha_slider,unselected_alpha_slider),
-        pn.Row(size_column_select,size_range_slider),
-        pn.Row(pn.Column(points_x_select,points_y_select,count_range_slider),group_choice),
-        pn.Row(filter_by_select,filter_range_slider),
-        pn.Row(color_by_select,cmap_selector),
-        pn.Row(NT_muts_text,AA_muts_text),
-        pn.Row(SVG_button, max_mut_combos_slider),
-        pn.Row(selection_name_text, num_barcodes_slider),
-        pn.Row(reset_button)),
-    pn.Row(dynamic_points, colorbar),
-    pn.Column(sample_size_slider,
-              selected_table,
-              genotypes_CSV_button,
-              pn.Row(NT_fasta_button, AA_fasta_button),
-              pn.Row(NT_consensus_button, AA_consensus_button))
-    ),
-pn.Row(
-    pn.Column(
-        dynamic_hist*static_hist,
-        pn.Row(hist_col_selector, hist_bins_slider)),
-    pn.Column(
-        aggregated_muts_panel, NTorAA_radio,
-        agg_plot_type_selector,
-        num_positions_slider,
-        agg_muts_width_slider,
-        export_agg_muts_button),
-    bars_legend
-    ))
-
-layout.servable(title=f'maple dashboard, file: {args.genotypes.split("/")[-1]}')
+    layout.servable(title="Maple Dashboard - Error")
