@@ -1,7 +1,7 @@
 name: maple
 channels:
   - conda
-  # - bioconda # no ARM support except sometimes like for umicollapse? Idk, weird
+  - bioconda
   - conda-forge
   - anaconda
   - pyviz
@@ -11,6 +11,7 @@ dependencies:
   - python=3.11
   - automake
   - git-lfs
+  - docutils=0.21 # pinned because 0.22 was not installing properly
   # - minimap2
   # - samtools
   # - ngmerge
@@ -35,6 +36,7 @@ dependencies:
   - hvplot
   - holoviews
   - datashader
+  - py3dmol
   - bokeh==3.6 # pinned until bokeh 14502 is addressed https://github.com/bokeh/bokeh/issues/14502
   - spatialpandas # allows for lasso selections of datashaded plots
   - panel
@@ -47,9 +49,3 @@ dependencies:
   - bioconda::umicollapse
   - mappy
   - pip
-  # - pip:
-  #   # - pyabpoa==1.4.0
-  #   - pacmap
-  #   - selenium # for bokeh SVG export, conda installation is broken
-  #   - nanoplot
-  #   # - blat # for C3POa
