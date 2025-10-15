@@ -698,6 +698,7 @@ rule merge_timepoint_genotypes:
             out_df = pd.concat(DFs)
         else:
             raise InputException('No genotypes found for timepoints group: ' + wildcards.timepointsGroup)
+        out_df = out_df[['timepoint'] + [c for c in out_df.columns if c != 'timepoint']]
         out_df.to_csv(output.mergedGenotypes, index=False)
 
 rule plot_genotypes2D_timepoints:
@@ -736,6 +737,21 @@ rule plot_genotypes_2D_all:
     output:
         touch('plots/.all_genotypes_2D.done')
 
+rule structure_heatmap:
+    input:
+        agg_csv = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-mutations-aggregated.csv',
+        pdb = lambda wildcards: config['runs'][wildcards.tag].get('pdb_file', '')
+    output:
+        html = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_structure-heatmap.html'
+    params:
+        colormap = lambda wildcards: config.get('colormap', 'bmy_r'),
+        width = lambda wildcards: config.get('structure_heatmap_width', 800),
+        height = lambda wildcards: config.get('structure_heatmap_height', 600),
+        label_step = lambda wildcards: config.get('structure_heatmap_label_step', 50),
+        min_identity = lambda wildcards: config.get('structure_heatmap_min_identity', 0.95)
+    script:
+        'utils/structure_heatmap.py'
+
 rule run_dashboard:
     input:
         unpack(lambda wildcards: dashboard_input(wildcards=wildcards, config=config))
@@ -745,7 +761,7 @@ rule run_dashboard:
         exclude_indels = lambda wildcards: '' if config.get('analyze_seqs_with_indels', True) else '--exclude_indels'
     shell:
         """
-        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta} {params.exclude_indels}
+        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta} --pdb={input.pdb} {params.exclude_indels}
         """
 
 

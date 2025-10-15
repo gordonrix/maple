@@ -61,7 +61,7 @@ unique_genotypes_count_threshold: 5
 
 # plotting and visualization
 colormap: 'kbc_r'
-distribution_x_range: False       # comma separated pair of values to use for the x axis of all distribution plots. Best to leave as False unless you are exporting SVGs, whose axes are not adjustable. e.g. 0,10
+distribution_x_range: False
 distribution_y_range: False
 export_SVG: False
 
@@ -94,8 +94,8 @@ hamming_distance_distribution_downsample: 1000                             # int
 hamming_distance_distribution_raw: False                     # bool, if True, y axis for individual hamming distance plots will show raw counts of sequence pairs instead of proprotion of total sequence pairs
 
 # dashboard configuration
-dashboard_input: TrpB
-dashboard_port: 3366
+dashboard_input: TrpB-IE5
+dashboard_port: 5007
 
 # time series analysis
 timepoints: timepoints.csv
