@@ -62,9 +62,8 @@ def targets_input(wildcards):
     #     simply deleting an input to one of these rules (what the user actually cares about) will not trigger the rule to be rerun. The user must delete
     #     the .done file as well (or just change a relevant parameter in the config) to trigger a rerun.
 
-    #TODO: fix this
-    # if config.get('timepoints', {}): # currently broken
-    #     out.append('plots/.all_timepoints.done')
+    if config.get('timepoints', {}): # currently broken
+        out.append('plots/.all_timepoints.done')
 
     if config.get('genotypes2D_plot_all', False):
         out.append('plots/.all_genotypes_2D.done')

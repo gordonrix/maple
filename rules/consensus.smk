@@ -264,7 +264,7 @@ rule split_FASTQs_to_fasta:
         fastq="sequences/UMI/{tag}_sequences-grouped.fastq",
         log="sequences/UMI/{tag}_UMI-groups-log.csv"
     output:
-        fastas = expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta", x=UMIbatchesList)
+        fastas = temp(expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta", x=UMIbatchesList))
     params:
         batches = lambda wildcards: config['UMI_medaka_batches'],
         minimum = lambda wildcards: config['UMI_consensus_minimum'],
@@ -279,10 +279,9 @@ if config['UMI_consensus_minimum'] == config['UMI_consensus_maximum'] == 1:
         input:
             expand('sequences/UMI/{{tag}}-temp/batch{x}.fasta', x = UMIbatchesList)
         output:
-            seqs = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.fasta.gz',
-            log = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.log'
+            seqs = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.fasta.gz'
         run:
-            with open(output.seqs[:-3], 'w') as fp_out, open(output.log, 'w') as log_out:
+            with open(output.seqs[:-3], 'w') as fp_out:
                 for f in input:
                     with open(f, 'r') as fp_in:
                         fp_out.write(fp_in.read())
