@@ -127,7 +127,7 @@ def mut_type(WT, A, T, G, C):
     for wt in nts:
         for mut in nts:
             mutsDict[wt][mut] = 0
-    if WT in nts:
+    if wtNT in nts:
         mutsDict[wtNT]['A'] = A
         mutsDict[wtNT]['T'] = T
         mutsDict[wtNT]['G'] = G
@@ -135,11 +135,11 @@ def mut_type(WT, A, T, G, C):
     outDict = collections.OrderedDict()
     for nt in nts:
         for mut in nts:
-            if WT in nts:
-                if mut!=nt:
+            if mut!=nt:
+                if wtNT in nts and nt == wtNT:
                     outDict[f'{nt}->{mut}'] = mutsDict[nt][mut]
-            else:
-                outDict[f'{nt}->{mut}'] = 0
+                else:
+                    outDict[f'{nt}->{mut}'] = 0
     return outDict
 
 
