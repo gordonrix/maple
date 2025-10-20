@@ -250,8 +250,9 @@ def get_demuxed_barcodes_timepoint(tag_bcs):
     return out
 
 def mut_stats_input(wildcards):
-    datatypes = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
-    if config['do_AA_mutation_analysis'][wildcards.tag]: datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
+    datatypes = ['genotypes.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
+    if config['do_AA_mutation_analysis'][wildcards.tag]:
+        datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
     if config['do_demux'][wildcards.tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
@@ -267,6 +268,9 @@ rule mut_stats:
 		mut_stats_input
 	output:
 		'mutation_data/{tag, [^\/]*}/{tag}_mutation-stats.csv'
+	params:
+		do_aa_analysis = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag],
+		mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
 	script:
 		'utils/mutation_statistics.py'
 
