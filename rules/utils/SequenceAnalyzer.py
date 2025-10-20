@@ -143,17 +143,25 @@ class SequenceAnalyzer:
         if NTorAA=='NT':
             subs = 'NT_substitutions'
             dels = 'NT_deletions'
-        if NTorAA=='AA':
+        elif NTorAA=='AA':
             subs = 'AA_substitutions_nonsynonymous'
-            dels = 'AA_deletions'
-        genotypes_cols = self.genotypes[[subs, dels]]
+            dels = None
 
         # make an array of integer encoded genotypes of shape (N,L)
         reference = self.ref_seq[NTorAA]
         integer_list = []
-        for subs,dels in genotypes_cols.itertuples(index=False, name=None):
-            integer = reference.genotype_modify(subs,dels)
-            integer_list.append(integer)
+
+        if dels:
+            genotypes_cols = self.genotypes[[subs, dels]]
+            for subs_val, dels_val in genotypes_cols.itertuples(index=False, name=None):
+                integer = reference.genotype_modify(subs_val, dels_val)
+                integer_list.append(integer)
+        else:
+            genotypes_cols = self.genotypes[[subs]]
+            for subs_val, in genotypes_cols.itertuples(index=False, name=None):
+                integer = reference.genotype_modify(subs_val, pd.NA)
+                integer_list.append(integer)
+
         integer_matrix = np.array(integer_list)
 
         return integer_matrix
