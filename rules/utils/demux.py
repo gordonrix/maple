@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import pysam
 from Bio import Seq, SeqIO
+from sklearn.metrics import pairwise_distances
 
 
 # ============================================================================
@@ -74,33 +75,31 @@ def create_barcodes_dict(barcode_fasta, reverse_complement=False):
     return barcode_dict
 
 
-def generate_hamming_variants(sequence, max_distance):
+def encode_sequence(seq):
+    """Encode DNA sequence as integers for hamming distance computation."""
+    mapping = {'A': 0, 'T': 1, 'G': 2, 'C': 3, '-': 4}
+    return np.array([mapping[c] for c in seq])
+
+
+def find_barcode_hamming(query_seq, barcode_matrix, barcode_names, max_distance):
     """
-    Generate all sequences within specified hamming distance.
-    
+    Find closest barcode within hamming distance using sklearn.
+
     Args:
-        sequence: Original sequence string
+        query_seq: Query barcode sequence
+        barcode_matrix: Pre-vectorized N×L integer array of reference barcodes
+        barcode_names: List of barcode names corresponding to matrix rows
         max_distance: Maximum hamming distance allowed
-        
+
     Returns:
-        dict: {variant_sequence: original_sequence}
+        str or None: Barcode name if match found within distance, None otherwise
     """
-    variants = {sequence: sequence}
-    current_variants = [sequence]
-    
-    for distance in range(1, max_distance + 1):
-        new_variants = []
-        for variant in current_variants:
-            for i, base in enumerate(variant):
-                for new_base in 'ATGC':
-                    if new_base != base:
-                        new_variant = variant[:i] + new_base + variant[i+1:]
-                        if new_variant not in variants:
-                            new_variants.append(new_variant)
-                            variants[new_variant] = sequence
-        current_variants = new_variants
-    
-    return variants
+    query_array = encode_sequence(query_seq).reshape(1, -1)
+    distances = pairwise_distances(query_array, barcode_matrix, metric='hamming')
+    distances_int = (distances[0] * len(query_seq)).astype(int)
+
+    min_idx = np.argmin(distances_int)
+    return barcode_names[min_idx] if distances_int[min_idx] <= max_distance else None
 
 
 # ============================================================================
@@ -207,37 +206,42 @@ def validate_barcodes(barcode_info, reference_seq):
 def build_barcode_dicts(barcode_info):
     """
     Build dictionaries for barcode lookup.
-    
+
     Args:
         barcode_info: Dictionary of barcode information
-        
+
     Returns:
-        tuple: (barcode_dicts, hamming_dicts)
+        tuple: (barcode_dicts, hamming_lookups)
     """
     barcode_dicts = {}
-    hamming_dicts = {}
-    
+    hamming_lookups = {}
+
     for barcode_type, info in barcode_info.items():
         fasta_path = info['fasta']
         if not os.path.exists(fasta_path):
             raise FileNotFoundError(f"Barcode fasta not found: {fasta_path}")
-        
+
         barcode_dict = create_barcodes_dict(
-            fasta_path, 
+            fasta_path,
             info.get('reverse_complement', False)
         )
         barcode_dicts[barcode_type] = barcode_dict
-        
-        # Build hamming distance variants if needed
+
+        # Cache vectorized sequences for hamming distance
         hamming_dist = info.get('hamming_distance', 0)
         if hamming_dist > 0:
-            hamming_dict = {}
-            for barcode_seq in barcode_dict:
-                variants = generate_hamming_variants(barcode_seq, hamming_dist)
-                hamming_dict.update(variants)
-            hamming_dicts[barcode_type] = hamming_dict
-    
-    return barcode_dicts, hamming_dicts
+            sequences = list(barcode_dict.keys())
+            names = list(barcode_dict.values())
+            # Pre-vectorize into N×L integer array - CACHED!
+            barcode_matrix = np.array([encode_sequence(s) for s in sequences])
+            hamming_lookups[barcode_type] = {
+                'matrix': barcode_matrix,
+                'names': names,
+                'max_distance': hamming_dist,
+                'cached_matches': {}  # Separate dict for hamming-found matches
+            }
+
+    return barcode_dicts, hamming_lookups
 
 
 def build_reference_alignment(bam_entry, reference_seq):
@@ -296,53 +300,60 @@ def find_barcode_position_in_alignment(ref_alignment, context):
     return barcode_start, barcode_end
 
 
-def identify_barcodes(bam_entry, reference_seq, barcode_info, barcode_dicts, hamming_dicts):
+def identify_barcodes(bam_entry, reference_seq, barcode_info, barcode_dicts, hamming_lookups):
     """
     Identify all barcodes in a sequence.
-    
+
     Args:
         bam_entry: pysam AlignmentFile entry
         reference_seq: Reference sequence string
         barcode_info: Dictionary of barcode information
         barcode_dicts: Dictionary of barcode lookup dicts
-        hamming_dicts: Dictionary of hamming variant dicts
-        
+        hamming_lookups: Dictionary of hamming lookup info with cached matrices
+
     Returns:
         tuple: (sequence_barcodes_dict, barcode_names_list, stats_array)
     """
     ref_alignment = build_reference_alignment(bam_entry, reference_seq)
-    
+
     sequence_barcodes = {}
     barcode_names = []
     stats_list = []
-    
+
     for barcode_type, info in barcode_info.items():
         context = info['context'].upper()
         barcode_dict = barcode_dicts[barcode_type]
-        hamming_dict = hamming_dicts.get(barcode_type, {})
-        
+        hamming_lookup = hamming_lookups.get(barcode_type)
+
         start, end = find_barcode_position_in_alignment(ref_alignment, context)
-        
+
         # Initialize stats
         not_exact_match = 0
         failure_reasons = {
-            'context_not_present_in_reference_sequence': 0,  # Match original naming
+            'context_not_present_in_reference_sequence': 0,
             'barcode_not_in_fasta': 0,
-            'low_confidence_barcode_identification': 0  # Match original naming
+            'low_confidence_barcode_identification': 0
         }
-        
+
         if isinstance(start, int):
             # Extract barcode from query sequence
             barcode_seq = bam_entry.query_alignment_sequence[start:end]
-            
-            # Try exact match first
-            if barcode_seq in barcode_dict:
-                barcode_name = barcode_dict[barcode_seq]
-            # Try hamming distance match
-            elif barcode_seq in hamming_dict:
-                barcode_name = barcode_dict[hamming_dict[barcode_seq]]
-                not_exact_match = 1
-            else:
+
+            # Try exact match, then cached hamming matches, then compute hamming
+            barcode_name = barcode_dict.get(barcode_seq)
+            if barcode_name is None and hamming_lookup:
+                barcode_name = hamming_lookup['cached_matches'].get(barcode_seq)
+                if barcode_name:
+                    not_exact_match = 1
+                else:
+                    barcode_name = find_barcode_hamming(
+                        barcode_seq, hamming_lookup['matrix'],
+                        hamming_lookup['names'], hamming_lookup['max_distance']
+                    )
+                    if barcode_name:
+                        not_exact_match = 1
+                        hamming_lookup['cached_matches'][barcode_seq] = barcode_name
+            if barcode_name is None:
                 barcode_name = 'fail'
                 failure_reasons['barcode_not_in_fasta'] = 1
         else:
@@ -350,14 +361,14 @@ def identify_barcodes(bam_entry, reference_seq, barcode_info, barcode_dicts, ham
             barcode_name = 'fail'
             error_key = 'context_not_present_in_reference_sequence' if end == 'context_not_present' else 'low_confidence_barcode_identification'
             failure_reasons[error_key] = 1
-        
+
         sequence_barcodes[barcode_type] = barcode_name
         barcode_names.append(barcode_name)
         # Only append stats, not barcode names
-        stats_list.extend([not_exact_match] + [failure_reasons['context_not_present_in_reference_sequence'], 
-                                                failure_reasons['barcode_not_in_fasta'], 
+        stats_list.extend([not_exact_match] + [failure_reasons['context_not_present_in_reference_sequence'],
+                                                failure_reasons['barcode_not_in_fasta'],
                                                 failure_reasons['low_confidence_barcode_identification']])
-    
+
     return sequence_barcodes, barcode_names, np.array(stats_list)
 
 
@@ -419,7 +430,7 @@ def demultiplex_bam(bam_path, output_dir, barcode_info, partition_groups,
     validate_barcodes(barcode_info, reference_seq)
     
     # Build barcode dictionaries
-    barcode_dicts, hamming_dicts = build_barcode_dicts(barcode_info)
+    barcode_dicts, hamming_lookups = build_barcode_dicts(barcode_info)
     
     # Categorize barcode types
     partition_bc_types = []
@@ -450,7 +461,7 @@ def demultiplex_bam(bam_path, output_dir, barcode_info, partition_groups,
     for bam_entry in bam_file.fetch(reference.id):
         # Identify barcodes
         sequence_barcodes, barcode_names, stats_array = identify_barcodes(
-            bam_entry, reference_seq, barcode_info, barcode_dicts, hamming_dicts
+            bam_entry, reference_seq, barcode_info, barcode_dicts, hamming_lookups
         )
         
         # Handle label barcodes - add as BAM tag
