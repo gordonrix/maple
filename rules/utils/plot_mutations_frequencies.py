@@ -45,7 +45,7 @@ def main(frequencies_input, stats_input, output, labels, raw, num_positions, hea
             muts_df['total_count'] = muts_df['proportion_of_seqs'] * total_seqs
 
         dfs.append(muts_df)
-        plots.append( conspicuous_mutations(muts_df, total_seqs, colormap=colormap, heatmap=heatmap).opts(title=plot_title, width=1000) )
+        plots.append( conspicuous_mutations(muts_df, total_seqs, colormap=colormap, heatmap=heatmap, axis_type='numerical').opts(title=plot_title) )
         total_positions = len(muts_df['position'].unique())
         plots_categorical_x.append( conspicuous_mutations(muts_df, total_seqs, num_positions=total_positions, colormap=colormap, heatmap=heatmap).opts(title=plot_title, width=1000) )
     
@@ -64,8 +64,8 @@ def main(frequencies_input, stats_input, output, labels, raw, num_positions, hea
 
     plots_least_frequent, plots_most_frequent = [],[]
     for plot in plots_categorical_x:
-        plots_least_frequent.append(plot[least_frequent_positions,:].opts(width=num_positions*20))
-        plots_most_frequent.append(plot[most_frequent_positions,:].opts(width=num_positions*20))
+        plots_least_frequent.append(plot[least_frequent_positions,:].opts(width=num_positions*25))
+        plots_most_frequent.append(plot[most_frequent_positions,:].opts(width=num_positions*25))
 
     hv.save( hv.Layout(plots_least_frequent).cols(1), output.least_frequent, backend='bokeh')
     hv.save( hv.Layout(plots_most_frequent).cols(1), output.most_frequent, backend='bokeh')
