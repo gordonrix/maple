@@ -129,29 +129,29 @@ def validate_barcode_groups_csv(bc_groups_csv, barcode_info_csv, tag, group_type
     Returns a list of warnings.
     """
     warnings = []
-    
+
     try:
         groups_df = pd.read_csv(bc_groups_csv)
     except Exception as e:
         warnings.append(f"[WARNING] Failed to read {group_type} barcode groups CSV file `{bc_groups_csv}` for tag `{tag}`: {e}\n")
         return warnings
-    
+
     # Filter by tag if tag column exists
     if 'tag' in groups_df.columns:
         groups_df = groups_df[groups_df['tag'] == tag]
     if 'barcode_group' not in groups_df.columns:
         warnings.append(f"[WARNING] Required column `barcode_group` not found in {group_type} groups CSV `{bc_groups_csv}` for tag `{tag}`.\n")
         return warnings
-    
+
     if len(groups_df) == 0:
         return warnings  # Empty groups are OK
-    
+
     # Load barcode info to check against
     try:
         barcode_info_df = pd.read_csv(barcode_info_csv)
         if 'tag' in barcode_info_df.columns:
             barcode_info_df = barcode_info_df[barcode_info_df['tag'] == tag]
-        
+
         # Create barcode info lookup
         barcode_info = {}
         for _, row in barcode_info_df.iterrows():
@@ -162,28 +162,28 @@ def validate_barcode_groups_csv(bc_groups_csv, barcode_info_csv, tag, group_type
     except Exception as e:
         warnings.append(f"[WARNING] Could not read barcode info CSV for validation of {group_type} groups: {e}\n")
         return warnings
-    
+
     barcode_types = list(groups_df.columns.difference(['barcode_group', 'tag']))
 
     # Check each group
     for _, row in groups_df.iterrows():
         group_name = row['barcode_group']
-        
+
         if '_' in group_name:
             warnings.append(f"[WARNING] {group_type.capitalize()} barcode group `{group_name}` for run tag `{tag}` contains underscore(s), which will disrupt the pipeline.\n")
-        
+
         # Check each barcode type in the group
         for col in barcode_types:
-                
+
             if pd.notna(row[col]):
                 barcode_type = col
                 barcode_name = row[col]
-                
+
                 # Check if barcode type exists
                 if barcode_type not in barcode_info:
                     warnings.append(f"[WARNING] Barcode type `{barcode_type}` in {group_type} group `{group_name}` for run tag `{tag}` is not defined in barcode info.\n")
                     continue
-                
+
                 # Check label_only status
                 is_label_only = barcode_info[barcode_type].get('label_only', False)
                 is_label_only = False if np.isnan(is_label_only) else is_label_only
@@ -192,8 +192,73 @@ def validate_barcode_groups_csv(bc_groups_csv, barcode_info_csv, tag, group_type
                     warnings.append(f"[WARNING] Barcode type `{barcode_type}` is marked as label_only but is used in partition group `{group_name}` for tag `{tag}`. Demultiplexing will fail.\n")
                 elif group_type == 'label' and not is_label_only:
                     warnings.append(f"[WARNING] Barcode type `{barcode_type}` is not marked as label_only but is used in label group `{group_name}` for tag `{tag}`. Demultiplexing will fail.\n")
-    
+
     return warnings
+
+
+def validate_generated_barcode_consistency(config):
+    """
+    Validate that barcode types with generate=True have consistent settings
+    across all tags that share the same output fasta file.
+    Returns a list of error messages.
+    """
+    errors = []
+
+    if 'barcode_fasta_to_tags' not in config:
+        return errors
+
+    fasta_to_barcode_settings = {}
+
+    for fasta_path, tags_list in config['barcode_fasta_to_tags'].items():
+        for tag in tags_list:
+            barcode_info = config['runs'][tag]['barcode_info']
+
+            for barcode_name, info in barcode_info.items():
+                # Only check barcode types with generate=True
+                if not info.get('generate', False):
+                    continue
+
+                # Check if this barcode type outputs to this fasta file
+                bc_fasta_path = info['fasta']
+                if not bc_fasta_path.startswith(config['metadata']):
+                    bc_fasta_path = os.path.join(config['metadata'], bc_fasta_path)
+
+                if bc_fasta_path != fasta_path:
+                    continue
+
+                # Store or validate settings for this fasta file
+                if fasta_path not in fasta_to_barcode_settings:
+                    fasta_to_barcode_settings[fasta_path] = {
+                        'barcode_name': barcode_name,
+                        'context': info['context'],
+                        'hamming_distance': info.get('hamming_distance', 0),
+                        'reverse_complement': info.get('reverse_complement', False),
+                        'first_tag': tag
+                    }
+                else:
+                    # Validate consistency
+                    stored = fasta_to_barcode_settings[fasta_path]
+                    mismatches = []
+
+                    if stored['context'] != info['context']:
+                        mismatches.append(f"context: '{stored['context']}' vs '{info['context']}'")
+                    if stored['hamming_distance'] != info.get('hamming_distance', 0):
+                        mismatches.append(f"hamming_distance: {stored['hamming_distance']} vs {info.get('hamming_distance', 0)}")
+                    if stored['reverse_complement'] != info.get('reverse_complement', False):
+                        mismatches.append(f"reverse_complement: {stored['reverse_complement']} vs {info.get('reverse_complement', False)}")
+
+                    if mismatches:
+                        error_msg = (
+                            f"[ERROR] Inconsistent barcode settings for generated fasta file '{fasta_path}':\n"
+                            f"  Tag '{stored['first_tag']}' (barcode '{stored['barcode_name']}') vs "
+                            f"tag '{tag}' (barcode '{barcode_name}'):\n"
+                            f"  {', '.join(mismatches)}\n"
+                            f"  All tags sharing a barcode fasta file with generate=True must have identical settings "
+                            f"for context, hamming_distance, and reverse_complement.\n"
+                        )
+                        errors.append(error_msg)
+
+    return errors
 
 # keep a list of errors, warnings, and notices
 errors = []
@@ -244,8 +309,22 @@ for tag in config['runs']:
             defaults={'reverse_complement': False, 'label_only': False, 'generate': False, 'hamming_distance': 0}
         )
 
-        # Clean up barcode_info: remove empty entries, ensure inputs adhere to expected values
+        # Build barcode fasta to tags mapping (for generating shared barcode references)
+        if 'barcode_fasta_to_tags' not in config:
+            config['barcode_fasta_to_tags'] = {}
+
         barcode_info = config['runs'][tag]['barcode_info']
+        for barcode_name, info in barcode_info.items():
+            if info.get('generate'):
+                fasta_path = info['fasta']
+                if not fasta_path.startswith(config['metadata']):
+                    fasta_path = os.path.join(config['metadata'], fasta_path)
+                if fasta_path not in config['barcode_fasta_to_tags']:
+                    config['barcode_fasta_to_tags'][fasta_path] = []
+                if tag not in config['barcode_fasta_to_tags'][fasta_path]:
+                    config['barcode_fasta_to_tags'][fasta_path].append(tag)
+
+        # Clean up barcode_info: remove empty entries, ensure inputs adhere to expected values
         for barcode_name in barcode_info:
 
             config['runs'][tag]['barcode_info'], bc_errors = validate_bc(
@@ -285,6 +364,9 @@ for tag in config['runs']:
             else:
                 warnings.append(f"[WARNING] {key} provided but no barcode_info_csv provided for tag `{tag}`. Demultiplexing will not be run.\n")
 
+# Validate consistency of barcode settings across tags that share generated barcode fasta files
+barcode_consistency_errors = validate_generated_barcode_consistency(config)
+errors.extend(barcode_consistency_errors)
 
 # check for sequences
 for tag in config['runs']:
