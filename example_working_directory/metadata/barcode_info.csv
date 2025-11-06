@@ -1,4 +1,4 @@
-﻿barcode_name,context,fasta,reverse_complement,generate,label_only
-fwd,TNNNNNNN,7merBarcodes.fasta,TRUE,,
-rvs,GCNNNNNNN,7merBarcodes.fasta,FALSE,,
-lineage,NNNNNNNNNNNN,lineageBarcodes.fasta,FALSE,100,TRUE
+﻿barcode_name,context,fasta,reverse_complement,generate,label_only,hamming_distance
+fwd,TNNNNNNN,7merBarcodes.fasta,TRUE,,,0
+rvs,GCNNNNNNN,7merBarcodes.fasta,FALSE,,,0
+lineage,NNNNNNNNNNNN,lineageBarcodes.fasta,FALSE,all,TRUE,1
