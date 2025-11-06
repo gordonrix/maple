@@ -27,7 +27,7 @@ class SequenceAnalyzer:
         self.DR_embeddings = {}
 
         # two different kinds of initialization, one for genotypes CSV input and one for MSA fasta input
-        if genotypesCSV:
+        if genotypesCSV is not None:
             if reference_fasta is None:
                 raise ValueError("reference fasta file must be input if MSA fasta is not used for initialization")
             if genotypesCSV is None:
@@ -90,11 +90,6 @@ class SequenceAnalyzer:
         else:
             raise ValueError("Either genotypes CSV file or MSA fasta file must be input for SequenceAnalyzer initialization")
 
-        # convert integer array(s) to onehot array(s)
-        self.onehot_matrix = {}
-        for array_type in self.integer_matrix:
-            self.onehot_matrix[array_type] = SequenceAnalyzer.integer_to_onehot_matrix(self.integer_matrix[array_type], len(self.characters[array_type]) )
-        
         # make all indices the most recently selected indices
         key = list(self.integer_matrix.keys())[0]
         self.selected_idx = np.arange(self.integer_matrix[key].shape[0])
@@ -117,13 +112,16 @@ class SequenceAnalyzer:
             self.ref_seq['AA'] = SequenceEncoder(AA_ref, self.characters['AA'])
 
     def assign_genotypes_df(self, genotypesCSV, exclude_indels):
-        """ store a genotypes csv file as a pd.DataFrame in self,
+        """ store a genotypes csv file or DataFrame in self,
             first removing any sequences with indels if necessary
         params:
-            genotypesCSV:       str, path to csv file containing genotypes
+            genotypesCSV:       str or pd.DataFrame, path to csv file or DataFrame
             exclude_indels:     bool, whether to exclude sequences with indels
         """
-        genotypes = pd.read_csv(genotypesCSV)
+        if isinstance(genotypesCSV, pd.DataFrame):
+            genotypes = genotypesCSV.copy()
+        else:
+            genotypes = pd.read_csv(genotypesCSV, low_memory=False)
         if exclude_indels:
             genotypes = genotypes[genotypes['NT_insertions'].isna()]
             genotypes = genotypes[genotypes['NT_deletions'].isna()]
@@ -262,7 +260,6 @@ class SequenceAnalyzer:
         
         returns:
             dictionary, {'integer':selection from each integer 2D matrix in self.integer_matrix dict,
-                        'onehot':selection from each onehot 3D matrix in self.onehot_matrix dict,
                         (optional)'df':subset of pd.DataFrame self.genotypes}
         """
         if idx is None:
@@ -274,8 +271,7 @@ class SequenceAnalyzer:
             idx = np.sort(np.array(idx))
 
         integer_selected = {key:self.integer_matrix[key][idx,:] for key in self.integer_matrix}
-        onehot_selected = {key:self.onehot_matrix[key][idx,:,:] for key in self.onehot_matrix}
-        out_dict = {'integer':integer_selected, 'onehot':onehot_selected}
+        out_dict = {'integer':integer_selected}
         if self.genotypes is not None:
             out_dict['df'] = self.genotypes.iloc[idx]
 
@@ -300,23 +296,57 @@ class SequenceAnalyzer:
     
     def downsample(self, size):
         """
-        downsamples the dataset to a given size by randomly selecting a subset of the data,
+        downsamples the dataset to a given size by selecting genotypes weighted by their counts,
             then returns the selected data via the select method. If the requested size is
             larger than the dataset, returns the entire dataset via the select method.
 
         args:
-            size:   int, number of sequences to sample from the dataset
+            size:   int, number of genotypes to sample from the dataset
         """
         key = list(self.integer_matrix.keys())[0]
-        if size > self.integer_matrix[key].shape[0]:
-            idx = np.arange(self.integer_matrix[key].shape[0])
+        total_genotypes = self.integer_matrix[key].shape[0]
+
+        if size >= total_genotypes:
+            idx = np.arange(total_genotypes)
         else:
             np.random.seed(0)
-            idx = np.sort(np.random.choice(np.arange(self.integer_matrix[key].shape[0]), size=size, replace=False))
-        
+
+            # If genotypes dataframe exists, use weighted sampling based on counts
+            if self.genotypes is not None and 'count' in self.genotypes.columns:
+                counts = self.genotypes['count'].values
+                total_count = counts.sum()
+
+                # Calculate sampling probabilities proportional to counts
+                probabilities = counts / total_count
+
+                # Sample genotypes weighted by their counts
+                idx = np.sort(np.random.choice(
+                    np.arange(total_genotypes),
+                    size=size,
+                    replace=False,
+                    p=probabilities
+                ))
+            else:
+                # Fallback to uniform sampling if no count column exists
+                idx = np.sort(np.random.choice(np.arange(total_genotypes), size=size, replace=False))
+
         self.selected_idx = idx
         self.downsampled_idx = idx
         return self.select(idx=idx)
+
+    def get_onehot_matrix(self, NTorAA, idx=None):
+        """
+        Generate onehot matrix on-demand from integer matrix
+
+        Parameters:
+            NTorAA (str): 'NT' or 'AA'
+            idx (np.array): Optional indices to select subset
+
+        Returns:
+            np.array: Onehot matrix of shape (N, L, C)
+        """
+        integer_matrix = self.integer_matrix[NTorAA] if idx is None else self.integer_matrix[NTorAA][idx]
+        return self.integer_to_onehot_matrix(integer_matrix, len(self.characters[NTorAA]))
 
     @staticmethod
     def pairwise_hamming_distance_matrix(seqArray):
@@ -433,7 +463,7 @@ class SequenceAnalyzer:
             key = list(subset['integer'].keys())[0]
             return subset['integer'][key].shape[0]
     
-    def get_mutations_of_interest(self, NTorAA, muts, max_groups, idx=None):
+    def get_mutations_of_interest(self, NTorAA, muts, max_groups, idx=None, chunk_size=50000):
         """
         generate a list of the NT or AA Mutations Of Interest as a list of strings containing comma separated mutations
             
@@ -473,10 +503,15 @@ class SequenceAnalyzer:
                 self.genotypes.loc[genotypes_idx, column_name] = out
             return out
         
-        onehot_matrix = selection['onehot'][NTorAA]
-        N,L,C = onehot_matrix.shape
+        integer_matrix = selection['integer'][NTorAA]
+        N = integer_matrix.shape[0]
+        L = self.integer_matrix[NTorAA].shape[1]
+        C = len(self.characters[NTorAA])
         all_L_idx = np.arange(L)
         all_C_idx = np.arange(C)
+
+        if chunk_size is None:
+            chunk_size = N
         
         muts_list = muts.replace(' ','').split(',')
         number_strings = [str(x) for x in range(0,10)]
@@ -523,28 +558,46 @@ class SequenceAnalyzer:
         MOIs_2D_arr = np.subtract( MOIs_2D_arr, self.ref_seq[NTorAA].onehot )
         MOIs_2D_arr[MOIs_2D_arr<0] = 0
 
-        # perform matrix multiplication between the 2D onehot array representing all mutations 
-        #    of interest and the 3D onehot array representing all sequences. Resulting 3D array
-        #    will have ones at positions where a sequence contained a mutation of interest, 0s elsewhere
-        MOIs_2D_arr = (MOIs_2D_arr==1) # mask non-1 values as False so these positions are not multiplied. positions in resulting array are 0. ~10-fold speedup in einsum
-        all_MOIs_3D_arr = np.einsum('NLC,LC->NLC', onehot_matrix, MOIs_2D_arr)
-        
-        # need to find all unique combinations of mutations of interest but np.unique can be sped up ~10-fold by
-        #   getting rid of values that we don't care about, so we make a new array
-        #   in which only mutation positions are present and call np.unique on that
+        # mask non-1 values as False so these positions are not multiplied. positions in resulting array are 0. ~10-fold speedup in einsum
+        MOIs_2D_arr_bool = (MOIs_2D_arr==1)
 
-        # list to store subset of all_MOIs_3D_arr
-        all_MOIs_subset = []
+        # Get positions of mutations of interest for subset extraction
+        moi_positions = [(i,j) for (i,j), value in np.ndenumerate(MOIs_2D_arr_bool) if value]
 
-        for (i,j), value in np.ndenumerate(MOIs_2D_arr):
-            if value == 1:
-                all_MOIs_subset.append(all_MOIs_3D_arr[:,i,j])
-        all_MOIs_subset = np.stack(all_MOIs_subset, axis=1)
-        _, idx_first, idx_original, counts = np.unique(all_MOIs_subset, axis=0, return_index=True, return_inverse=True, return_counts=True)
+        # need to find all unique combinations of mutations of interest but we process in chunks to limit memory
+        #   getting rid of values that we don't care about by extracting only mutation positions
+        pattern_counter = Counter()
+        all_patterns = []
+
+        for i in range(0, N, chunk_size):
+            chunk_end = min(i + chunk_size, N)
+            chunk = integer_matrix[i:chunk_end]
+            onehot_chunk = self.integer_to_onehot_matrix(chunk, C)
+
+            # perform matrix multiplication between the 2D onehot array representing all mutations
+            #    of interest and the 3D onehot array representing all sequences. Resulting 3D array
+            #    will have ones at positions where a sequence contained a mutation of interest, 0s elsewhere
+            MOI_chunk = np.einsum('NLC,LC->NLC', onehot_chunk, MOIs_2D_arr_bool)
+
+            # Extract subset of MOI chunk containing only positions with mutations of interest
+            chunk_subset = np.stack([MOI_chunk[:,pos_i,pos_j] for pos_i, pos_j in moi_positions], axis=1)
+            chunk_patterns = [tuple(row) for row in chunk_subset]
+            all_patterns.extend(chunk_patterns)
+            pattern_counter.update(chunk_patterns)
+
+        # Get unique patterns and their indices
+        unique_patterns = list(pattern_counter.keys())
+        pattern_to_idx = {pat: i for i, pat in enumerate(unique_patterns)}
+        idx_original = np.array([pattern_to_idx[pat] for pat in all_patterns])
+        counts = np.array([pattern_counter[pat] for pat in unique_patterns])
+        idx_first = np.array([all_patterns.index(pat) for pat in unique_patterns])
 
         # retrieve the original 2D arrays representing all unique combinations of mutations of interest that are observed,
-        #   sort by count, iterate through the most frequently observed, and label with human readable strings 
-        unique_MOI_combo_arrs = all_MOIs_3D_arr[idx_first,:,:]
+        #   sort by count, iterate through the most frequently observed, and label with human readable strings
+        unique_MOI_combo_arrs = np.zeros((len(unique_patterns), L, C), dtype=np.int8)
+        for idx, pattern in enumerate(unique_patterns):
+            for (pos_i, pos_j), val in zip(moi_positions, pattern):
+                unique_MOI_combo_arrs[idx, pos_i, pos_j] = val
         sorted_idx = np.argsort(-counts)
         MOI_combo_strings_sorted = []
         none_found = False # flag for doing a search for the MOI_combo without any mutations of interest
@@ -589,26 +642,40 @@ class SequenceAnalyzer:
         self.genotypes.loc[genotypes_idx, column_name] = MOI_combo_strings_original
         return MOI_combo_strings_original
     
-    def aggregate_identities(self, NTorAA, idx=None, unique_only=False):
+    def aggregate_identities(self, NTorAA, idx=None, unique_only=False, chunk_size=50000):
         """
-        Generate a numpy array of counts of all NT or AA identities in a selection by summing
-            the onehot sequence array along axis 0
-        
+        Generate a numpy array of counts of all NT or AA identities in a selection.
+        Processes data in chunks to limit memory usage.
+
         Parameters:
             NTorAA (str):           'NT' or 'AA' to indicate nucleotide or amino acid mutation level aggregation
             idx (np.array):         1d array of indices of a selection. If None, all sequences are used
             unique_only (bool):     If True, counts of sequences are not taken into consideration
-        
+            chunk_size (int):       Number of genotypes to process per chunk. None = process all at once (default: 50000)
+
         Returns:
             np.array: A 2D array of shape L,C that tabulates counts for all possible mutations
         """
 
         selected = self.select(idx)
-        onehot_matrix = selected['onehot'][NTorAA]
-        if 'df' in selected and not unique_only:
-            counts = selected['df']['count'].values.reshape(-1,1,1)
-            onehot_matrix = onehot_matrix * counts
-        aggregated_identities = np.sum(onehot_matrix, axis=0, dtype=np.int32)
+        integer_matrix = selected['integer'][NTorAA]
+        counts = selected['df']['count'].values if ('df' in selected and not unique_only) else None
+
+        L = integer_matrix.shape[1]
+        C = len(self.characters[NTorAA])
+        N = integer_matrix.shape[0]
+
+        if chunk_size is None:
+            chunk_size = N
+
+        aggregated_identities = np.zeros((L, C), dtype=np.int32)
+        for i in range(0, N, chunk_size):
+            chunk_end = min(i + chunk_size, N)
+            chunk = integer_matrix[i:chunk_end]
+            onehot_chunk = self.integer_to_onehot_matrix(chunk, C)
+            if counts is not None:
+                onehot_chunk = onehot_chunk * counts[i:chunk_end].reshape(-1,1,1)
+            aggregated_identities += np.sum(onehot_chunk, axis=0, dtype=np.int32)
 
         return aggregated_identities
     
@@ -703,16 +770,18 @@ class SequenceAnalyzer:
         if idx is None:
             idx = np.arange(self.integer_matrix[NTorAA].shape[0])
 
-        # get the matrix, behavior depends on both onehot and encoding. if both are default, then just use the stored onehot matrix instead of rebuilding it
+        # get the matrix, behavior depends on both onehot and encoding
         if encoding is None:
-            matrix = self.select(idx)['onehot'][NTorAA] if onehot else self.select(idx)['integer'][NTorAA]
+            matrix = self.select(idx)['integer'][NTorAA]
+            if onehot:
+                matrix = self.integer_to_onehot_matrix(matrix, len(self.characters[NTorAA]))
         else:
             matrix = self.select(idx)['integer'][NTorAA]
             letter_to_int = self.ref_seq[NTorAA].encoder_dict
             encoding = {letter_to_int[k]:v for k,v in encoding.items()}
             matrix = SequenceEncoder.convert_array(matrix, encoding)
 
-            if onehot: 
+            if onehot:
                 num_characters = len(encoding)
                 matrix = SequenceAnalyzer.integer_to_onehot_matrix(matrix, num_characters)
 
@@ -729,14 +798,38 @@ class SequenceAnalyzer:
 
         if not use_previous:
 
-            embedding = pm.PaCMAP(n_components=dimensions, MN_ratio=0.5, FP_ratio=2.0)
+            # Adaptive parameters based on dataset size for speed optimization
+            n_samples = matrix.shape[0]
+            if n_samples < 10000:
+                # Small datasets: use quality settings
+                n_neighbors = 10
+                MN_ratio = 0.5
+                FP_ratio = 2.0
+                num_iters = 450
+            elif n_samples < 50000:
+                # Medium datasets: balanced speed/quality
+                n_neighbors = None  # Auto-select
+                MN_ratio = 0.4
+                FP_ratio = 1.5
+                num_iters = 300
+            else:
+                # Large datasets: prioritize speed
+                n_neighbors = None  # Auto-select
+                MN_ratio = 0.3
+                FP_ratio = 1.0
+                num_iters = 250
+
+            print(f"PaCMAP for {n_samples} sequences: n_neighbors={'auto' if n_neighbors is None else n_neighbors}, MN_ratio={MN_ratio}, FP_ratio={FP_ratio}, num_iters={num_iters}")
+
+            embedding = pm.PaCMAP(n_components=dimensions, n_neighbors=n_neighbors, MN_ratio=MN_ratio, FP_ratio=FP_ratio, num_iters=num_iters)
             reduced = embedding.fit_transform(matrix, init="pca")
             if not drop_same: # store embedding
                 self.DR_embeddings[NTorAA] = embedding, idx
             
         elif use_previous and (not drop_same) and NTorAA in self.DR_embeddings:
             embedding, old_idx = self.DR_embeddings[NTorAA]
-            old_matrix = self.select(old_idx)['onehot'][NTorAA]
+            old_integer = self.select(old_idx)['integer'][NTorAA]
+            old_matrix = self.integer_to_onehot_matrix(old_integer, len(self.characters[NTorAA]))
             N,L,C = old_matrix.shape
             old_matrix = old_matrix.reshape((N,L*C))
             reduced = embedding.transform(matrix, basis=old_matrix)
