@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'rules', 'utils
 import pandas as pd
 import panel as pn
 import py3Dmol
-from Bio.PDB import PDBParser
+from Bio.PDB import PDBParser, MMCIFParser
 from Bio import Align
 
 from common import cmap_dict
@@ -50,12 +50,12 @@ def extract_pdb_sequence(chain):
     return ''.join(residues), positions
 
 
-def align_pdb_to_reference(pdb_file, reference_sequence, min_identity=0.95):
+def align_structure_to_reference(structure_file, reference_sequence, min_identity=0.95):
     """
-    Align PDB structure sequence to reference sequence and create mapping
+    Align structure (PDB/CIF) sequence to reference sequence and create mapping
 
     Args:
-        pdb_file: path to PDB file
+        structure_file: path to PDB or CIF file
         reference_sequence: reference AA sequence string
         min_identity: minimum sequence identity required (default 0.95)
 
@@ -70,8 +70,13 @@ def align_pdb_to_reference(pdb_file, reference_sequence, min_identity=0.95):
     Raises:
         ValueError: if no chain meets minimum identity threshold
     """
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure('protein', pdb_file)
+    # Detect file format and use appropriate parser
+    if structure_file.endswith('.cif'):
+        parser = MMCIFParser(QUIET=True)
+    else:
+        parser = PDBParser(QUIET=True)
+
+    structure = parser.get_structure('protein', structure_file)
 
     best_chain = None
     best_identity = 0
@@ -300,12 +305,12 @@ def create_hover_callbacks(selected_chain, js_data):
     return hover_js, unhover_js
 
 
-def create_structure_heatmap(pdb_file, pdb_mutation_data, selected_chain, pdb_sequence, pdb_positions, colormap='bmy_r', width=800, height=600, label_step=None, frequency_floor=0):
+def create_structure_heatmap(structure_file, pdb_mutation_data, selected_chain, pdb_sequence, pdb_positions, colormap='bmy_r', width=800, height=600, label_step=None, frequency_floor=0):
     """
     Create py3Dmol structure viewer with mutation frequency coloring
 
     Args:
-        pdb_file: path to PDB file
+        structure_file: path to PDB or CIF file
         pdb_mutation_data: dict mapping PDB position -> {'frequency': float, 'wt': str, 'ref_position': int}
         selected_chain: chain ID to color (others shown but not colored)
         pdb_sequence: full PDB sequence string (for labeling all residues)
@@ -319,13 +324,16 @@ def create_structure_heatmap(pdb_file, pdb_mutation_data, selected_chain, pdb_se
     Returns:
         py3Dmol view object
     """
-    # Load PDB structure
-    with open(pdb_file, 'r') as f:
-        pdb_data = f.read()
+    # Load structure
+    with open(structure_file, 'r') as f:
+        structure_data = f.read()
+
+    # Detect format
+    fmt = 'cif' if structure_file.endswith('.cif') else 'pdb'
 
     # Create viewer
     view = py3Dmol.view(width=width, height=height)
-    view.addModel(pdb_data, 'pdb')
+    view.addModel(structure_data, fmt)
 
     # Color by mutation frequency
     max_freq = max(data['frequency'] for data in pdb_mutation_data.values()) if pdb_mutation_data else 1.0
@@ -399,18 +407,18 @@ def create_structure_heatmap(pdb_file, pdb_mutation_data, selected_chain, pdb_se
     return view
 
 
-def create_structure_pane(pdb_file, agg_df, colormap='bmy_r', width=800, height=600, label_step=None, min_identity=0.95, frequency_floor=0, position_range=''):
+def create_structure_pane(structure_file, agg_df, colormap='bmy_r', width=800, height=600, label_step=None, min_identity=0.95, frequency_floor=0, position_range=''):
     """
     Create structure viewer Panel pane for embedding in dashboard
 
     Args:
-        pdb_file: path to PDB file
+        structure_file: path to PDB or CIF file
         agg_df: aggregated mutations dataframe (from SequenceAnalyzer.aggregate_mutations)
         colormap: colormap name (default: 'bmy_r')
         width: viewer width in pixels (default: 800)
         height: viewer height in pixels (default: 600)
         label_step: if int, label every Nth position with WT_position (e.g., 10 = label every 10th position)
-        min_identity: minimum sequence identity required for PDB alignment (default: 0.95)
+        min_identity: minimum sequence identity required for structure alignment (default: 0.95)
         frequency_floor: minimum frequency threshold for coloring residues (default: 0)
         position_range: position range(s) to color, e.g., '20-30' or '20-30,50-60' (default: '' = all positions)
 
@@ -418,7 +426,7 @@ def create_structure_pane(pdb_file, agg_df, colormap='bmy_r', width=800, height=
         Panel HTML pane with embedded structure viewer
 
     Raises:
-        ValueError: if PDB sequence doesn't match reference with sufficient identity
+        ValueError: if structure sequence doesn't match reference with sufficient identity
     """
     # Reconstruct reference sequence from agg_df
     # Note: positions in agg_df are 1-indexed
@@ -431,9 +439,9 @@ def create_structure_pane(pdb_file, agg_df, colormap='bmy_r', width=800, height=
     # Build sequence - fill gaps with 'X' if any positions are missing
     reference_sequence = ''.join(wt_map.get(pos, 'X') for pos in range(min_pos, max_pos + 1))
 
-    # Align PDB to reference and get mapping
-    alignment_info = align_pdb_to_reference(
-        pdb_file, reference_sequence,
+    # Align structure to reference and get mapping
+    alignment_info = align_structure_to_reference(
+        structure_file, reference_sequence,
         min_identity=min_identity
     )
     pdb_mapping = alignment_info['mapping']
@@ -479,7 +487,7 @@ def create_structure_pane(pdb_file, agg_df, colormap='bmy_r', width=800, height=
 
     # Create viewer
     view = create_structure_heatmap(
-        pdb_file, pdb_mutation_data, selected_chain,
+        structure_file, pdb_mutation_data, selected_chain,
         alignment_info['pdb_sequence'], alignment_info['pdb_positions'],
         colormap=colormap, width=width, height=height, label_step=label_step, frequency_floor=frequency_floor
     )
@@ -507,7 +515,7 @@ def main():
         # Running as snakemake script
         args = type('Args', (), {
             'agg_csv': snakemake.input.agg_csv,
-            'pdb_file': snakemake.input.pdb,
+            'structure_file': snakemake.input.pdb,
             'output_html': snakemake.output.html,
             'colormap': snakemake.params.get('colormap', 'bmy_r'),
             'width': snakemake.params.get('width', 800),
@@ -523,7 +531,7 @@ def main():
         )
         parser.add_argument('--agg_csv', required=True,
                           help='Aggregated mutations CSV from SequenceAnalyzer.aggregate_mutations')
-        parser.add_argument('--pdb_file', required=True, help='PDB structure file')
+        parser.add_argument('--structure_file', required=True, help='PDB or CIF structure file')
         parser.add_argument('--output_html', required=True, help='Output HTML file')
         parser.add_argument('--colormap', default='bmy_r', help='Colormap name (default: bmy_r)')
         parser.add_argument('--width', type=int, default=800, help='Viewer width in pixels')
@@ -539,7 +547,7 @@ def main():
 
     # Generate structure viewer HTML
     structure_pane = create_structure_pane(
-        pdb_file=args.pdb_file,
+        structure_file=args.structure_file,
         agg_df=agg_df,
         colormap=args.colormap,
         width=args.width,
