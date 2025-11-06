@@ -259,13 +259,24 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
             
             for plot, label in zip(plots, labels):
                 fName = os.path.join(out_dir, f'{label}.svg')
-                plot = plot.opts(show_legend=False) # legends break svg export with bokeh
-                p = hv.render(plot,backend='bokeh')
+
+                # Check if this is a HoloViews object or a Panel-wrapped Bokeh figure
+                if hasattr(plot, 'opts'):
+                    # HoloViews object - render it
+                    plot = plot.opts(show_legend=False) # legends break svg export with bokeh
+                    p = hv.render(plot, backend='bokeh')
+                elif hasattr(plot, 'object'):
+                    # Panel object - extract the wrapped Bokeh figure
+                    p = plot.object
+                else:
+                    # Unknown object type, skip
+                    continue
+
                 if dimensions:
                     p.width = dimensions[0]
                     p.height = dimensions[1]
                 p.output_backend='svg'
-                export_svgs(p, 
+                export_svgs(p,
                     filename=fName,
                     webdriver=webdriver)
                 
@@ -369,10 +380,12 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
         xrotation = 0
         kdims = ['position','mutation'] # Use numerical positions
         vdims = ['proportion_of_seqs', 'total_count', 'WT_position']
+        width = 1000
     else:  # categorical
         xrotation = 90
         kdims = ['WT_position','mutation'] # Use WT_position labels
         vdims = ['proportion_of_seqs', 'total_count']
+        width = 25 * len(positions)
 
     df = df.sort_values('position', ascending=True)
     df['WT_position'] = df['wt'] + df['position'].astype(str)
@@ -411,7 +424,7 @@ def conspicuous_mutations(df, total_seqs, num_positions=None, colormap='kbc_r', 
         plot = hv.Bars(df, kdims=kdims, vdims=vdims).opts(
                     show_legend=False, ylabel=f"frequency (n={total_seqs})", stacked=True, ylim=(-0.01, None))
 
-    plot = plot.opts(height=500, width=1000, xrotation=xrotation, tools=['hover'],
+    plot = plot.opts(height=500, width=width, xrotation=xrotation, tools=['hover'],
                      cmap=colormap, xlabel='position', fontsize=fontsize)
     return plot
 
@@ -571,8 +584,9 @@ def validate_bc(bc_info_dict, bc, metadata_dir, errors_list=None):
         bc_fasta = bc_data['fasta']
         if not bc_fasta.startswith(metadata_dir):
             bc_fasta = os.path.join(metadata_dir, bc_fasta)
-            bc_data['fasta'] = bc_fasta 
-        if not os.path.isfile(bc_fasta):
+            bc_data['fasta'] = bc_fasta
+        # Skip file existence check if generate is set (file will be created by pipeline)
+        if not bc_data.get('generate', False) and not os.path.isfile(bc_fasta):
             local_errors.append(f"[ERROR] Fasta file `{bc_fasta}` for barcode `{bc}` does not exist. Please provide a valid fasta file path.\n")
     
     # Handle reverse_complement field
@@ -639,7 +653,7 @@ def validate_bc(bc_info_dict, bc, metadata_dir, errors_list=None):
         errors_list.extend(local_errors)
         return bc_info_dict, errors_list
 
-def dashboard_input(wildcards, config):
+def dashboard_input(wildcards, config, single=False):
     """
     returns the input files for the dashboard based on the sample name provided by the user
     or the first run tag in the config file if no sample name is provided
@@ -647,39 +661,46 @@ def dashboard_input(wildcards, config):
     args:
         wildcards (snakemake object):   snakemake wildcards object, not used but required for unpacking in rule input
         config (dict):                  dictionary of config file contents
+        single (bool):                  if True, return single dataset input; if False, return datasets CSV
 
     returns:
-        inputDict (dict):               dictionary of input files for the dashboard, genotypes and refFasta, and optionally pdbFile
+        inputDict (dict):               dictionary of input files for the dashboard
     """
     sample = config.get('dashboard_input', False)
     # use the first run tag as the sample for the dashboard if no sample is provided by user
     if not sample:
-        sample = config['runs'].values()[0]
-    if sample in config['runs']:
-        genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
-        if 'enrichment' in config['runs'][sample]:
-            genotypes = genotypes[:-4] + '-enrichment.csv'
-        inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
-        # Add PDB file if it exists in the tags, otherwise empty string
-        inputDict['pdb'] = config['runs'][sample].get('pdb', '')
-    elif sample in config.get('timepointsInfo', ''):
-        inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
-                    'refFasta': config['timepointsInfo'][sample]['reference']}
-        tag = config['timepointsInfo'][sample]['tag']
-        if 'enrichment' in config['runs'][tag]:
-            inputDict['genotypes'] = inputDict['genotypes'][:-4] + '-enrichment.csv'
-        # Add PDB file if it exists for the first tag in the timepoint, otherwise empty string
-        inputDict['pdb'] = config['runs'][tag].get('pdb', '')
-    elif '_' in sample and (sample.split('_')[0] in config['runs']):
-        print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
-        tag, barcodes = sample.split('_')
-        inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
-                    'refFasta': config['runs'][tag]['reference']}
-        # Add PDB file if it exists in the tags, otherwise empty string
-        inputDict['pdb'] = config['runs'][tag].get('pdb', '')
+        sample = list(config['runs'].keys())[0]
+
+    # Single dataset mode
+    if single:
+        if sample in config['runs']:
+            genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
+            if 'enrichment' in config['runs'][sample]:
+                genotypes = genotypes[:-4] + '-enrichment.csv'
+            inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
+            inputDict['structure_file'] = config['runs'][sample].get('structure_file', '')
+            print(config['runs'][sample].get('structure_file', ''))
+        elif sample in config.get('timepointsInfo', ''):
+            inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
+                        'refFasta': config['timepointsInfo'][sample]['reference']}
+            tag = config['timepointsInfo'][sample]['tag']
+            if 'enrichment' in config['runs'][tag]:
+                inputDict['genotypes'] = inputDict['genotypes'][:-4] + '-enrichment.csv'
+            inputDict['structure_file'] = config['runs'][tag].get('structure_file', '')
+        elif '_' in sample and (sample.split('_')[0] in config['runs']):
+            print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
+            tag, barcodes = sample.split('_')
+            inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
+                        'refFasta': config['runs'][tag]['reference']}
+            inputDict['structure_file'] = config['runs'][tag].get('structure_file', '')
+        else:
+            return None
+
+    # Multi-dataset mode - return datasets CSV
     else:
-        # print(f'[NOTICE] dashboard_input {sample} does not conform to a valid tag, timepoint name, or tag_barcode combination. Dashboard input will not be generated.')
-        return None
+        metadata_folder = config.get('metadata_folder', 'metadata')
+        inputDict = {'datasets_csv': f'{metadata_folder}/.dashboard_datasets.csv'}
+
     return inputDict
 
 def _is_fastq_file(filename):

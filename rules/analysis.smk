@@ -9,7 +9,50 @@
 
 # imports
 import os, sys, glob
+import pandas as pd
 from utils.common import sort_barcodes, dashboard_input
+
+def get_dashboard_datasets_df():
+    """Generate the dashboard datasets dataframe based on config"""
+    rows = []
+
+    # If timepoints exist, only add timepoints
+    if 'timepointsInfo' in config:
+        for timepoint_name in config['timepointsInfo']:
+            genotypes_csv = f'mutation_data/timepoints/{timepoint_name}_merged-timepoint_genotypes-reduced-dimensions.csv'
+            tag = config['timepointsInfo'][timepoint_name]['tag']
+            if 'enrichment' in config['runs'][tag]:
+                genotypes_csv = genotypes_csv[:-4] + '-enrichment.csv'
+
+            reference_fasta = config['timepointsInfo'][timepoint_name]['reference']
+            exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
+            structure_file = config['runs'][tag].get('structure_file', '')
+
+            rows.append({
+                'genotypes_csv': genotypes_csv,
+                'reference_fasta': reference_fasta,
+                'exclude_indels': exclude_indels,
+                'structure_file': structure_file
+            })
+    # Otherwise add individual tags
+    else:
+        for tag in config['runs']:
+            genotypes_csv = f'mutation_data/{tag}/{tag}_genotypes-reduced-dimensions.csv'
+            if 'enrichment' in config['runs'][tag]:
+                genotypes_csv = genotypes_csv[:-4] + '-enrichment.csv'
+
+            reference_fasta = config['runs'][tag]['reference']
+            exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
+            structure_file = config['runs'][tag].get('structure_file', '')
+
+            rows.append({
+                'genotypes_csv': genotypes_csv,
+                'reference_fasta': reference_fasta,
+                'exclude_indels': exclude_indels,
+                'structure_file': structure_file
+            })
+
+    return pd.DataFrame(rows)
 
 def alignment_sequence_input(wildcards):
     if config['do_UMI_analysis'][wildcards.tag]:
@@ -101,12 +144,15 @@ rule NanoPlot_alignment:
 
 rule generate_barcode_ref:
     input:
-        bam = 'alignments/{tag}.bam',
-        barcode_info = lambda wildcards: config['runs'][wildcards.tag].get('barcode_info_csv', [])
+        bam = lambda wildcards: expand('alignments/{tag}.bam', tag=config['barcode_fasta_to_tags'][wildcards.fasta]),
+        barcode_info = lambda wildcards: config['runs'][config['barcode_fasta_to_tags'][wildcards.fasta][0]].get('barcode_info_csv', [])
     output:
-        flag = touch('demux/.{tag, [^\/_]*}_generate_barcode_ref.done')
+        fasta = '{fasta}'
     params:
-        reference = lambda wildcards: config['runs'][wildcards.tag]['reference']
+        references = lambda wildcards: [config['runs'][tag]['reference'] for tag in config['barcode_fasta_to_tags'][wildcards.fasta]],
+        tags = lambda wildcards: config['barcode_fasta_to_tags'][wildcards.fasta]
+    wildcard_constraints:
+        fasta = '|'.join([re.escape(f) for f in config.get('barcode_fasta_to_tags', {}).keys()]) if config.get('barcode_fasta_to_tags') else '__no_barcode_fastas__'
     script:
         'utils/generate_barcode_ref.py'
 
@@ -117,7 +163,7 @@ checkpoint demultiplex:
         barcode_info = lambda wildcards: config['runs'][wildcards.tag].get('barcode_info_csv', []),
         partition_barcode_groups = lambda wildcards: config['runs'][wildcards.tag].get('partition_barcode_groups_csv', []),
         label_barcode_groups = lambda wildcards: config['runs'][wildcards.tag].get('label_barcode_groups_csv', []),
-        flag = 'demux/.{tag}_generate_barcode_ref.done'
+        barcode_fastas = lambda wildcards: [info['fasta'] for info in config['runs'][wildcards.tag].get('barcode_info', {}).values()]
     output:
         flag = touch('demux/.{tag, [^\/_]*}_demultiplex.done'),
         stats = 'demux/{tag, [^\/_]*}_demux-stats.csv'
@@ -744,7 +790,7 @@ rule plot_genotypes_2D_all:
 rule structure_heatmap:
     input:
         agg_csv = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-mutations-aggregated.csv',
-        pdb = lambda wildcards: config['runs'][wildcards.tag].get('pdb_file', '')
+        structure_file = lambda wildcards: config['runs'][wildcards.tag].get('structure_file', '')
     output:
         html = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_structure-heatmap.html'
     params:
@@ -756,16 +802,37 @@ rule structure_heatmap:
     script:
         'utils/structure_heatmap.py'
 
-rule run_dashboard:
+rule run_dashboard_single_input:
     input:
-        unpack(lambda wildcards: dashboard_input(wildcards=wildcards, config=config))
+        unpack(lambda wildcards: dashboard_input(wildcards=wildcards, config=config, single=True))
     params:
         port = config.get('dashboard_port', 3365),
         basedir = workflow.basedir,
         exclude_indels = lambda wildcards: '' if config.get('analyze_seqs_with_indels', True) else '--exclude_indels'
     shell:
         """
-        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta} --pdb={input.pdb} {params.exclude_indels}
+        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --genotypes={input.genotypes} --reference={input.refFasta} --structure_file={input.structure_file} {params.exclude_indels}
+        """
+
+rule create_dashboard_datasets_csv:
+    output:
+        csv = f"{config.get('metadata_folder', 'metadata')}/.dashboard_datasets.csv"
+    run:
+        import os
+        df = get_dashboard_datasets_df()
+        os.makedirs(os.path.dirname(output.csv), exist_ok=True)
+        df.to_csv(output.csv, index=False)
+
+rule run_dashboard:
+    input:
+        datasets_csv = lambda wildcards: dashboard_input(wildcards=wildcards, config=config, single=False)['datasets_csv'],
+        genotypes = lambda wildcards: get_dashboard_datasets_df()['genotypes_csv'].tolist()
+    params:
+        port = config.get('dashboard_port', 3365),
+        basedir = workflow.basedir
+    shell:
+        """
+        panel serve --show --port {params.port} {params.basedir}/rules/utils/genotypes_dashboard.py --args --datasets={input.datasets_csv}
         """
 
 

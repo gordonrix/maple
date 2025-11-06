@@ -83,7 +83,7 @@ def targets_input(wildcards):
     if config.get('dashboard_input', False):
         db_input = dashboard_input(wildcards=None, config=config)
         if db_input:
-            out.append(db_input['genotypes'])
+            out.append(db_input['datasets_csv'])
     return out
 
 rule targets:

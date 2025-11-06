@@ -67,6 +67,9 @@ def process_selection(selection_expr, dashboard_instance):
     Updates analyzer.selected_idx for mutation analysis and table components.
     Returns indices for histogram component.
     """
+    # Clear cache whenever selection changes (idx parameter changes)
+    dashboard_instance.data_manager.clear_agg_muts_cache()
+
     # Check type first to avoid weird comparison issues with dim objects
     # Datashaded: HoloViews dim expression
     if str(type(selection_expr)) == "<class 'holoviews.util.transform.dim'>":
@@ -112,34 +115,82 @@ def process_selection(selection_expr, dashboard_instance):
 class DataManager:
     """Handles data loading and basic processing"""
 
-    def __init__(self, genotypes_file, reference_file, exclude_indels=False):
-        print("Loading data...")
+    def __init__(self, genotypes_file, reference_file, exclude_indels=False, downsample_size=None):
+        self.reference_file = reference_file
+        self.exclude_indels = exclude_indels
 
-        # Load data using existing SequenceAnalyzer
-        self.analyzer = SequenceAnalyzer(
-            reference_fasta=reference_file,
-            genotypesCSV=genotypes_file,
-            exclude_indels=exclude_indels
-        )
+        # Load only genotypes DataFrame (lightweight)
+        genotypes = pd.read_csv(genotypes_file, low_memory=False)
+        if exclude_indels:
+            genotypes = genotypes[genotypes['NT_insertions'].isna()]
+            genotypes = genotypes[genotypes['NT_deletions'].isna()]
+        genotypes = genotypes.reset_index().drop('index', axis='columns')
 
-        self.genotypes = self.analyzer.genotypes.copy()
-        self.do_AA_analysis = self.analyzer.do_AA_analysis
+        self.do_AA_analysis = 'AA_substitutions_nonsynonymous' in genotypes.columns
 
-        # Ensure required columns exist
-        if 'NT_muts_of_interest' not in self.genotypes.columns:
-            self.genotypes['NT_muts_of_interest'] = 'none'
-        if self.do_AA_analysis and 'AA_muts_of_interest' not in self.genotypes.columns:
-            self.genotypes['AA_muts_of_interest'] = 'none'
+        if 'NT_muts_of_interest' not in genotypes.columns:
+            genotypes['NT_muts_of_interest'] = 'none'
+        if self.do_AA_analysis and 'AA_muts_of_interest' not in genotypes.columns:
+            genotypes['AA_muts_of_interest'] = 'none'
 
-        # Get column information
-        self.numerical_columns = self.genotypes.select_dtypes(include=[np.number]).columns.tolist()
-        # Get embedding columns, prioritizing AA over NT
+        self.genotypes = genotypes
+        self.numerical_columns = genotypes.select_dtypes(include=[np.number]).columns.tolist()
         all_embeddings = [col for col in self.numerical_columns if 'PaCMAP' in col or 'UMAP' in col or 'tSNE' in col]
-        # Sort to put AA_PaCMAP before NT_PaCMAP
         self.embedding_columns = sorted(all_embeddings, key=lambda x: (0 if x.startswith('AA_') else 1, x))
 
-        print(f"Loaded {len(self.genotypes)} genotypes")
-        print(f"Available embeddings: {self.embedding_columns}")
+        # Downsample before creating SequenceAnalyzer
+        if downsample_size and downsample_size < len(genotypes):
+            np.random.seed(0)
+            counts = genotypes['count'].values if 'count' in genotypes.columns else np.ones(len(genotypes))
+            probabilities = counts / counts.sum()
+            sampled_idx = np.sort(np.random.choice(np.arange(len(genotypes)), size=downsample_size, replace=False, p=probabilities))
+            sampled_genotypes = genotypes.iloc[sampled_idx]
+        else:
+            sampled_genotypes = genotypes
+
+        # Create SequenceAnalyzer with downsampled data only
+        self.analyzer = SequenceAnalyzer(
+            reference_fasta=reference_file,
+            genotypesCSV=sampled_genotypes,
+            exclude_indels=False
+        )
+
+        # Cache for aggregate_mutations to avoid duplicate computation
+        self._agg_muts_cache = {}
+
+    def get_aggregated_mutations(self, NTorAA, idx=None, unique_only=False):
+        """
+        Get aggregated mutations with caching to avoid duplicate computation.
+
+        Parameters:
+            NTorAA (str): 'NT' or 'AA'
+            idx (list): Indices to aggregate, or None for all
+            unique_only (bool): Whether to count unique sequences only
+
+        Returns:
+            pd.DataFrame: Aggregated mutations dataframe
+        """
+        # Create cache key from parameters
+        idx_key = tuple(sorted(idx)) if idx is not None and len(idx) > 0 else None
+        cache_key = (NTorAA, idx_key, unique_only)
+
+        # Return cached result if available
+        if cache_key in self._agg_muts_cache:
+            return self._agg_muts_cache[cache_key]
+
+        # Compute and cache result
+        result = self.analyzer.aggregate_mutations(
+            NTorAA=NTorAA,
+            idx=idx,
+            unique_only=unique_only
+        )
+        self._agg_muts_cache[cache_key] = result
+
+        return result
+
+    def clear_agg_muts_cache(self):
+        """Clear the aggregated mutations cache"""
+        self._agg_muts_cache = {}
 
 
 
@@ -248,11 +299,11 @@ class TableComponent(pn.viewable.Viewer):
         selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
 
         if selected_idx is not None and len(selected_idx) > 0:
-            # Use selected data
-            df = self.data_manager.genotypes.loc[selected_idx].copy()
+            # Use selected data from analyzer's downsampled genotypes
+            df = self.data_manager.analyzer.genotypes.loc[selected_idx].copy()
         else:
-            # Use all data if no selection
-            df = self.data_manager.genotypes.copy()
+            # Use all analyzer data if no selection (already downsampled)
+            df = self.data_manager.analyzer.genotypes.copy()
 
         # Drop unnecessary columns like original dashboard
         drop_cols = ['size', 'index']  # Hide index column from table
@@ -342,9 +393,9 @@ class MutationAnalysisComponent(pn.viewable.Viewer):
         # Get selected indices from the data manager's analyzer (updated by dashboard)
         selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
 
-        # Get aggregated mutations from SequenceAnalyzer
+        # Get aggregated mutations using cached method
         try:
-            agg_df = self.data_manager.analyzer.aggregate_mutations(
+            agg_df = self.data_manager.get_aggregated_mutations(
                 NTorAA=self.NTorAA,  # Use parameter instead of hardcoded
                 idx=selected_idx,    # Use selected sequences or None (all) if no selection
                 unique_only=False
@@ -416,24 +467,24 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
     label_step = param.Selector(default=50, objects=[None, 10, 50, 100], doc="Label every Nth residue (None = no labels)")
     frequency_floor = param.Number(default=0.0, bounds=(0, 1), doc="Minimum frequency threshold for coloring residues")
 
-    def __init__(self, data_manager, pdb_file=None, **params):
+    def __init__(self, data_manager, structure_file=None, **params):
         super().__init__(**params)
         self.data_manager = data_manager
-        self.pdb_file = pdb_file
+        self.structure_file = structure_file
 
     def plot(self, position_range=''):
         """Create structure viewer - method that takes position_range as argument"""
 
-        # Return empty spacer if no PDB file
-        if not self.pdb_file:
+        # Return empty spacer if no structure file
+        if not self.structure_file:
             return pn.Spacer(width=0)
 
         # Use selected data if available, otherwise use all data
         selected_idx = getattr(self.data_manager.analyzer, 'selected_idx', None)
 
-        # Get aggregated mutations from SequenceAnalyzer
+        # Get aggregated mutations using cached method
         try:
-            agg_df = self.data_manager.analyzer.aggregate_mutations(
+            agg_df = self.data_manager.get_aggregated_mutations(
                 NTorAA='AA',  # Structure viewer always uses AA
                 idx=selected_idx,
                 unique_only=False
@@ -441,7 +492,7 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
 
             # Create structure viewer pane
             structure_pane = create_structure_pane(
-                pdb_file=self.pdb_file,
+                structure_file=self.structure_file,
                 agg_df=agg_df,
                 colormap=self.colormap,
                 width=500,
@@ -466,7 +517,7 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
 class ControlsPanel(pn.viewable.Viewer):
     """Control widgets for the dashboard"""
 
-    def __init__(self, data_manager, scatter_component, histogram_component, mutation_analysis_component, table_component, downsample_slider, structure_component=None, **params):
+    def __init__(self, data_manager, scatter_component, histogram_component, mutation_analysis_component, table_component, downsample_slider, structure_component=None, dataset_selector=None, **params):
         super().__init__(**params)
         self.data_manager = data_manager
         self.scatter = scatter_component
@@ -475,6 +526,7 @@ class ControlsPanel(pn.viewable.Viewer):
         self.table = table_component
         self.downsample_slider = downsample_slider
         self.structure = structure_component
+        self.dataset_selector = dataset_selector
 
         # Create control widgets
         self._create_widgets()
@@ -1029,10 +1081,10 @@ class ControlsPanel(pn.viewable.Viewer):
         # Create dashboard directory
         pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
 
-        # Get selected data and aggregate
+        # Get selected data and aggregate using cached method
         selected_idx = self.data_manager.analyzer.selected_idx
         NTorAA = self.NTorAA_toggle.value  # Use current NT/AA toggle setting
-        df = self.data_manager.analyzer.aggregate_mutations(NTorAA=NTorAA, idx=selected_idx)
+        df = self.data_manager.get_aggregated_mutations(NTorAA=NTorAA, idx=selected_idx)
 
         # Export
         df.to_csv(filename, index=False)
@@ -1060,12 +1112,18 @@ class ControlsPanel(pn.viewable.Viewer):
     def __panel__(self):
         """Return the controls panel layout"""
 
+        # Build data controls with optional dataset selector at top
+        data_controls_widgets = []
+        if self.dataset_selector is not None:
+            data_controls_widgets.append(self.dataset_selector)
+        data_controls_widgets.extend([
+            pn.Row(self.downsample_slider, self.datashade_toggle),
+            pn.Row(self.filter1_column_select, self.filter1_range_slider),
+            pn.Row(self.filter2_column_select, self.filter2_range_slider)
+        ])
+
         data_controls = pn.Card(
-            pn.Column(
-                pn.Row(self.downsample_slider, self.datashade_toggle),
-                pn.Row(self.filter1_column_select, self.filter1_range_slider),
-                pn.Row(self.filter2_column_select, self.filter2_range_slider)
-            ),
+            pn.Column(*data_controls_widgets),
             title="Data Controls",
             collapsed=False
         )
@@ -1160,23 +1218,47 @@ class ControlsPanel(pn.viewable.Viewer):
 class MapleDashboard:
     """Main dashboard class orchestrating all components"""
 
-    def __init__(self, genotypes_file, reference_file, exclude_indels=False, initial_downsample=100000, pdb_file=None):
+    def __init__(self, genotypes_file=None, reference_file=None, exclude_indels=False, initial_downsample=100000, structure_file=None, datasets_config=None):
 
-        # Initialize data manager
-        self.data_manager = DataManager(genotypes_file, reference_file, exclude_indels)
+        # Multi-dataset mode
+        if datasets_config is not None:
+            self.datasets_config = datasets_config
+            self.multi_dataset_mode = True
 
-        # Store PDB file path
-        self.pdb_file = pdb_file
+            # Create dataset selector widget
+            dataset_names = [d['name'] for d in datasets_config]
+            self.dataset_selector = pn.widgets.Select(
+                name='Dataset',
+                options=dataset_names,
+                value=dataset_names[0],
+                width=200
+            )
 
-        # Store genotypes filename for validation
-        self.genotypes_filename = pathlib.Path(genotypes_file).name
+            # Load first dataset
+            first_dataset = datasets_config[0]
+            self.data_manager = DataManager(
+                first_dataset['genotypes_file'],
+                first_dataset['reference_file'],
+                first_dataset['exclude_indels'],
+                downsample_size=initial_downsample
+            )
+            self.structure_file = first_dataset['structure_file']
+            self.genotypes_filename = pathlib.Path(first_dataset['genotypes_file']).name
+
+        # Single dataset mode
+        else:
+            self.multi_dataset_mode = False
+            self.dataset_selector = None
+            self.data_manager = DataManager(genotypes_file, reference_file, exclude_indels, downsample_size=initial_downsample)
+            self.structure_file = structure_file
+            self.genotypes_filename = pathlib.Path(genotypes_file).name
 
         # Cache for saved selection
         self.saved_selection = None
 
         # Create downsample slider with command line argument support
         max_size = len(self.data_manager.genotypes)
-        initial_value = min(initial_downsample, max_size)  # Use min(df.max, downsample_arg) as requested
+        initial_value = min(initial_downsample, max_size)
 
         self.downsample_slider = pn.widgets.IntSlider(
             name='Downsample',
@@ -1192,12 +1274,20 @@ class MapleDashboard:
         self.histogram_component = HistogramComponent(self.data_manager)
         self.mutation_analysis_component = MutationAnalysisComponent(self.data_manager)
         self.table_component = TableComponent(self.data_manager)
-        self.structure_component = StructureHeatmapComponent(self.data_manager, pdb_file=self.pdb_file)
-        self.controls_panel = ControlsPanel(self.data_manager, self.scatter_component, self.histogram_component, self.mutation_analysis_component, self.table_component, self.downsample_slider, structure_component=self.structure_component)
+        self.structure_component = StructureHeatmapComponent(self.data_manager, structure_file=self.structure_file)
+        self.controls_panel = ControlsPanel(
+            self.data_manager,
+            self.scatter_component,
+            self.histogram_component,
+            self.mutation_analysis_component,
+            self.table_component,
+            self.downsample_slider,
+            structure_component=self.structure_component,
+            dataset_selector=self.dataset_selector if self.multi_dataset_mode else None
+        )
 
-        # Reactive data pipeline with filtering and downsampling (after controls are created)
+        # Reactive data pipeline with filtering (already downsampled at load time)
         self.filtered_data = pn.rx(self._get_filtered_data)(
-            self.downsample_slider.param.value,
             self.controls_panel.filter1_column_select.param.value,
             self.controls_panel.filter1_range_slider.param.value,
             self.controls_panel.filter2_column_select.param.value,
@@ -1271,6 +1361,8 @@ class MapleDashboard:
 
         # Create colorbar/legend for datashaded plots
         self.reactive_colorbar = pn.bind(self._create_color_legend,
+                                       data=self.filtered_data,
+                                       selection_expr=self.ls.param.selection_expr,
                                        color_by=self.scatter_component.param.color_by,
                                        colormap=self.scatter_component.param.colormap,
                                        datashade=self.scatter_component.param.datashade,
@@ -1284,8 +1376,8 @@ class MapleDashboard:
                                     selection_expr=self.ls.param.selection_expr,
                                     table_component=self.table_component)
 
-        # Create reactive structure viewer that updates with selections (only if PDB file provided)
-        if self.pdb_file:
+        # Create reactive structure viewer that updates with selections and filtered data (only if PDB file provided)
+        if self.structure_file:
             self.reactive_structure = pn.bind(self._create_structure_with_selection,
                                             data=self.filtered_data,
                                             selection_expr=self.ls.param.selection_expr,
@@ -1306,13 +1398,20 @@ class MapleDashboard:
         self.controls_panel.max_mut_combos_slider.param.watch(self._update_NT_muts_options, 'value')
         self.controls_panel.max_mut_combos_slider.param.watch(self._update_AA_muts_options, 'value')
 
+        # Link dataset selector callback (multi-dataset mode only)
+        if self.multi_dataset_mode:
+            self.dataset_selector.param.watch(self._switch_dataset, 'value')
+
         # Create the dashboard template
         self._create_template()
 
-    def _get_filtered_data(self, downsample_size, filter1_col, filter1_range, filter2_col, filter2_range, NT_muts, AA_muts, max_groups, NT_muts_filter, AA_muts_filter):
-        """Get filtered and downsampled data"""
-        # Start with downsampled data
-        df = self.data_manager.analyzer.downsample(downsample_size)['df']
+    def _get_filtered_data(self, filter1_col, filter1_range, filter2_col, filter2_range, NT_muts, AA_muts, max_groups, NT_muts_filter, AA_muts_filter):
+        """Get filtered data (already downsampled at load time)"""
+        # Clear cache when filters change (data subset changes)
+        self.data_manager.clear_agg_muts_cache()
+
+        # Start with analyzer genotypes (already downsampled)
+        df = self.data_manager.analyzer.genotypes.copy()
 
         # Apply filter 1 if column and range are valid
         if filter1_col and filter1_col in df.columns and filter1_range:
@@ -1373,6 +1472,8 @@ class MapleDashboard:
         self.selected_indices = []
         # Clear the analyzer's selected_idx to show all data in mutation analysis
         self.data_manager.analyzer.selected_idx = None
+        # Clear cache when selection changes
+        self.data_manager.clear_agg_muts_cache()
         print("Selection manually cleared")
 
     def _save_selection(self, event):
@@ -1446,6 +1547,49 @@ class MapleDashboard:
         self.ls.selection_expr = selection_expr
         print("Selection applied")
 
+    def _switch_dataset(self, event):
+        """Switch to a different dataset"""
+        dataset_name = event.new
+        dataset_config = next(d for d in self.datasets_config if d['name'] == dataset_name)
+
+        # Clear cache from old data manager before switching
+        self.data_manager.clear_agg_muts_cache()
+
+        # Create new data manager with new reference (old data_manager will be garbage collected)
+        current_downsample = self.downsample_slider.value
+        self.data_manager = DataManager(
+            dataset_config['genotypes_file'],
+            dataset_config['reference_file'],
+            dataset_config['exclude_indels'],
+            downsample_size=current_downsample
+        )
+        self.structure_file = dataset_config['structure_file']
+        self.genotypes_filename = pathlib.Path(dataset_config['genotypes_file']).name
+
+        # Update data_manager and structure_file reference in all components FIRST (before any reactive changes)
+        self.scatter_component.data_manager = self.data_manager
+        self.histogram_component.data_manager = self.data_manager
+        self.mutation_analysis_component.data_manager = self.data_manager
+        self.table_component.data_manager = self.data_manager
+        self.structure_component.data_manager = self.data_manager
+        self.structure_component.structure_file = self.structure_file  # Update structure file too!
+        self.controls_panel.data_manager = self.data_manager
+
+        # Clear selection state (non-reactive parts)
+        self.selected_indices = []
+        self.data_manager.analyzer.selected_idx = None
+
+        # Update downsample slider range
+        max_size = len(self.data_manager.genotypes)
+        self.downsample_slider.end = max_size
+        self.downsample_slider.value = min(current_downsample, max_size)
+
+        # Update filter ranges for new dataset
+        self.controls_panel._update_filter_ranges()
+
+        # Clear selection - this will trigger updates for components that depend on selection_expr
+        self.ls.selection_expr = []
+
     def _update_NT_muts_options(self, event):
         """Update NT mutations MultiChoice options based on current filtered data"""
         current_data = self.filtered_data.rx.value
@@ -1508,23 +1652,35 @@ class MapleDashboard:
         return structure_component.plot(position_range=position_range)
 
 
-    def _create_color_legend(self, color_by, colormap, datashade, NT_muts=None, AA_muts=None, max_groups=None):
+    def _create_color_legend(self, data, selection_expr, color_by, colormap, datashade, NT_muts=None, AA_muts=None, max_groups=None):
         """Create colorbar for numerical data or legend for categorical data"""
         # NT_muts, AA_muts, max_groups are just to trigger updates when they change
         if not datashade:
             return pn.Spacer(width=0)  # No colorbar for non-datashaded plots
+
+        # Process selection to get the data we should use for the colorbar
+        # Store current data for process_selection to use
+        self.current_data = data
+        selected_indices = process_selection(selection_expr, self)
+
+        # Determine which data to use: selected data if there's a selection, otherwise filtered data
+        if selected_indices is not None and len(selected_indices) > 0:
+            # Use selected data (subset of filtered data)
+            display_data = data.loc[data.index.isin(selected_indices)]
+        else:
+            # Use all filtered data
+            display_data = data
 
         # Check if column is categorical
         is_categorical = not pd.api.types.is_numeric_dtype(self.data_manager.genotypes[color_by].dtype)
 
         if is_categorical:
             # Create HoloViews-based legend with colored circles (exportable to SVG)
-            current_data = getattr(self, 'current_data', self.data_manager.genotypes)
-            if current_data is None or color_by not in current_data.columns:
+            if display_data is None or color_by not in display_data.columns:
                 return pn.Spacer(width=0)
 
             # Use helper method to get color mapping (same logic as scatter plot)
-            categories, color_key = self._get_categorical_color_mapping(current_data, color_by, colormap)
+            categories, color_key = self._get_categorical_color_mapping(display_data, color_by, colormap)
 
             # Create HoloViews elements for each category
             elements = []
@@ -1566,13 +1722,9 @@ class MapleDashboard:
             return legend
 
         # Create colorbar using Bokeh for all numerical columns (including count)
-        # Use the same color range as the plot (from downsampled data)
-        if hasattr(self, 'current_color_range') and self.current_color_range:
-            color_min, color_max = self.current_color_range
-        else:
-            # Fallback to full dataset range
-            color_min = self.data_manager.genotypes[color_by].min()
-            color_max = self.data_manager.genotypes[color_by].max()
+        # Use the color range from the display data (filtered/selected)
+        color_min = display_data[color_by].min()
+        color_max = display_data[color_by].max()
 
         # Use the same colormap as the plot like original dashboard
         colormap_dict = cmap_dict()
@@ -1640,9 +1792,8 @@ class MapleDashboard:
                 # For categorical: no color range
                 color_range = None
             else:
-                # For numerical: use FULL dataset min/max to prevent color shifting
-                color_range = (self.data_manager.genotypes[color_by].min(),
-                              self.data_manager.genotypes[color_by].max())
+                # For numerical: use filtered data min/max to update with filter changes
+                color_range = (data[color_by].min(), data[color_by].max())
 
             # Store this range for the colorbar
             self.current_color_range = color_range
@@ -1794,12 +1945,7 @@ class MapleDashboard:
         histogram_plot = self.reactive_histogram()
         mutation_plot_method = self.reactive_mutation_analysis()
         mutation_plot = mutation_plot_method()
-
-        colorbar = self._create_color_legend(
-            color_by=self.scatter_component.color_by,
-            colormap=self.scatter_component.colormap,
-            datashade=True
-        )
+        colorbar = self.reactive_colorbar()
 
         export_svg_plots(
             [scatter_plot, mutation_plot, histogram_plot, colorbar],
@@ -1845,14 +1991,13 @@ class MapleDashboard:
             collapsed=False
         )
 
+        # Sidebar items (dataset selector is now in controls panel)
+        sidebar_items = [quick_start_panel, self.controls_panel, selection_controls_card]
+
         # Create template with wider sidebar
         self.template = pn.template.FastListTemplate(
             title="",  # Remove main title
-            sidebar=[
-                quick_start_panel,
-                self.controls_panel,
-                selection_controls_card
-            ],
+            sidebar=sidebar_items,
             main=[
                 pn.Column(
                     plot_panel,
@@ -1887,34 +2032,87 @@ class MapleDashboard:
 try:
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Maple Genotypes Dashboard - 2025 Rebuild')
-    parser.add_argument('--genotypes', type=str, required=True,
-                       help='Path to genotypes CSV file')
-    parser.add_argument('--reference', type=str, required=True,
-                       help='Path to reference FASTA file')
+    parser.add_argument('--genotypes', type=str,
+                       help='Path to genotypes CSV file (single dataset mode)')
+    parser.add_argument('--reference', type=str,
+                       help='Path to reference FASTA file (single dataset mode)')
     parser.add_argument('--exclude_indels', action='store_true',
-                       help='Exclude sequences with indels')
+                       help='Exclude sequences with indels (single dataset mode)')
     parser.add_argument('--downsample', type=int, default=100000,
                        help='Initial downsample value (default: 100000)')
-    parser.add_argument('--pdb', type=str, default='',
-                       help='Path to PDB file for structure viewer (optional)')
+    parser.add_argument('--structure_file', type=str, default='',
+                       help='Path to structure file (PDB/CIF) for structure viewer (optional, single dataset mode)')
+    parser.add_argument('--datasets', type=str,
+                       help='Path to datasets CSV file (multi-dataset mode)')
 
     args, unknown = parser.parse_known_args()
 
     print("Starting Maple Dashboard 2025...")
-    print(f"Genotypes: {args.genotypes}")
-    print(f"Reference: {args.reference}")
 
-    # Create dashboard with downsample argument and optional PDB file
-    dashboard = MapleDashboard(
-        genotypes_file=args.genotypes,
-        reference_file=args.reference,
-        exclude_indels=args.exclude_indels,
-        initial_downsample=args.downsample,
-        pdb_file=args.pdb if args.pdb else None
-    )
+    # Check if using multi-dataset mode
+    if args.datasets:
+        print(f"Multi-dataset mode: {args.datasets}")
+        # Load datasets CSV
+        datasets_df = pd.read_csv(args.datasets)
 
-    # Make template servable
-    layout = dashboard.servable(title=f'Maple Dashboard: {pathlib.Path(args.genotypes).name}')
+        # Validate required columns
+        required_cols = ['genotypes_csv', 'reference_fasta']
+        missing_cols = [col for col in required_cols if col not in datasets_df.columns]
+        if missing_cols:
+            raise ValueError(f"Datasets CSV missing required columns: {missing_cols}")
+
+        # Create dataset configurations
+        datasets_config = []
+        for _, row in datasets_df.iterrows():
+            # Extract dataset name from genotypes filename
+            genotypes_path = row['genotypes_csv']
+            dataset_name = pathlib.Path(genotypes_path).name.replace('_genotypes.csv', '')
+
+            # Handle optional columns
+            exclude_indels = False
+            if 'exclude_indels' in row and pd.notna(row['exclude_indels']):
+                exclude_indels = str(row['exclude_indels']).lower() in ['true', '1', 'yes']
+
+            structure_file = None
+            if 'structure_file' in row and pd.notna(row['structure_file']) and str(row['structure_file']).strip():
+                structure_file = str(row['structure_file'])
+
+            datasets_config.append({
+                'name': dataset_name,
+                'genotypes_file': genotypes_path,
+                'reference_file': row['reference_fasta'],
+                'exclude_indels': exclude_indels,
+                'structure_file': structure_file
+            })
+
+        # Create dashboard with multiple datasets
+        dashboard = MapleDashboard(
+            datasets_config=datasets_config,
+            initial_downsample=args.downsample
+        )
+
+        layout = dashboard.servable(title='Maple Dashboard')
+
+    else:
+        # Single dataset mode (original behavior)
+        if not args.genotypes or not args.reference:
+            raise ValueError("Single dataset mode requires --genotypes and --reference arguments")
+
+        print(f"Single dataset mode")
+        print(f"Genotypes: {args.genotypes}")
+        print(f"Reference: {args.reference}")
+
+        # Create dashboard with downsample argument and optional PDB file
+        dashboard = MapleDashboard(
+            genotypes_file=args.genotypes,
+            reference_file=args.reference,
+            exclude_indels=args.exclude_indels,
+            initial_downsample=args.downsample,
+            structure_file=args.structure_file if args.structure_file else None
+        )
+
+        # Make template servable
+        layout = dashboard.servable(title=f'Maple Dashboard: {pathlib.Path(args.genotypes).name}')
 
 except Exception as e:
     print(f"Error creating dashboard: {e}")
