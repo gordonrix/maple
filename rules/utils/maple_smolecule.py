@@ -106,10 +106,10 @@ class Read(object):
         """Create multiple `Read` s from a fasta/q file.
 
         It is assumed that subreads are grouped by read and named with
-        <read_id>_<subread_id>.
+        UMI-{unique_id}_ref-{ref_name}_{read_id}.
 
         :param fastx: input file path.
-        :param reference: str, reference sequence that will be used for alignment
+        :param reference: dict mapping reference names to sequences.
         :param take_all: skip check on subread_ids, take all subreads in one
             `Read`.
         :param read_id: name of `Read`. Only used for `take_all == True`. If
@@ -121,23 +121,46 @@ class Read(object):
         """
         logger = medaka.common.get_named_logger("FastReader")
         depth_filter = max(1, depth_filter)
+
+        def parse_entry_name(entry_name):
+            """Parse entry name to extract UMI group ID and ref name.
+            Format: UMI-{umi_group_id}|ref-{ref_name}|{read_id}
+            Returns: (read_id_for_grouping, ref_name)
+                - read_id_for_grouping: unique identifier including both UMI and ref (e.g., "UMI-0|ref-refA")
+                - ref_name: reference name for looking up sequence
+            """
+            umi_part, rest = entry_name.split("|ref-", 1)
+            ref_name = rest.split("|", 1)[0]
+            read_id_for_grouping = f"{umi_part}|ref-{ref_name}"
+            print(f"DEBUG parse_entry_name: {entry_name[:50]} -> read_id={read_id_for_grouping}, ref={ref_name}", flush=True)
+            return read_id_for_grouping, ref_name
+
         if take_all and read_id is None:
             read_id = os.path.splitext(os.path.basename(fastx))[0]
         else:
             read_id = None
         subreads = []
+        current_ref_name = None
         with pysam.FastxFile(fastx) as fh:
             for entry in fh:
                 if not take_all:
-                    cur_read_id = entry.name.split("_")[0]
+                    cur_read_id, ref_name = parse_entry_name(entry.name)
+
                     if read_id is None:
                         read_id = cur_read_id
-                    if cur_read_id != read_id:
+                        current_ref_name = ref_name
+                    if ( cur_read_id != read_id ) or ( ref_name != current_ref_name ):
                         if len(subreads) >= depth_filter:
                             med_length = np.median(
                                 [len(x.seq) for x in subreads])
                             if med_length > length_filter:
-                                yield cls(read_id, reference, subreads)
+                                ref_seq = reference.get(current_ref_name)
+                                if ref_seq is None:
+                                    logger.warning(
+                                        "Reference '{}' not found for read {}".format(
+                                            current_ref_name, read_id))
+                                else:
+                                    yield cls(read_id, ref_seq, subreads)
                             else:
                                 logger.debug(
                                     "Read {} has too short subreads.".format(
@@ -147,6 +170,7 @@ class Read(object):
                                 "Read {} has too few subreads.".format(
                                     read_id))
                         read_id = cur_read_id
+                        current_ref_name = ref_name
                         subreads = []
 
                 if len(entry.sequence) > 0:
@@ -155,7 +179,13 @@ class Read(object):
             if len(subreads) >= depth_filter:
                 med_length = np.median([len(x.seq) for x in subreads])
                 if med_length > length_filter:
-                    yield cls(read_id, reference, subreads)
+                    ref_seq = reference.get(current_ref_name)
+                    if ref_seq is None:
+                        logger.warning(
+                            "Reference '{}' not found for read {}".format(
+                                current_ref_name, read_id))
+                    else:
+                        yield cls(read_id, ref_seq, subreads)
                 else:
                     logger.debug(
                         "Read {} has too short subreads.".format(read_id))
@@ -459,8 +489,13 @@ def main(args):
             except Exception:
                 pass
 
-    with open(args.reference, 'r') as ref:
-        reference = ref.readlines()[1].upper()
+    # Read reference(s) from alignment file into dict
+    references = {}
+    with pysam.FastxFile(args.reference) as fh:
+        for entry in fh:
+            references[entry.name] = entry.sequence.upper()
+
+    logger.info("Loaded {} reference(s).".format(len(references)))
 
     if len(args.fasta) > 1:
         logger.info(
@@ -472,7 +507,7 @@ def main(args):
             "Given one input file, subreads are assumed "
             "to be grouped by read.")
         reads = Read.multi_from_fastx(
-            args.fasta[0], reference, depth_filter=args.depth, length_filter=args.length)
+            args.fasta[0], references, depth_filter=args.depth, length_filter=args.length)
 
     logger.info(
         "Running {} pre-medaka consensus for all reads.".format(args.method))
