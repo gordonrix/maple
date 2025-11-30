@@ -238,7 +238,7 @@ rule medaka_wrapper:
         # 1) Clone the repo without pulling down LFS objects
         export GIT_LFS_SKIP_SMUDGE=1
         rm -rf medaka
-        git clone https://github.com/nanoporetech/medaka.git --depth=1 --branch=v2.0.1 medaka && cd medaka
+        git clone https://github.com/nanoporetech/medaka.git --depth=1 --branch=v2.1.1 medaka && cd medaka
 
         echo ">>> Detecting Medaka version"
         VERSION_TAG=$(git describe --tags --abbrev=0)

@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 
+import medaka.torch_ext
 import pysam
 
 import medaka.common
@@ -15,7 +16,7 @@ import medaka.rle
 import medaka.maple_smolecule
 import medaka.smolecule
 import medaka.stitch
-import medaka.tandem
+import medaka.tandem.tandem
 import medaka.training
 import medaka.variant
 import medaka.vcf
@@ -57,6 +58,7 @@ class AutoModel(argparse.Action):
         except Exception as e:
             msg = "Error validating model from '--{}' argument: {}."
             raise RuntimeError(msg.format(self.dest, str(e)))
+        setattr(namespace, f"{self.dest}_was_given", True)
         setattr(namespace, self.dest, model_fp)
 
 
@@ -297,7 +299,7 @@ def _validate_common_args(args, parser):
             logger.debug("Guessing model")
             try:
                 model = medaka.models.model_from_basecaller(
-                    args.bam, variant="consensus")
+                    args.bam, variant=False)
                 args.model = medaka.models.resolve_model(model)
             except Exception as e:
                 logger.warning(
@@ -305,12 +307,6 @@ def _validate_common_args(args, parser):
             else:
                 logger.debug(
                     f"Chosen model '{args.model}' for input '{args.bam}'.")
-        elif args.model is not None:
-            # TODO: why is this done? it will have been done in ResolveModel?
-            #       the resolve_model function is idempotent so doesn't really
-            #       matter too much
-            args.model = medaka.models.resolve_model(args.model)
-            logger.debug(f"Model is: {args.model}")
 
 
 def print_model_path(args):
@@ -320,6 +316,68 @@ def print_model_path(args):
 def is_rle_model(args):
     print(is_rle_encoder(args.model))
 
+def check_bam_for_dwells(bam):
+    """Check if a bam file contains dwell information.
+
+    :param bam: str, path to bam file.
+
+    :returns: bool, True if dwell information is present, False otherwise.
+    """
+    with pysam.AlignmentFile(bam) as bam:
+        for read in bam:
+            return "mv" in dict(read.tags)
+    return False
+
+def check_fastx_for_dwells(fastx):
+    """Check if a fastx file contains dwell information.
+
+    This is done by checking for the presence of the 'mv' tag in the comment
+    of the first read.
+
+    :param fastx: str, path to fastx file.
+
+    :returns: bool, True if dwell information is present, False otherwise.
+    """
+    with pysam.FastxFile(fastx) as fastx:
+        for read in fastx:
+            if read.comment is None: return False 
+            else: return "\tmv:" in read.comment
+    return False
+
+def check_compatible(args):
+    """Check whether a model is compatible the given dataset.
+
+    :param model: str, model name or path.
+    :param data: str, path to basecall data, stored as a bam or fastx file.
+
+    :returns: bool, True if compatible, False otherwise.
+    """
+    model = args.model
+    if not os.path.exists(model):
+        raise FileNotFoundError(f"Model file {model} not found.")
+    data = args.data
+    
+    # check path extension is a bam or fastx
+    try:
+        data_has_move_tables = check_bam_for_dwells(data)
+    except ValueError as e:
+        try:
+            data_has_move_tables = check_fastx_for_dwells(data)
+        except ValueError as e:
+            raise ValueError(
+                f"Could not open data file {data} as a bam or fastx file.")
+    
+    if not os.path.exists(data):
+        raise FileNotFoundError(f"Data file {data} not found.")
+
+    # open model and check if it has move tables
+    model_needs_dwells,_  = encoder_needs_dwells_and_haplotype(model)
+    if model_needs_dwells and not data_has_move_tables:
+        raise ValueError(
+            f"Model {model} requires dwell information, but data {data} does"
+            " not have it. Please provide data with dwell information or use a"
+            " model that does not require it."
+        )
 
 def is_rle_encoder(model_name):
     """ Return encoder used by model"""
@@ -329,12 +387,30 @@ def is_rle_encoder(model_name):
     is_rle = issubclass(type(encoder), medaka.features.HardRLEFeatureEncoder)
     return is_rle
 
+def is_read_level_model(model_name):
+    """Return true if model uses read-level features"""
+    modelstore = medaka.models.open_model(model_name)
+    encoder = modelstore.get_meta("feature_encoder")
+    enc_type = type(encoder)
+    return issubclass(enc_type, medaka.features.ReadAlignmentFeatureEncoder)
+
+def encoder_needs_dwells_and_haplotype(model_name):
+    """Return true if model uses dwell features"""
+    modelstore = medaka.models.open_model(model_name)
+    encoder = modelstore.get_meta("feature_encoder")
+    return (
+        getattr(encoder, "include_dwells", False),
+        getattr(encoder, "include_haplotype", False)
+    )
 
 def get_alignment_params(model):
     if is_rle_encoder(model):
         align_params = medaka.options.alignment_params['rle']
     else:
         align_params = medaka.options.alignment_params['non-rle']
+    needs_dwells, needs_haplotype = encoder_needs_dwells_and_haplotype(model)
+    if needs_dwells or needs_haplotype:
+        align_params += " -C" # copy the tags from the bam to save dwells
     return align_params
 
 
@@ -446,6 +522,7 @@ def medaka_parser():
     fparser.add_argument('output', help='Output features file.')
     fparser.add_argument('--truth', help='Bam of truth aligned to ref to create features for training.')
     fparser.add_argument('--truth_haplotag', help='Two-letter tag defining haplotype of alignments for polyploidy labels.')
+    fparser.add_argument('--min_region_size', help='Filter out draft regions shorter than this from feature generation.', type=int, default=0)
     fparser.add_argument('--threads', type=int, default=1, help='Number of threads for parallel execution.')
     # TODO: enable other label schemes.
     fparser.add_argument('--label_scheme', default='HaploidLabelScheme', help='Labelling scheme.',
@@ -468,21 +545,25 @@ def medaka_parser():
     tparser.set_defaults(func=medaka.training.train)
     tparser.add_argument('features', nargs='+', help='Paths to training data.')
     tparser.add_argument('--train_name', type=str, default='medaka_train', help='Name for training run.')
-    tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .yml with kwargs to build model.')
+    tparser.add_argument('--model', action=ResolveModel, help='Model definition and initial weights .hdf, or .toml with kwargs to build model.')
     tparser.add_argument('--epochs', type=int, default=5000, help='Maximum number of trainig epochs.')
     tparser.add_argument('--batch_size', type=int, default=100, help='Training batch size.')
     tparser.add_argument('--max_samples', type=int, default=None, help='Only train on max_samples.')
     tparser.add_argument('--max_valid_samples', type=int, default=None, help='Only validate on max_valid_samples.')
-    tparser.add_argument('--mini_epochs', type=int, default=1, help='Reduce fraction of data per epoch by this factor')
-    tparser.add_argument('--seed', type=int, help='Seed for random batch shuffling.')
+    tparser.add_argument("--samples_per_training_epoch", type=int, default=None, help="Number of samples per epoch.")
+    tparser.add_argument('--seed', type=int, default=0, help='Seed for random batch shuffling.')
     tparser.add_argument('--threads_io', type=int, default=1, help='Number of threads for parallel IO.')
     tparser.add_argument('--device', type=int, default=0, help='GPU device to use.')
-    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','rmsprop','sgd'], help='Optimizer to use.')
+    tparser.add_argument('--optimizer', type=str, default='rmsprop', choices=['nadam','adam', 'rmsprop', 'sgd'], help='Optimizer to use.')
     tparser.add_argument('--optim_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Optimizer key-word arguments.")
     tparser.add_argument('--loss_args', action=StoreDict, default=None, nargs='+',
         metavar="KEY1=VAL1,KEY2=VAL2...", help="Training loss key-word arguments.")
-    tparser.add_argument('--lr_schedule', type=str, default='none', choices=['cosine', 'none'], help="Learning rate scheduler to use.")
+    tparser.add_argument("--use_lr_schedule", action="store_true", default=True, help="Use cosine learning rate scheduler.")
+    tparser.add_argument("--amp", action="store_true", default=False, 
+        help="Train with half precision.")
+    tparser.add_argument("--validate_only", action="store_true", default=False,
+        help="Run a single validation epoch, write metrics and then exit.")
 
     vgrp = tparser.add_mutually_exclusive_group()
     vgrp.add_argument('--validation_split', type=float, default=0.2, help='Fraction of data to validate on.')
@@ -505,6 +586,7 @@ def medaka_parser():
             help='Verify integrity of output file after inference.')
     cparser.add_argument('--save_features', action='store_true', default=False,
             help='Save features with consensus probabilities.')
+    cparser.add_argument('--cpu',  action='store_true', default=False, help='Execute the model on the CPU.')
     tag_group = cparser.add_argument_group('filter tag', 'Filtering alignments by an integer valued tag.')
     tag_group.add_argument('--tag_name', type=str, help='Two-letter tag name.')
     tag_group.add_argument('--tag_value', type=int, help='Value of tag.')
@@ -557,50 +639,65 @@ def medaka_parser():
     # TODO reorganise arguments common to predict, smolecule and tr into groups
     # that can be more easily shared
     trparser = subparsers.add_parser('tandem',
-        help='Targeted tandem repeat variant calling.',
-        parents=[_log_level(), _chunking_feature_args(batch_size=100, chunk_len=1000, chunk_ovlp=500), _model_arg(), _min_depth_arg(), _rg_arg()],
+        help='Call specified STR variants.',
+        parents=[_log_level(), _model_arg()],
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    trparser.set_defaults(func=medaka.tandem.main)
-    trparser.add_argument('bam', help='Input alignments.', action=CheckBam)
-    trparser.add_argument('ref_fasta', help='Reference sequence .fasta file.')
+    trparser.set_defaults(func=medaka.tandem.tandem.main)
+    trparser.add_argument('bam', help='Read alignments (preferably haplotagged) in BAM format.', action=CheckBam)
+    trparser.add_argument('ref_fasta', help='Reference genome in FASTA format.')
     trparser.add_argument('regions', action=RegionParser, nargs='+',
-        help='Genomic regions to analyse, or a bed file.')
+        help='List of STR regions or path to a BED file specifying STR regions for analysis')
     trparser.add_argument('sex', choices={'female', 'male'},
-        help='Sample sex, required for appropriate handling of X/Y chromosomes including PAR regions.')
-    trparser.add_argument('output', help='Output directory.')
-    trparser.add_argument('--phasing', choices=set(medaka.tandem.phasing_options.keys()),
-        default='hybrid', help='Phasing method. '
-        'prephased: use HP bam tags. '
-        'abpoa: abpoa diploid clustering. '
-        'hybrid: try prephased, use abpoa when either haplotype has < --depth '
-        'coverage.'
-        'unphased: assume sample is haploid / homozygous in target regions.'
+        help='Specifies sample sex to ensure correct handling of X/Y chromosomes, including pseudoautosomal regions')
+    trparser.add_argument('output', help='Output directory for results.')
+    trparser.add_argument('--workers', type=int, default=1,
+        help='Number of parallel worker processes to use (default: 1).')
+    trparser.add_argument('--process_large_regions', action='store_true', default=False,
+        help=(
+            'Process TRs with estimated length (of one or both alleles) exceeding 10kbp (default: False). '
+            'Processing large regions can substantially increase RAM usage. With the default setting, the expected '
+            'peak RAM consumption on Addotto repeat catalogue is approximately 14GB when using 8 workers, and 23GB '
+            'when using 16 workers. Skipped regions will be output to `skipped_large.bed`.'
+        ))
+    trparser.add_argument(
+        '--phasing',
+        choices=set(medaka.tandem.tandem.SpanningReadClusterFactory.clustering_techniques),
+        default='hybrid',
+        help=(
+            "Phasing method to use:\n"
+            "  1. prephased: Rely on haplotype (HP) BAM tags for phasing.\n"
+            "  2. abpoa: Use abPOA clustering feature to identify haplotypes based on STR sequences in the reads.\n"
+            "  3. hybrid: Use haplotag assignments if both haplotypes have at least `min_depth` spanning reads assigned, "
+            "otherwise fallback to the abPOA clustering.\n"
+            "  4. unphased: Assume the sample is haploid."
+        )
     )
-    trparser.add_argument('--depth', type=int, default=3,
-        help='Minimum reads per haplotype.')
+    trparser.add_argument('--min_depth', type=int, default=3,
+        help='Minimum number of spanning reads required for allele consensus reconstruction.')
     trparser.add_argument('--min_mapq', type=int, default=5,
-        help='Minimum read mapq.')
-    trparser.add_argument('--pad', type=int, default=10,
-        help='Region padding for fetching trimmed reads and reference sequence.')
-    trparser.add_argument('--sex_chroms', metavar='<X> <Y>', default=['chrX', 'chrY'],
-        nargs=2, help='Names of X and Y chromosomes in --ref_fasta.')
-    trparser.add_argument('--PAR_regions', action=RegionParser, nargs='+',
-        help='Pseudoautosomal regions (PARs) to treat as diploid for male and female samples.',
-        default=[medaka.common.Region('chrX', 10000, 2781479),
-                 medaka.common.Region('chrX', 155701382, 156030895),])
-    trparser.add_argument('--threads', type=int, default=1, help='Number of threads used by inference.')
-    trparser.add_argument('--poa_threads', type=int, default=1,
-            help='Number of threads used for POA.')
-    trparser.add_argument('--poa_only', action='store_true', default=False,
-            help='Stop after generating POA consensuses.')
-    trparser.add_argument('--check_output', action='store_true', default=False,
-            help='Verify integrity of output file after inference.')
-    trparser.add_argument('--save_features', action='store_true', default=False,
-            help='Save features with consensus probabilities.')
-    trparser.add_argument('--bam_workers', type=int, default=2,
-            help='Number of workers used to prepare data from bam.')
-    trparser.add_argument('--bam_chunk', type=int, default=int(1e6),
-            help='Size of reference chunks each worker parses from bam. (can be used to control memory use).')
+        help='Minimum mapping quality (MAPQ) for alignments filtering.')
+    trparser.add_argument('--disable_outlier_filter', action='store_true', default=False,
+        help='Disable exclusion of reads with significantly divergent spanning region lengths.')
+    trparser.add_argument('--padding', type=int, default=10,
+        help='Number of bases to pad spanning read regions and reference sequence (default: 10).')
+    trparser.add_argument('--sex_chrs', metavar='<X> <Y>', default=['chrX', 'chrY'],
+        nargs=2, help='Comma-separated names of X and Y chromosomes in reference FASTA.')
+    trparser.add_argument('--par_regions', nargs='+', type=str,
+        help=(
+            'Coordinates of pseudoautosomal regions (PARs) on the X chromosome. Will be treated as diploid in male samples. '
+            'The analysis assumes that the corresponding PARs on chromosome Y have been hard-masked (i.e. replaced with Ns) '
+            'in the reference to avoid ambiguous read alignments. Default: chrX:10000-2781479,chrX:155701382-156030895 '
+            'assuming use of the GRCh38 analysis set, e.g. `GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta`.'
+        ),
+        default=["chrX:10000-2781479", "chrX:155701382-156030895"])
+    trparser.add_argument('--decompose', action='store_true', default=False,
+        help='Align polished sequences back to reference region and extract a list of (left-aligned) variants. By default, Medaka Tandem reports entire haplotype-specific tandem repeats as alternative alleles.')
+    trparser.add_argument('--add_read_names', action='store_true', default=False,
+        help='Include names of spanning reads in the output VCF file.')
+    trparser.add_argument('--sample_name', type=str, default="SAMPLE",
+        help='Sample name to use in the output VCF file.')
+    trparser.add_argument('--ignore_read_groups', action='store_true', default=True,
+        help=argparse.SUPPRESS)
 
     # Consensus from features input
     cfparser = subparsers.add_parser('consensus_from_features',
@@ -834,6 +931,26 @@ def medaka_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     mdltagparser.set_defaults(func=get_model_dtypes)
 
+    datacompatparser = toolsubparsers.add_parser(
+        "is_compatible",
+        help="Check if a model is compatible with the current data.",
+        parents=[_model_arg(), _log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    datacompatparser.set_defaults(func=check_compatible)
+    datacompatparser.add_argument('--data', required=True, help='Path to basecall data, stored as a bam or fastx file.')
+
+    # export models
+    eparser = toolsubparsers.add_parser('export',
+        help='Export a model to run in dorado polish', 
+        parents=[_log_level()],
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    eparser.set_defaults(func=medaka.torch_ext.export_model)
+    eparser.add_argument('model', help='Tarball containing model to export.')
+    eparser.add_argument('--output', help='Output directory, default is to save in current dir with _export added', default=None)
+    eparser.add_argument('--supported_basecallers', nargs='+', help='List of supported basecaller models to export.', required=True)
+    eparser.add_argument('-f', '--force', action='store_true', help='Overwrite existing files.')
+    eparser.add_argument('-n', '--script', action='store_true', help='If set, generate torch script of model.')
     return parser
 
 

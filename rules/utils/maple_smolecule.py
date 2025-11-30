@@ -1,7 +1,6 @@
 """Creation of consensus sequences from repetitive reads.
 Differs from smolecule.py from medaka in that it uses a reference sequence
-instead of generating reference sequences using poa. If smolecule.py has been
-updated since Aug 11, 2022, this may be out of date.
+instead of generating reference sequences using poa. Compatible with medaka v2.1.1.
 """
 from collections import namedtuple
 from concurrent.futures import ProcessPoolExecutor
@@ -86,15 +85,16 @@ class Read(object):
         return None
 
     @classmethod
-    def from_fastx(cls, fastx, name=None):
+    def from_fastx(cls, fastx, reference, name=None):
         """Create a Read from a fasta/q file.
 
         :param fastx: input file path.
+        :param reference: dict mapping reference names to sequences.
         :param name: name of Read. If not given the filename will be used.
 
         """
         try:
-            read = next(cls.multi_from_fastx(fastx, take_all=True))
+            read = next(cls.multi_from_fastx(fastx, reference, take_all=True))
         except Exception:
             raise IOError("Could not create Read from file {}.".format(fastx))
         return read
@@ -106,7 +106,7 @@ class Read(object):
         """Create multiple `Read` s from a fasta/q file.
 
         It is assumed that subreads are grouped by read and named with
-        UMI-{unique_id}_ref-{ref_name}_{read_id}.
+        UMI-{unique_id}|ref-{ref_name}|{read_id}.
 
         :param fastx: input file path.
         :param reference: dict mapping reference names to sequences.
@@ -132,7 +132,6 @@ class Read(object):
             umi_part, rest = entry_name.split("|ref-", 1)
             ref_name = rest.split("|", 1)[0]
             read_id_for_grouping = f"{umi_part}|ref-{ref_name}"
-            print(f"DEBUG parse_entry_name: {entry_name[:50]} -> read_id={read_id_for_grouping}, ref={ref_name}", flush=True)
             return read_id_for_grouping, ref_name
 
         if take_all and read_id is None:
@@ -229,37 +228,37 @@ class Read(object):
         """Return the number of subreads contained in the read."""
         return len(self.subreads)
 
-    # def poa_consensus(self, method='spoa', spoa_min_coverage=None):
-    #     """Create a consensus sequence for the read."""
-    #     self.initialize()
-    #     seqs = list()
-    #     if self.consensus_run:
-    #         # running POA for the second time: use the output from
-    #         # the previous run as first read in the list
-    #         seqs.append(self.consensus)
-    #     for orient, subread in zip(*self.interleaved_subreads):
-    #         if orient:
-    #             seq = subread.seq
+    #     def poa_consensus(self, method='spoa', spoa_min_coverage=None):
+    #         """Create a consensus sequence for the read."""
+    #         self.initialize()
+    #         seqs = list()
+    #         if self.consensus_run:
+            # running POA for the second time: use the output from
+            # the previous run as first read in the list
+    #             seqs.append(self.consensus)
+    #         for orient, subread in zip(*self.interleaved_subreads):
+    #             if orient:
+    #                 seq = subread.seq
+    #             else:
+    #                 seq = medaka.common.reverse_complement(subread.seq)
+    #             seqs.append(seq)
+    #         if method == 'spoa':
+    #             consensus_seq, _ = spoa.poa(
+    #                 seqs,
+    #                 genmsa=False,
+    #                 min_coverage=spoa_min_coverage
+    #             )
+    #         elif method == 'abpoa':
+    #             import pyabpoa as pa
+    #             abpoa_aligner = pa.msa_aligner(aln_mode='g')
+    #             result = abpoa_aligner.msa(seqs, out_cons=True, out_msa=False)
+    #             consensus_seq = result.cons_seq[0]
     #         else:
-    #             seq = medaka.common.reverse_complement(subread.seq)
-    #         seqs.append(seq)
-    #     if method == 'spoa':
-    #         consensus_seq, _ = spoa.poa(
-    #             seqs,
-    #             genmsa=False,
-    #             min_coverage=spoa_min_coverage
-    #         )
-    #     elif method == 'abpoa':
-    #         import pyabpoa as pa
-    #         abpoa_aligner = pa.msa_aligner(aln_mode='g')
-    #         result = abpoa_aligner.msa(seqs, out_cons=True, out_msa=False)
-    #         consensus_seq = result.cons_seq[0]
-    #     else:
-    #         raise ValueError('Unrecognised method: {}.'.format(method))
-    #     self.consensus = consensus_seq
-    #     self._alignments_valid = False
-    #     self.consensus_run = True
-    #     return consensus_seq
+    #             raise ValueError('Unrecognised method: {}.'.format(method))
+    #         self.consensus = consensus_seq
+    #         self._alignments_valid = False
+    #         self.consensus_run = True
+    #         return consensus_seq
 
     def orient_subreads(self):
         """Find orientation of subreads with respect to consensus sequence.
@@ -482,13 +481,6 @@ def main(args):
                 args.chunk_ovlp, args.chunk_len))
     medaka.common.mkdir_p(args.output, info='Results will be overwritten.')
 
-    def _multi_file_reader():
-        for fname in args.fasta:
-            try:
-                yield Read.from_fastx(fname)
-            except Exception:
-                pass
-
     # Read reference(s) from alignment file into dict
     references = {}
     with pysam.FastxFile(args.reference) as fh:
@@ -496,6 +488,13 @@ def main(args):
             references[entry.name] = entry.sequence.upper()
 
     logger.info("Loaded {} reference(s).".format(len(references)))
+
+    def _multi_file_reader():
+        for fname in args.fasta:
+            try:
+                yield Read.from_fastx(fname, references)
+            except Exception:
+                pass
 
     if len(args.fasta) > 1:
         logger.info(
