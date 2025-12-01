@@ -52,7 +52,7 @@ def targets_input(wildcards):
                 plot_type.append('genotypes2D')
             plot_types = [PT for PT in plot_types if config.get(f'plot_{PT}', False)]
             out.extend(expand('plots/{tag}_{plot_type}.html', tag=tag, plot_type=plot_types))
-            NTAA_plot_types = ['mutation-distribution', 'mutation-frequencies']
+            NTAA_plot_types = ['mutation-distribution', 'mutations-aggregated']
             if config.get('hamming_distance_distribution', False):
                 NTAA_plot_types.append('hamming-distance-distribution')
             NTAA_plot_types = [PT for PT in NTAA_plot_types if config.get(f'plot_{PT}', False)]

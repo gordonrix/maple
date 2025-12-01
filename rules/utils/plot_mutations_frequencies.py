@@ -26,23 +26,15 @@ def main(frequencies_input, stats_input, output, labels, raw, num_positions, hea
 
     for i, in_file_full in enumerate(frequencies_input):
 
-        # get mutation data, convert to tidy format
         in_file = in_file_full.split('/')[-1]
         tag = in_file.split('_')[-3]
         barcodeGroup = in_file.split('_')[-2]
         muts_df = pd.read_csv(in_file_full, index_col=False)
-        muts_df = muts_df.rename(columns={muts_df.columns[0]:'wt'})
-        muts_df = muts_df.melt(id_vars='wt', var_name='mutation', value_name=value_label)
-        muts_df['position'] = pd.to_numeric(muts_df['wt'].str[1:])
-        muts_df['wt'] = muts_df['wt'].str[0]
+        # Drop NaN rows (wildtype positions where wt == mutation)
+        muts_df = muts_df.dropna(subset=['total_count'])
         plot_title = labels[i]
         muts_df['group'] = plot_title
         total_seqs = mut_stats_df.loc[(mut_stats_df['tag']==tag) & (mut_stats_df['barcode_group']==barcodeGroup), 'total_seqs'].iloc[0]
-
-        if raw:
-            muts_df['proportion_of_seqs'] = muts_df['total_count'] / total_seqs
-        else:
-            muts_df['total_count'] = muts_df['proportion_of_seqs'] * total_seqs
 
         dfs.append(muts_df)
         plots.append( conspicuous_mutations(muts_df, total_seqs, colormap=colormap, heatmap=heatmap, axis_type='numerical').opts(title=plot_title) )

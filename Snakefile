@@ -20,7 +20,7 @@ import yaml
 import pandas as pd
 import numpy as np
 import logging
-from rules.utils.common import load_csv_as_dict, validate_bc, str_to_bool
+from rules.utils.common import load_csv_as_dict, validate_bc, str_to_bool, load_references_from_csv
 
 start_time = datetime.now()
 
@@ -66,6 +66,56 @@ start_files = get_dir_files(workflow.workdir_init)
 # add memory scaling for minimap2
 config['memory'] = {}
 config['memory']['minimap2'] = [8000,500]
+
+# longest_orf and validate_reference_sequences now imported from common.py
+
+def validate_contexts_in_references(tag, references_dict, barcode_contexts=None, umi_contexts=None):
+    """
+    Validate that barcode and UMI contexts exist in all references and appear only once per reference.
+
+    For barcode contexts: must exist in all references (can be at different positions)
+    For UMI contexts: must exist in all references (can be at different positions)
+
+    Returns list of error messages.
+    """
+    validation_errors = []
+
+    if not references_dict:
+        return validation_errors
+
+    # Collect all contexts to validate
+    all_contexts = {}
+    if barcode_contexts:
+        for bc_name, context in barcode_contexts.items():
+            all_contexts[f'barcode_{bc_name}'] = context
+    if umi_contexts:
+        for i, context in enumerate(umi_contexts, 1):
+            all_contexts[f'UMI_{i}'] = context
+
+    if not all_contexts:
+        return validation_errors
+
+    # Check for duplicates within barcode contexts and UMI contexts separately
+    for context_type, contexts in [('barcode', barcode_contexts), ('UMI', umi_contexts)]:
+        if contexts:
+            context_list = list(contexts.values()) if isinstance(contexts, dict) else contexts
+            if len(set(c.upper() for c in context_list)) != len(context_list):
+                validation_errors.append(f"[ERROR] Duplicate {context_type} contexts provided for tag `{tag}`.\n")
+
+    # Validate each context exists exactly once in each reference
+    for ref_name, ref_data in references_dict.items():
+        ref_seq = ref_data['alignment_seq']
+
+        for context_name, context in all_contexts.items():
+            context_upper = context.upper()
+            occurrences = ref_seq.count(context_upper)
+
+            if occurrences == 0:
+                validation_errors.append(f"[ERROR] Context `{context}` ({context_name}) for tag `{tag}` not found in reference `{ref_name}`.\n")
+            elif occurrences > 1:
+                validation_errors.append(f"[ERROR] Context `{context}` ({context_name}) for tag `{tag}` appears {occurrences} times in reference `{ref_name}`. Must appear exactly once.\n")
+
+    return validation_errors
 
 # list of required options. Will be added to if certain tools are used
 required = ['sequences_dir', 'fastq_dir', 'metadata', 'threads_alignment', 'threads_samtools', 'threads_demux', 'NGmerge_flags', 'nanoplot', 'nanoplot_flags', 'alignment_samtools_flags', 'alignment_minimap2_flags', 'mutation_analysis_quality_score_minimum', 'sequence_length_threshold', 'highest_abundance_genotypes', 'mutations_frequencies_raw', 'unique_genotypes_count_threshold', 'runs']
@@ -274,7 +324,7 @@ runs_to_import = []
 if type(config.get('runs', False)) is str:
     full_csv_path = os.path.join(config['metadata'], config['runs'])
     df = pd.read_csv(full_csv_path, index_col=False)
-    config['runs'] = load_csv_as_dict(full_csv_path, required=['reference'], lists=['runname', 'UMI_contexts'])
+    config['runs'] = load_csv_as_dict(full_csv_path, required=['reference_csv'], lists=['runname', 'UMI_contexts'])
 
 for tag in config['runs']:
     # Check for deprecated barcodeInfo dictionary
@@ -418,80 +468,80 @@ if runs_to_import != []:
 
 
 # check reference sequences
-refSeqFastaFiles = []   # list files for all tags then check so files not being checked multiple times
-config['do_NT_mutation_analysis'] = {}     # dictionaries to determine if NT/AA analysis should be performed based on how many sequences are present in the ref fasta file
+config['do_NT_mutation_analysis'] = {}
 config['do_AA_mutation_analysis'] = {}
+
 for tag in config['runs']:
-    if 'reference' not in config['runs'][tag]:
-        errors.append(f"[ERROR] No reference file provided for tag `{tag}")
-    refPath = config['runs'][tag]['reference']
-    refName = os.path.basename(refPath)
-    refFullPath = os.path.join(config['metadata'], refPath)
-    ref_parent_dir = os.path.dirname(refFullPath)
-    if not (refName.endswith('fasta') or refName.endswith('.fa')):
-        print(f'[WARNING] Reference .fasta file for {tag} does not end with `.fasta` or `.fa` (given path: {refFullPath}).', file=sys.stderr)
-    config['runs'][tag]['reference'] = refFullPath
-    if not os.path.isfile(refFullPath):
-        print(f'[ERROR] Reference .fasta file for {tag} (given path: {refFullPath}) not found.', file=sys.stderr)
-    refFastaPrefix = refName.split('.f')[0]
-    alnRefFullPath = os.path.join(config['metadata'], '.' + refFastaPrefix + '_aln.fasta')
-    config['runs'][tag]['reference_aln'] = alnRefFullPath
-    if (refFullPath, alnRefFullPath) not in refSeqFastaFiles:
-        refSeqFastaFiles.append((refFullPath, alnRefFullPath))
-    referenceSeqs = list(SeqIO.parse(refFullPath, 'fasta'))
+    if 'reference_csv' not in config['runs'][tag]:
+        errors.append(f"[ERROR] No reference_csv file provided for tag `{tag}`. Please add a reference_csv column to tags.csv.")
+        continue
 
-    config['do_NT_mutation_analysis'][tag] = False
-    config['do_AA_mutation_analysis'][tag] = False
-    if len(referenceSeqs) >= 2:
-        config['do_NT_mutation_analysis'][tag] = True
-    if len(referenceSeqs) == 3:
-        config['do_AA_mutation_analysis'][tag] = True
-    if ('AA_muts_of_interest' in config['runs'][tag]) and not config['do_AA_mutation_analysis'][tag]:
-        print(f'[WARNING] AA_muts_of_interest provided for run tag `{tag}`, but no protein seq provided for this tag. AA muts of interest will not be evaluated for this tag.', file=sys.stderr)
+    ref_csv_path = config['runs'][tag]['reference_csv']
+    if not ref_csv_path.startswith(config['metadata']):
+        ref_csv_path = os.path.join(config['metadata'], ref_csv_path)
 
-for refFasta, alnFasta in refSeqFastaFiles:
-    referenceSeqs = list(SeqIO.parse(refFasta, 'fasta'))
+    # Store full path back to config
+    config['runs'][tag]['reference_csv'] = ref_csv_path
 
-    if len(referenceSeqs) not in [1,2,3]:
-        errors.append(f"[ERROR] Reference sequence file {refFasta} Does not contain 1, 2, or 3 sequences. Ensure file is fasta formatted and does not contain erroneous sequences.")
-    alignmentSeq, nucleotideSeq, proteinSeq = False, False, False
-    alignmentSeq = referenceSeqs[0]
-    if len(referenceSeqs) >= 2:
-        nucleotideSeq = referenceSeqs[1]
-    if len(referenceSeqs) == 3:
-        proteinSeq = referenceSeqs[2]
+    # Load and validate references using common.py function
+    use_longest_orf_default = config.get('use_longest_orf_default', False)
+    references_dict, ref_errors, has_NT_analysis, has_AA_analysis = load_references_from_csv(
+        ref_csv_path, tag, use_longest_orf_default
+    )
 
-    if nucleotideSeq:
-        if alignmentSeq.seq.upper().find(nucleotideSeq.seq.upper()) == -1:
-            if alignmentSeq.seq.upper().find(nucleotideSeq.seq.reverse_complement().upper()) == -1:
-                errors.append(f"[ERROR] Nucleotide (second) sequence, `{nucleotideSeq.id}`, nor its reverse complement, is not a subsequence of alignment (first) sequence, `{alignmentSeq.id}`, in reference file `{refFasta}`.\n")
+    # Add any errors from reference loading
+    errors.extend(ref_errors)
+    if ref_errors:
+        continue
 
-    if proteinSeq:
-        if nucleotideSeq.seq.upper().find(proteinSeq.seq.upper()) == -1:
-            errors.append(f"[ERROR] Protein (third) sequence, `{proteinSeq.id}`, is not a subsequence of nucleotide (second) sequence, {nucleotideSeq.id}, in reference file `{refFasta}`.\n")
-        if len(proteinSeq.seq)%3 != 0:
-            errors.append(f"[ERROR] Length of protein reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a multiple of 3, and therefore cannot be used as ORF\n")
-        for i, nt in enumerate(str(proteinSeq.seq).upper()):
-            if nt not in list("ATGCN"):
-                errors.append(f"[ERROR] Character {nt} at position {i} in reference sequence `{proteinSeq.id}` of reference file `{refFasta}` is not a canonical nucleotide or 'N'\n")
+    # Store references and set analysis flags
+    config['runs'][tag]['references'] = references_dict
+    config['do_NT_mutation_analysis'][tag] = has_NT_analysis
+    config['do_AA_mutation_analysis'][tag] = has_AA_analysis
 
-    # auto generate file used for alignment so that cropping / extending other sequences(es) in refFasta doesn't command a re-run of time consuming steps like alignment and UMI consensus generation
-    if os.path.isfile(alnFasta):
+    if ('AA_muts_of_interest' in config['runs'][tag]) and not has_AA_analysis:
+        print(f'[WARNING] AA_muts_of_interest provided for run tag `{tag}`, but no protein seq provided for any reference. AA muts of interest will not be evaluated for this tag.', file=sys.stderr)
+
+    # Create list of alignment sequences for combined file
+    all_aln_seqs = [(ref_name, ref_data['alignment_seq']) for ref_name, ref_data in references_dict.items()]
+
+    # Create combined alignment reference file
+    combined_aln_path = os.path.join(config['metadata'], f'.{tag}_references_aln.fasta')
+    config['runs'][tag]['reference_aln'] = combined_aln_path
+
+    # Only regenerate if needed
+    needs_regeneration = True
+    if os.path.isfile(combined_aln_path):
         try:
-            refFirstRecord = next(SeqIO.parse(refFasta, 'fasta'))
-            alnFirstRecord = next(SeqIO.parse(alnFasta, 'fasta'))
-            refFirstRecord.seq = refFirstRecord.seq.upper()
-            alnFirstRecord.seq = alnFirstRecord.seq.upper()
-            # make new file if aln record not the same as first record from ref
-            if (refFirstRecord.seq != alnFirstRecord.seq) or (refFirstRecord.id != alnFirstRecord.id):
-                os.remove(alnFasta)
-        except StopIteration:
-            os.remove(alnFasta)
-    if not os.path.isfile(alnFasta):
-        print(f'Alignment reference .fasta file not found or is different from original reference .fasta file. Generating {alnFasta} from {refFasta}.\n', file=sys.stderr)
-        with open(alnFasta, 'w') as fastaOut:
-            first_record = next(SeqIO.parse(refFasta, 'fasta'))
-            fastaOut.write(f'>{first_record.id}\n{first_record.seq.upper()}\n')
+            existing_refs = {rec.id: str(rec.seq).upper() for rec in SeqIO.parse(combined_aln_path, 'fasta')}
+            new_refs = {name: seq for name, seq in all_aln_seqs}
+            if existing_refs == new_refs:
+                needs_regeneration = False
+        except:
+            pass
+
+    if needs_regeneration:
+        print(f'Generating combined alignment reference file {combined_aln_path} for tag `{tag}`.\n', file=sys.stderr)
+        with open(combined_aln_path, 'w') as f:
+            for ref_name, ref_seq in all_aln_seqs:
+                f.write(f'>{ref_name}\n{ref_seq}\n')
+
+    # Validate barcode and UMI contexts in all references
+    barcode_contexts = {bc_name: info['context'] for bc_name, info in config['runs'][tag].get('barcode_info', {}).items()}
+    umi_contexts = config['runs'][tag].get('UMI_contexts', [])
+
+    # Uppercase UMI contexts for consistency
+    if umi_contexts:
+        config['runs'][tag]['UMI_contexts'] = [context.upper() for context in umi_contexts]
+        umi_contexts = config['runs'][tag]['UMI_contexts']
+
+    context_errors = validate_contexts_in_references(
+        tag,
+        config['runs'][tag]['references'],
+        barcode_contexts=barcode_contexts if barcode_contexts else None,
+        umi_contexts=umi_contexts if umi_contexts else None
+    )
+    errors.extend(context_errors)
 
 # RCA/UMI consensus checks and consensus copy dict
 config['do_RCA_consensus'] = {}
@@ -517,24 +567,15 @@ for tag in config['runs']:
     else:
         config['do_RCA_consensus'][tag] = False
 
-    refFasta = config['runs'][tag]['reference']
-    alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
-    if 'UMI_contexts' in config['runs'][tag]:
-        config['do_UMI_analysis'][tag] = True
-        config['runs'][tag]['UMI_contexts'] = [context.upper() for context in config['runs'][tag]['UMI_contexts']]
-        if len(set(config['runs'][tag]['UMI_contexts'])) != len(config['runs'][tag]['UMI_contexts']):
-            errors.append(f"[ERROR] Duplicate UMI contexts provided for tag `{tag}`. UMI consensus generation will fail.\n")
-        for i, context in enumerate(config['runs'][tag]['UMI_contexts']):
-            occurences = str(alignmentSeq.seq).upper().count(context.upper())
-            if occurences == 0:
-                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n")
-            elif occurences > 1:
-                errors.append(f"[ERROR] UMI context {i+1} for tag `{tag}`, `{context}`, present more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`. UMI consensus generation will fail.\n")
-    else:
-        config['do_UMI_analysis'][tag] = False
+    # Set UMI analysis flag
+    config['do_UMI_analysis'][tag] = 'UMI_contexts' in config['runs'][tag] and len(config['runs'][tag].get('UMI_contexts', [])) > 0
 
     if ( config['do_UMI_analysis'][tag] ) or ( config['do_RCA_consensus'][tag] ):
-        
+
+        # Skip consensus recipe building if references weren't loaded (errors will be reported later)
+        if 'references' not in config['runs'][tag]:
+            continue
+
         if 'runname' in config['runs'][tag]:
             rawdata = config['runs'][tag]['runname']
             rawdata.sort()
@@ -548,7 +589,11 @@ for tag in config['runs']:
         UMIcontexts.sort()
         UMIcontexts = tuple(UMIcontexts)
 
-        consensusRecipe = ( rawdata, UMIcontexts, config['runs'][tag].get('splint', ''), str(alignmentSeq.seq).upper() )
+        # Get first reference sequence for consensus recipe (all refs should have same contexts anyway)
+        first_ref_name = list(config['runs'][tag]['references'].keys())[0]
+        first_ref_seq = config['runs'][tag]['references'][first_ref_name]['alignment_seq']
+
+        consensusRecipe = ( rawdata, UMIcontexts, config['runs'][tag].get('splint', ''), first_ref_seq )
 
         if consensusRecipe in consensusRecipeDict:
             print(f"[NOTICE] Raw data / alignment sequence / UMI context / splint combination used more than once. Using the consensus .fasta file of tag `{consensusRecipeDict[consensusRecipe]}` for tag `{tag}` to reduce computation time and storage requirements.\n", file=sys.stderr)
@@ -611,33 +656,23 @@ for tag in config['runs']:
         except Exception:
             pass
     
-    # Get reference sequence
-    refFasta = config['runs'][tag]['reference']
-    alignmentSeq = list(SeqIO.parse(refFasta, 'fasta'))[0]
+    # Validate each barcode type (context validation already done in reference section)
     contexts = {'partition': [], 'label': []}  # contexts for partition and label barcodes
-    
-    # Validate each barcode type
+
     for barcodeType in barcode_info:
         barcode_data = barcode_info[barcodeType]
-        
-        # Check context
+
+        # Track context types
         c_given = barcode_data.get('context', False)
         context = c_given.upper()
         label_only = barcode_data.get('label_only', False)
-        
+
         if context:
             if label_only:
                 contexts['label'].append(context)
             else:
                 contexts['partition'].append(context)
-        
-        # Check context in reference
-        occurrences = str(alignmentSeq.seq).upper().count(context)
-        if occurrences == 0:
-            print(f"[WARNING] Barcode type `{barcodeType}` context `{c_given}` not found in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
-        elif occurrences > 1:
-            print(f"[WARNING] Barcode type `{barcodeType}` context `{c_given}` found more than once in reference `{alignmentSeq.id}` in fasta `{refFasta}`\n", file=sys.stderr)
-        
+
         # Check barcode fasta
         bcFasta = barcode_data.get('fasta', '')
         if not bcFasta.startswith(config['metadata']):
@@ -843,10 +878,9 @@ if 'timepoints' in config:
                         firstTP = timepointsCSV.columns[i]
                     firstTag = str(row[firstTP]).split('_')[0]
                     if firstTag in config['runs']:
-                        firstTagRefFasta = config['runs'][firstTag]['reference']
+                        first_tag_ref_csv = config['runs'][firstTag].get('reference_csv', '')
                         if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
-                            timepoints_info_dict[sample] = {'tag':firstTag, 'reference':firstTagRefFasta, 'units':units, 'tag_barcode_tp':{}}
-                        firstTagRefSeq = str(list(SeqIO.parse(firstTagRefFasta, 'fasta'))[0].seq).upper()
+                            timepoints_info_dict[sample] = {'tag':firstTag, 'reference_csv':first_tag_ref_csv, 'units':units, 'tag_barcode_tp':{}}
                         firstTagRunname = config['runs'][firstTag].get('runname', '')
                     else:
                         errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
@@ -860,9 +894,9 @@ if 'timepoints' in config:
                         tag, barcodeGroup = tag_barcodeGroup
                         if tag in config['runs']:
                             if firstTag in config['runs']:
-                                tagRefSeq = str(list(SeqIO.parse(config['runs'][tag]['reference'], 'fasta'))[0].seq).upper()
-                                if tagRefSeq != firstTagRefSeq:
-                                    print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference sequences. Analysis may be unreliable.\n", file=sys.stderr)
+                                tag_ref_csv = config['runs'][tag].get('reference_csv', '')
+                                if tag_ref_csv != first_tag_ref_csv:
+                                    print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference_csv files. Analysis may be unreliable.\n", file=sys.stderr)
                                 tagRunname = config['runs'][tag].get('runname', '')
                                 if tagRunname != firstTagRunname and 'background' not in config:
                                     print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)

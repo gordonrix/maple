@@ -44,9 +44,8 @@ def find_barcodes_in_bam(bam_path, reference_fasta, barcode_info):
             - barcode_qualities: {barcode_type: {sequence: quality_string}}
             - has_quality_scores: bool indicating if BAM has quality scores
     """
-    # Load reference sequence
-    reference = list(SeqIO.parse(reference_fasta, 'fasta'))[0]
-    reference_seq = str(reference.seq).upper()
+    # Load all reference sequences
+    references = {rec.id: str(rec.seq).upper() for rec in SeqIO.parse(reference_fasta, 'fasta')}
 
     # Initialize barcode counts and qualities for types that need generation
     barcode_counts = {}
@@ -63,41 +62,43 @@ def find_barcodes_in_bam(bam_path, reference_fasta, barcode_info):
     bam_file = pysam.AlignmentFile(bam_path, 'rb')
     has_quality_scores = None
 
-    for bam_entry in bam_file.fetch(reference.id):
-        # Check if quality scores exist (only need to check once)
-        if has_quality_scores is None:
-            has_quality_scores = bam_entry.query_qualities is not None
+    # Process reads from all references
+    for ref_name, reference_seq in references.items():
+        for bam_entry in bam_file.fetch(ref_name):
+            # Check if quality scores exist (only need to check once)
+            if has_quality_scores is None:
+                has_quality_scores = bam_entry.query_qualities is not None
 
-        ref_alignment = build_reference_alignment(bam_entry, reference_seq)
+            ref_alignment = build_reference_alignment(bam_entry, reference_seq)
 
-        for barcode_type, counts in barcode_counts.items():
-            info = barcode_info[barcode_type]
-            context = info['context'].upper()
+            for barcode_type, counts in barcode_counts.items():
+                info = barcode_info[barcode_type]
+                context = info['context'].upper()
 
-            start, end = find_barcode_position_in_alignment(ref_alignment, context)
+                start, end = find_barcode_position_in_alignment(ref_alignment, context)
 
-            if isinstance(start, int):
-                # Extract barcode from query sequence
-                barcode_seq = bam_entry.query_alignment_sequence[start:end]
+                if isinstance(start, int):
+                    # Extract barcode from query sequence
+                    barcode_seq = bam_entry.query_alignment_sequence[start:end]
 
-                # Apply reverse complement if needed
-                if info.get('reverse_complement', False):
-                    barcode_seq = str(Seq.reverse_complement(barcode_seq))
+                    # Apply reverse complement if needed
+                    if info.get('reverse_complement', False):
+                        barcode_seq = str(Seq.reverse_complement(barcode_seq))
 
-                # Skip if contains N
-                if 'N' not in barcode_seq:
-                    counts[barcode_seq] += 1
+                    # Skip if contains N
+                    if 'N' not in barcode_seq:
+                        counts[barcode_seq] += 1
 
-                    # Store quality scores (keep first occurrence)
-                    if barcode_seq not in barcode_qualities[barcode_type]:
-                        if has_quality_scores:
-                            qual_scores = bam_entry.query_qualities[start:end]
-                            # Convert to ASCII phred+33 format
-                            qual_string = ''.join(chr(q + 33) for q in qual_scores)
-                        else:
-                            # Fake quality scores (all Q40)
-                            qual_string = 'I' * len(barcode_seq)
-                        barcode_qualities[barcode_type][barcode_seq] = qual_string
+                        # Store quality scores (keep first occurrence)
+                        if barcode_seq not in barcode_qualities[barcode_type]:
+                            if has_quality_scores:
+                                qual_scores = bam_entry.query_qualities[start:end]
+                                # Convert to ASCII phred+33 format
+                                qual_string = ''.join(chr(q + 33) for q in qual_scores)
+                            else:
+                                # Fake quality scores (all Q40)
+                                qual_string = 'I' * len(barcode_seq)
+                            barcode_qualities[barcode_type][barcode_seq] = qual_string
 
     bam_file.close()
 
