@@ -9,8 +9,8 @@ import pandas as pd
 import numpy as np
 import pathlib
 import holoviews as hv
-
-from bokeh.io import export_svgs
+from Bio.Seq import Seq
+from bokeh.io import export_svg
 from bokeh.models import HoverTool
 from selenium import webdriver as wd
 from selenium.webdriver.chrome.service import Service
@@ -276,7 +276,7 @@ def export_svg_plots(plots, file_name, labels=[], export=True, dimensions=None):
                     p.width = dimensions[0]
                     p.height = dimensions[1]
                 p.output_backend='svg'
-                export_svgs(p,
+                export_svg(p,
                     filename=fName,
                     webdriver=webdriver)
                 
@@ -673,33 +673,40 @@ def dashboard_input(wildcards, config, single=False):
 
     # Single dataset mode
     if single:
+        tag = None
+        genotypes = None
+        ref_csv = None
+
         if sample in config['runs']:
+            tag = sample
             genotypes = f'mutation_data/{sample}/{sample}_genotypes-reduced-dimensions.csv'
-            if 'enrichment' in config['runs'][sample]:
-                genotypes = genotypes[:-4] + '-enrichment.csv'
-            inputDict = {'genotypes': genotypes, 'refFasta': config['runs'][sample]['reference']}
-            inputDict['structure_file'] = config['runs'][sample].get('structure_file', '')
-            print(config['runs'][sample].get('structure_file', ''))
+            ref_csv = config['runs'][sample].get('reference_csv', '')
         elif sample in config.get('timepointsInfo', ''):
-            inputDict = {'genotypes': f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv',
-                        'refFasta': config['timepointsInfo'][sample]['reference']}
             tag = config['timepointsInfo'][sample]['tag']
-            if 'enrichment' in config['runs'][tag]:
-                inputDict['genotypes'] = inputDict['genotypes'][:-4] + '-enrichment.csv'
-            inputDict['structure_file'] = config['runs'][tag].get('structure_file', '')
+            genotypes = f'mutation_data/timepoints/{sample}_merged-timepoint_genotypes-reduced-dimensions.csv'
+            ref_csv = config['timepointsInfo'][sample].get('reference_csv', '')
         elif '_' in sample and (sample.split('_')[0] in config['runs']):
             print(f'[NOTICE] dashboard_input {sample} contains an underscore, so tag_barcode input is assumed. This may cause an error if this is not a valid tag_barcode combination.')
             tag, barcodes = sample.split('_')
-            inputDict = {'genotypes': f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv',
-                        'refFasta': config['runs'][tag]['reference']}
-            inputDict['structure_file'] = config['runs'][tag].get('structure_file', '')
+            genotypes = f'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes-reduced-dimensions.csv'
+            ref_csv = config['runs'][tag].get('reference_csv', '')
         else:
             return None
 
-    # Multi-dataset mode - return datasets CSV
+        if 'enrichment' in config['runs'][tag]:
+            genotypes = genotypes[:-4] + '-enrichment.csv'
+
+        structure_files = [ref_data.get('structure_file', '') for ref_data in config['runs'][tag].get('references', {}).values() if ref_data.get('structure_file', '')]
+        inputDict = {'genotypes': genotypes, 'ref_csv': ref_csv, 'structure_files': structure_files}
+
+    # Multi-dataset mode - return datasets CSV and structure files from all tags
     else:
         metadata_folder = config.get('metadata_folder', 'metadata')
-        inputDict = {'datasets_csv': f'{metadata_folder}/.dashboard_datasets.csv'}
+        all_structure_files = []
+        for tag in config['runs']:
+            structure_files = [ref_data.get('structure_file', '') for ref_data in config['runs'][tag].get('references', {}).values() if ref_data.get('structure_file', '')]
+            all_structure_files.extend(structure_files)
+        inputDict = {'datasets_csv': f'{metadata_folder}/.dashboard_datasets.csv', 'structure_files': all_structure_files}
 
     return inputDict
 
@@ -852,3 +859,144 @@ def retrieve_fastqs(root_folder, list_of_folders_or_fqs, subfolder_string, selec
         print('[NOTICE] Did not find any sequences to import.')
 
     return file_paths
+
+
+def longest_orf(seq):
+    """
+    Find the longest open reading frame in a DNA sequence.
+    Scans all 6 reading frames (3 forward, 3 reverse complement).
+    Returns the ORF sequence as a string.
+
+    Args:
+        seq: DNA sequence string
+
+    Returns:
+        str: Longest ORF sequence, or empty string if none found
+    """
+    seq_upper = seq.upper()
+    forward_orfs = [m.group() for i in range(3) for m in re.finditer(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', seq_upper[i:])]
+    rev_comp = seq_upper[::-1].translate(str.maketrans('ATGC','TACG'))
+    reverse_orfs = [m.group() for i in range(3) for m in re.finditer(r'ATG(?:(?!TAA|TAG|TGA)...)*(?:TAA|TAG|TGA)', rev_comp[i:])]
+    return max(forward_orfs + reverse_orfs, key=len, default='')
+
+
+def validate_reference_sequences(alignmentSeq, nucleotideSeq, proteinSeq, ref_name, tag):
+    """
+    Validate reference sequences.
+
+    Args:
+        alignmentSeq: Alignment reference sequence
+        nucleotideSeq: NT analysis region sequence
+        proteinSeq: AA analysis region sequence (ORF)
+        ref_name: Reference name for error messages
+        tag: Tag name for error messages
+
+    Returns:
+        list: List of error message strings
+    """
+    validation_errors = []
+
+    if nucleotideSeq:
+        if alignmentSeq.upper().find(nucleotideSeq.upper()) == -1:
+            if alignmentSeq.upper().find(str(Seq(nucleotideSeq).reverse_complement().upper())) == -1:
+                validation_errors.append(f"[ERROR] Nucleotide sequence for reference `{ref_name}` (tag `{tag}`) is not a subsequence of alignment sequence (nor its reverse complement).\n")
+
+    if proteinSeq:
+        if not nucleotideSeq or nucleotideSeq.upper().find(proteinSeq.upper()) == -1:
+            validation_errors.append(f"[ERROR] Protein sequence for reference `{ref_name}` (tag `{tag}`) is not a subsequence of nucleotide sequence.\n")
+        if len(proteinSeq) % 3 != 0:
+            validation_errors.append(f"[ERROR] Length of protein reference sequence for `{ref_name}` (tag `{tag}`) is not a multiple of 3, cannot be used as ORF.\n")
+        for i, nt in enumerate(proteinSeq.upper()):
+            if nt not in list("ATGCN"):
+                validation_errors.append(f"[ERROR] Character {nt} at position {i} in protein sequence for `{ref_name}` (tag `{tag}`) is not a canonical nucleotide or 'N'.\n")
+                break
+
+    return validation_errors
+
+
+def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=False):
+    """
+    Load and validate multiple references from a CSV file.
+
+    Args:
+        ref_csv_path: Path to reference CSV file
+        tag: Tag name for error messages (default: 'N/A')
+        use_longest_orf_default: Default value for use_longest_ORF if not specified
+
+    Returns:
+        tuple: (references_dict, errors_list, has_NT_analysis, has_AA_analysis)
+            references_dict: {ref_name: {'alignment_seq': ..., 'NT_seq': ..., 'coding_seq': ...}}
+            errors_list: List of error message strings
+            has_NT_analysis: Boolean indicating if any reference has NT analysis
+            has_AA_analysis: Boolean indicating if any reference has AA analysis
+    """
+    errors = []
+
+    if not os.path.isfile(ref_csv_path):
+        errors.append(f"[ERROR] Reference CSV file `{ref_csv_path}` for tag `{tag}` not found.")
+        return {}, errors, False, False
+
+    # Parse reference CSV
+    references_dict_raw = load_csv_as_dict(ref_csv_path,
+                                           required=['ref_seq_name', 'ref_seq_alignment'],
+                                           defaults={'use_longest_ORF': str(use_longest_orf_default).upper()})
+
+    if not references_dict_raw:
+        errors.append(f"[ERROR] Failed to parse reference CSV `{ref_csv_path}` for tag `{tag}`.")
+        return {}, errors, False, False
+
+    # Process each reference
+    references_dict = {}
+    has_NT_analysis = False
+    has_AA_analysis = False
+
+    for ref_name, row in references_dict_raw.items():
+        ref_seq = str(row['ref_seq_alignment']).upper()
+        ref_NT = str(row.get('ref_seq_NT', '')).upper() if pd.notna(row.get('ref_seq_NT')) else ''
+        ref_coding = str(row.get('ref_seq_coding', '')).upper() if pd.notna(row.get('ref_seq_coding')) else ''
+        use_longest_ORF = str_to_bool(str(row.get('use_longest_ORF', 'FALSE')))
+
+        # Handle longest ORF detection
+        if use_longest_ORF:
+            orf = longest_orf(ref_seq)
+            if not orf:
+                print(f"[WARNING] No ORF found in reference `{ref_name}` for tag `{tag}`. NT and AA analysis will be disabled for this reference.", file=sys.stderr)
+                ref_NT = ''
+                ref_coding = ''
+            else:
+                # If user provided ref_NT or ref_coding, validate they match the ORF
+                if ref_NT and ref_NT != orf:
+                    errors.append(f"[ERROR] ref_seq_NT for `{ref_name}` (tag `{tag}`) does not match longest ORF. Set use_longest_ORF to FALSE or remove ref_seq_NT.")
+                    continue
+                if ref_coding and ref_coding != orf:
+                    errors.append(f"[ERROR] ref_seq_coding for `{ref_name}` (tag `{tag}`) does not match longest ORF. Set use_longest_ORF to FALSE or remove ref_seq_coding.")
+                    continue
+                # Use the ORF for both NT and coding
+                ref_NT = orf
+                ref_coding = orf
+        else:
+            # If ref_seq_coding provided but not ref_seq_NT, use ref_seq_coding for both
+            if ref_coding and not ref_NT:
+                print(f"[NOTICE] ref_seq_coding provided without ref_seq_NT for reference `{ref_name}` (tag `{tag}`). Using ref_seq_coding for both NT and AA analysis.", file=sys.stderr)
+                ref_NT = ref_coding
+
+        # Validate
+        validation_errors = validate_reference_sequences(ref_seq, ref_NT, ref_coding, ref_name, tag)
+        errors.extend(validation_errors)
+        if validation_errors:
+            continue
+
+        # Track analysis capabilities
+        if ref_NT:
+            has_NT_analysis = True
+        if ref_coding:
+            has_AA_analysis = True
+
+        # Store reference data
+        references_dict[ref_name] = {
+            'alignment_seq': ref_seq,
+            'NT_seq': ref_NT,
+            'coding_seq': ref_coding
+        }
+
+    return references_dict, errors, has_NT_analysis, has_AA_analysis

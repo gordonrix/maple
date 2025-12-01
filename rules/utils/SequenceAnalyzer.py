@@ -22,22 +22,40 @@ class SequenceAnalyzer:
 
     """
 
-    def __init__(self, reference_fasta=None, genotypesCSV=None, exclude_indels=False, MSA_fasta=None):
+    def __init__(self, reference_sequences=None, reference_fasta=None, genotypesCSV=None, exclude_indels=False, MSA_fasta=None,
+                 integer_matrix=None, insertions=None, genotypes_df=None):
         self.characters = {'NT':'ATGC-N', 'AA':'ACDEFGHIKLMNPQRSTVWY*-X'}
         self.DR_embeddings = {}
 
-        # two different kinds of initialization, one for genotypes CSV input and one for MSA fasta input
-        if genotypesCSV is not None:
-            if reference_fasta is None:
-                raise ValueError("reference fasta file must be input if MSA fasta is not used for initialization")
-            if genotypesCSV is None:
-                raise ValueError("genotypes CSV file must be input if MSA fasta is not used for initialization")
-            
-            self.assign_genotypes_df(genotypesCSV, exclude_indels=exclude_indels)
+        # Handle reference input - convert reference_fasta to reference_sequences if needed
+        if reference_fasta is not None and reference_sequences is None:
+            # Backward compatibility: load from fasta file
+            reference_sequences = [str(s.seq).upper() for s in list(SeqIO.parse(reference_fasta, 'fasta'))]
+        elif reference_fasta is not None and reference_sequences is not None:
+            raise ValueError("Cannot provide both reference_fasta and reference_sequences")
+
+        # Ensure only one initialization type is provided
+        init_types = [genotypesCSV is not None, genotypes_df is not None, MSA_fasta is not None, integer_matrix is not None]
+        if sum(init_types) == 0:
+            raise ValueError("Must provide one of: genotypesCSV, genotypes_df, MSA_fasta, or integer_matrix for initialization")
+        if sum(init_types) > 1:
+            raise ValueError("Must provide only one of: genotypesCSV, genotypes_df, MSA_fasta, or integer_matrix (not multiple)")
+
+        # Initialize from genotypes CSV or DataFrame
+        if genotypesCSV is not None or genotypes_df is not None:
+            if reference_sequences is None:
+                raise ValueError("reference_sequences (or reference_fasta) must be provided for genotypes initialization")
+
+            # Use genotypes_df if provided, otherwise load from CSV
+            if genotypes_df is not None:
+                self.assign_genotypes_df(genotypes_df, exclude_indels=exclude_indels)
+            else:
+                self.assign_genotypes_df(genotypesCSV, exclude_indels=exclude_indels)
+
             self.do_AA_analysis = False
             if 'AA_substitutions_nonsynonymous' in self.genotypes.columns:
                 self.do_AA_analysis = True
-            self.assign_reference(reference_fasta, include_AA=self.do_AA_analysis )
+            self.assign_reference(reference_sequences, include_AA=self.do_AA_analysis)
             self.integer_matrix = {'NT':self.seq_array_from_genotypes('NT')}
             if self.do_AA_analysis:
                 self.integer_matrix['AA'] = self.seq_array_from_genotypes('AA')
@@ -67,8 +85,8 @@ class SequenceAnalyzer:
                 raise ValueError(f"First sequence in MSA fasta file contains characters that are not NT ({self.characters['NT']}) or AA ({self.characters['AA']}): {not_NT_or_AA}")
 
             first_seq_as_ref = False
-            if reference_fasta is None:
-                print("reference fasta file not input, will use first sequence in MSA fasta as reference")
+            if reference_sequences is None:
+                print("reference_sequences not provided, will use first sequence in MSA fasta as reference")
                 first_seq_as_ref = True
                 self.ref_seq = {}
                 if self.do_AA_analysis:
@@ -76,9 +94,9 @@ class SequenceAnalyzer:
                 else:
                     self.ref_seq['NT'] = SequenceEncoder(first_seq, self.characters['NT'])
             else:
-                self.assign_reference(reference_fasta, include_AA=self.do_AA_analysis)
+                self.assign_reference(reference_sequences, include_AA=self.do_AA_analysis)
                 if len(self.ref_seq[MSA_type]) != len(first_seq):
-                    raise ValueError(f"First sequence in MSA fasta file is not the same length as the reference sequence in the reference fasta file {reference_fasta}. All sequences in the MSA fasta file must be the same length as the reference sequence in the reference fasta file")
+                    raise ValueError(f"First sequence in MSA fasta file is not the same length as the reference sequence. All sequences in the MSA fasta file must be the same length as the reference sequence")
             
             integer_matrix, self.features_DF = self.seq_array_from_MSA(MSA_fasta, MSA_type, record_features=True)
             if first_seq_as_ref: # skip first sequence
@@ -87,25 +105,75 @@ class SequenceAnalyzer:
             self.integer_matrix = {MSA_type:integer_matrix}
             self.genotypes = None
 
-        else:
-            raise ValueError("Either genotypes CSV file or MSA fasta file must be input for SequenceAnalyzer initialization")
+        # Initialize from integer matrix
+        elif integer_matrix is not None:
+            if reference_sequences is None:
+                raise ValueError("reference_sequences must be provided when using integer_matrix initialization")
+
+            if genotypes_df is not None:
+                raise ValueError("Cannot provide both integer_matrix and genotypes_df - use genotypesCSV initialization for genotypes DataFrame")
+
+            # Validate integer_matrix is a dict with 'NT' and/or 'AA' keys
+            if not isinstance(integer_matrix, dict):
+                raise ValueError("integer_matrix must be a dict with keys 'NT' and/or 'AA'")
+            if not any(k in integer_matrix for k in ['NT', 'AA']):
+                raise ValueError("integer_matrix must contain at least one of 'NT' or 'AA' keys")
+
+            self.integer_matrix = integer_matrix
+            self.do_AA_analysis = 'AA' in integer_matrix
+            self.assign_reference(reference_sequences, include_AA=self.do_AA_analysis)
+
+            # No genotypes DataFrame in this mode
+            self.genotypes = None
+
+            # Store insertions if provided (deletions are encoded in integer_matrix as '-')
+            self.insertions = insertions if insertions is not None else []
+
+            # Validate insertions format: list of lists where each inner list contains (pos, seq) tuples
+            if self.insertions and len(self.insertions) > 0:
+                if not isinstance(self.insertions[0], list):
+                    raise ValueError("insertions must be a list of lists, where each inner list contains (position, sequence) tuples for one sequence")
 
         # make all indices the most recently selected indices
         key = list(self.integer_matrix.keys())[0]
         self.selected_idx = np.arange(self.integer_matrix[key].shape[0])
         self.downsampled_idx = np.arange(self.integer_matrix[key].shape[0])
 
-    def assign_reference(self, reference_fasta, include_AA):
-        """ stores sequences from reference fasta as SequenceEncoder objects
+
+    @staticmethod
+    def sequences_to_integers(sequences, alphabet='ATGC-N'):
+        """
+        Convert sequences to integer-encoded array.
+
+        Parameters:
+            sequences (list of lists): Each inner list is a sequence as list of characters
+            alphabet (str):            Character alphabet
+
+        Returns:
+            np.ndarray: Integer array of shape (n_sequences, sequence_length)
+        """
+        char_to_int = {char: i for i, char in enumerate(alphabet)}
+        seq_array = np.array(sequences)
+
+        # Use default value of -1 for missing characters to detect invalid chars
+        int_array = np.vectorize(lambda c: char_to_int.get(c, -1))(seq_array)
+
+        # Check for invalid characters
+        if np.any(int_array == -1):
+            raise ValueError("Sequences contain characters not in alphabet")
+
+        return int_array.astype(np.int8)
+
+    def assign_reference(self, reference_sequences, include_AA):
+        """ stores reference sequences as SequenceEncoder objects
 
         args:
-            reference_fasta:    str, fasta file containing two or three sequences. The first is the sequence used for alignment,
+            reference_sequences: list of str, containing two or three sequences. The first is the sequence used for alignment,
                                     the second is the sequence used for nucleotide-level analysis, the third is the nucleotide sequence
                                     of an associated protein sequence (length%3 = 0)
-            include_AA:         bool, Whether to include the sequence corresponding to AA sequence. If True, will store the 2nd sequence in the fasta file as NT
-                                    and the 3rd sequence in the fasta file as AA. Otherwise will only store the 2nd sequence in the fasta file
+            include_AA:         bool, Whether to include the sequence corresponding to AA sequence. If True, will store the 2nd sequence as NT
+                                    and the 3rd sequence as AA. Otherwise will only store the 2nd sequence
         """
-        reference_sequences = [ str(s.seq).upper() for s in list(SeqIO.parse(reference_fasta, 'fasta')) ]
         self.ref_seq = {'NT':SequenceEncoder(reference_sequences[1], self.characters['NT'])}
         if include_AA:
             AA_ref = Seq.translate(reference_sequences[2])
@@ -748,6 +816,76 @@ class SequenceAnalyzer:
 
         return consensus
 
+    def call_mutations(self, NTorAA, idx=None):
+        """
+        Call mutations for each sequence relative to the reference sequence.
+
+        Parameters:
+            NTorAA (str):       'NT' or 'AA' to indicate nucleotide or amino acid mutation level
+            idx (np.array):     1d array of indices of sequences to analyze. If None, all sequences are used
+
+        Returns:
+            tuple: (substitutions, deletions) where:
+                - substitutions: Array of mutation strings like "A10S,D23G" for each sequence, or "" if none
+                - deletions: Array of deletion strings like "20del3,45del1" for each sequence, or "" if none
+        """
+        selection = self.select(idx)
+        variants = selection['integer'][NTorAA]
+        reference = self.ref_seq[NTorAA].integer
+        alphabet = self.characters[NTorAA]
+
+        # Find deletion character index (assume '-' is in alphabet)
+        deletion_idx = alphabet.index('-')
+
+        # Find all differing positions across all variants at once
+        diffs = variants != reference[None, :]
+        rows, cols = np.where(diffs)
+
+        # Separate substitutions from deletions
+        is_deletion = variants[rows, cols] == deletion_idx
+
+        # Process substitutions (non-deletions)
+        sub_rows = rows[~is_deletion]
+        sub_cols = cols[~is_deletion]
+
+        char_array = np.array(list(alphabet))
+        ref_char = char_array[reference[sub_cols]]
+        var_char = char_array[variants[sub_rows, sub_cols]]
+        positions = (sub_cols + 1).astype(str)
+
+        sub_strings = np.char.add(np.char.add(ref_char, positions), var_char)
+
+        # Group substitutions by variant
+        counts = np.bincount(sub_rows, minlength=len(variants))
+        split_indices = np.cumsum(counts)[:-1]
+        grouped_subs = np.split(sub_strings, split_indices)
+
+        # Process deletions - group consecutive deletions
+        del_rows = rows[is_deletion]
+        del_cols = cols[is_deletion]
+
+        deletions_list = [[] for _ in range(len(variants))]
+
+        for var_idx in range(len(variants)):
+            var_del_positions = del_cols[del_rows == var_idx]
+            if len(var_del_positions) == 0:
+                continue
+
+            # Group consecutive deletions
+            var_del_positions = np.sort(var_del_positions)
+            groups = np.split(var_del_positions, np.where(np.diff(var_del_positions) != 1)[0] + 1)
+
+            for group in groups:
+                start_pos = group[0] + 1  # 1-indexed
+                length = len(group)
+                deletions_list[var_idx].append(f'{start_pos}del{length}')
+
+        # Convert to strings
+        subs_result = np.array([', '.join(g) if len(g) > 0 else '' for g in grouped_subs])
+        dels_result = np.array([', '.join(d) if len(d) > 0 else '' for d in deletions_list])
+
+        return subs_result, dels_result
+
     def dimension_reduction(self, NTorAA, idx=None, onehot=True, encoding=None, dimensions=2, drop_same=True, use_previous=False):
         """ 
         Perform dimension reduction (DR) on the sequences of a particular level (NT or AA), and return the result as a DataFrame
@@ -819,7 +957,7 @@ class SequenceAnalyzer:
                 FP_ratio = 1.0
                 num_iters = 250
 
-            print(f"PaCMAP for {n_samples} sequences: n_neighbors={'auto' if n_neighbors is None else n_neighbors}, MN_ratio={MN_ratio}, FP_ratio={FP_ratio}, num_iters={num_iters}")
+            print(f"{NTorAA} PaCMAP for {n_samples} sequences: n_neighbors={'auto' if n_neighbors is None else n_neighbors}, MN_ratio={MN_ratio}, FP_ratio={FP_ratio}, num_iters={num_iters}")
 
             embedding = pm.PaCMAP(n_components=dimensions, n_neighbors=n_neighbors, MN_ratio=MN_ratio, FP_ratio=FP_ratio, num_iters=num_iters)
             reduced = embedding.fit_transform(matrix, init="pca")

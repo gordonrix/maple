@@ -33,7 +33,7 @@ import pysam
 from Bio import SeqIO
 from Bio.Seq import Seq
 
-from common import dist_to_DF
+from common import dist_to_DF, load_references_from_csv
 
 # Generate codon table once at module load - faster than Bio.Seq.translate()
 CODON_TABLE = {
@@ -46,72 +46,76 @@ CODON_TABLE = {
     )
 }
 
-def load_reference_sequences(reference_fasta, do_aa_analysis):
+def load_reference_sequences(references_csv, do_aa_analysis):
     """
-    Load and process reference sequences from FASTA file.
+    Load and process reference sequences from CSV file.
 
     Args:
-        reference_fasta: Path to reference FASTA file
+        references_csv: Path to references CSV file
         do_aa_analysis: Whether to load protein reference sequence
 
     Returns:
-        dict: Dictionary containing reference sequence information
+        dict: {ref_name: {reference sequence information}} where each reference has:
+            - ref_aln_str: alignment reference sequence
+            - ref_nt_str: trimmed NT reference sequence
+            - ref_nt_start: start position of NT reference in alignment
+            - ref_nt_end: end position of NT reference in alignment
+            - use_reverse_complement: whether reverse complement is used
+            - ref_protein_str: protein reference (if do_aa_analysis)
+            - ref_protein_start: start position of protein reference
+            - ref_protein_end: end position of protein reference
     """
-    sequences = list(SeqIO.parse(reference_fasta, 'fasta'))
+    # Load from CSV
+    references_dict, errors, _, _ = load_references_from_csv(references_csv)
 
-    # First sequence is alignment reference
-    ref_aln = sequences[0]
-    ref_aln.seq = ref_aln.seq.upper()
-    ref_aln_str = str(ref_aln.seq)
+    if errors:
+        for error in errors:
+            print(error, file=sys.stderr)
+        raise ValueError("Failed to load references from CSV")
 
-    # Second sequence is trimmed NT reference for analysis
-    ref_nt = sequences[1]
-    ref_nt.seq = ref_nt.seq.upper()
-    ref_nt_str = str(ref_nt.seq)
+    # Process each reference
+    processed_refs = {}
+    for ref_name, ref_data in references_dict.items():
+        # Find trimmed reference in alignment reference
+        ref_nt_start = ref_data['alignment_seq'].find(ref_data['NT_seq'])
+        use_reverse_complement = False
+        ref_nt_str = ref_data['NT_seq']
 
-    # Find trimmed reference in alignment reference
-    ref_nt_start = ref_aln_str.find(ref_nt_str)
-    use_reverse_complement = False
+        if ref_nt_start == -1:
+            # Try reverse complement
+            use_reverse_complement = True
+            ref_nt_str = str(Seq(ref_data['NT_seq']).reverse_complement())
+            ref_nt_start = ref_data['alignment_seq'].find(ref_nt_str)
 
-    if ref_nt_start == -1:
-        # Try reverse complement
-        use_reverse_complement = True
-        ref_nt.seq = ref_nt.seq.reverse_complement()
-        ref_nt_str = str(ref_nt.seq)
-        ref_nt_start = ref_aln_str.find(ref_nt_str)
+        ref_nt_end = len(ref_nt_str) + ref_nt_start
 
-    ref_nt_end = len(ref_nt_str) + ref_nt_start
+        result = {
+            'ref_aln_str': ref_data['alignment_seq'],
+            'ref_nt_str': ref_nt_str,
+            'ref_nt_start': ref_nt_start,
+            'ref_nt_end': ref_nt_end,
+            'use_reverse_complement': use_reverse_complement
+        }
 
-    result = {
-        'ref_aln': ref_aln,
-        'ref_aln_str': ref_aln_str,
-        'ref_nt': ref_nt,
-        'ref_nt_str': ref_nt_str,
-        'ref_nt_start': ref_nt_start,
-        'ref_nt_end': ref_nt_end,
-        'use_reverse_complement': use_reverse_complement
-    }
+        # Process protein reference (optional)
+        if do_aa_analysis and ref_data.get('coding_seq'):
+            ref_protein_str = ref_data['coding_seq']
 
-    # Third sequence is protein reference (optional)
-    if do_aa_analysis and len(sequences) >= 3:
-        ref_protein = sequences[2]
-        if use_reverse_complement:
-            ref_protein.seq = ref_protein.seq.reverse_complement()
-        ref_protein_str = str(ref_protein.seq).upper()
+            if use_reverse_complement:
+                ref_protein_str = str(Seq(ref_data['coding_seq']).reverse_complement())
 
-        ref_protein_start = ref_nt_str.find(ref_protein_str)
-        ref_protein_end = len(ref_protein_str) + ref_protein_start
+            ref_protein_start = ref_nt_str.find(ref_protein_str)
+            ref_protein_end = len(ref_protein_str) + ref_protein_start
 
-        if use_reverse_complement:
-            ref_protein_str = str(Seq(ref_protein_str).reverse_complement())
+            result.update({
+                'ref_protein_str': ref_protein_str,
+                'ref_protein_start': ref_protein_start,
+                'ref_protein_end': ref_protein_end
+            })
 
-        result.update({
-            'ref_protein_str': ref_protein_str,
-            'ref_protein_start': ref_protein_start,
-            'ref_protein_end': ref_protein_end
-        })
+        processed_refs[ref_name] = result
 
-    return result
+    return processed_refs
 
 
 def clean_alignment(bam_entry, ref_sequences, quality_minimum, analyze_seqs_with_indels,
@@ -137,11 +141,6 @@ def clean_alignment(bam_entry, ref_sequences, quality_minimum, analyze_seqs_with
     ref_aln_str = ref_sequences['ref_aln_str']
     ref_nt_start = ref_sequences['ref_nt_start']
     ref_nt_end = ref_sequences['ref_nt_end']
-    ref_aln_id = ref_sequences['ref_aln'].id
-
-    # Validate alignment reference
-    if bam_entry.reference_name != ref_aln_id:
-        return None, ('alignment uses wrong reference sequence', 'N/A')
 
     # Validate alignment spans trimmed reference
     if bam_entry.reference_start > ref_nt_start:
@@ -392,32 +391,82 @@ def identify_mutations(clean_aln, ref_sequences, quality_minimum,
     return nt_mut_array, aa_mut_array, genotype_data
 
 
-def process_bam_file(bam_path, reference_fasta, output_files, quality_minimum,
-                     analyze_seqs_with_indels, do_aa_analysis, use_raw_mut_count,
-                     highest_abundance_genotypes, desired_genotype_ids,
-                     demux_screen_failures, has_barcode_column):
+def mutation_array_to_tidy_df(mut_array, ref_str, ref_name, NTorAA, use_reverse_complement,
+                               total_seqs, use_raw_mut_count):
     """
-    Process BAM file to identify mutations and generate output files.
+    Convert mutation array to tidy DataFrame matching SequenceAnalyzer.aggregate_mutations format.
 
     Args:
-        bam_path: Path to input BAM file
-        reference_fasta: Path to reference FASTA file
-        output_files: List of output file paths
+        mut_array: Mutation count array (positions x characters)
+        ref_str: Reference sequence string
+        ref_name: Name of the reference
+        NTorAA: 'NT' or 'AA'
+        use_reverse_complement: Whether to reverse complement
+        total_seqs: Total number of sequences
+        use_raw_mut_count: Whether to output raw counts vs proportions
+
+    Returns:
+        pd.DataFrame: Tidy format with columns ['wt', 'position', 'mutation', 'total_count',
+                                                  'proportion_of_seqs', 'reference_name']
+    """
+    if NTorAA == 'NT':
+        chars = 'ATGC'
+    else:
+        chars = 'ACDEFGHIKLMNPQRSTVWY*'
+
+    if use_reverse_complement:
+        ref_chars = list(str(Seq(ref_str).reverse_complement()))
+    else:
+        ref_chars = list(ref_str)
+
+    rows = []
+
+    # Loop through all possible mutations
+    for posi in range(len(ref_chars)):
+        wt = ref_chars[posi]
+        position = posi + 1  # 1-indexed
+
+        for char_idx, mut in enumerate(chars):
+            count = mut_array[posi, char_idx]
+
+            # Set count to NaN for wt (matching SequenceAnalyzer behavior)
+            if wt == mut:
+                count = np.nan
+
+            rows.append([wt, position, mut, count])
+
+    df = pd.DataFrame(rows, columns=['wt', 'position', 'mutation', 'total_count'])
+
+    if total_seqs > 0:
+        df['proportion_of_seqs'] = df['total_count'] / total_seqs
+    else:
+        df['proportion_of_seqs'] = 0.0
+
+    df['reference_name'] = ref_name
+
+    return df
+
+
+def process_single_reference(bam_file, ref_name, ref_sequences, quality_minimum,
+                             analyze_seqs_with_indels, do_aa_analysis,
+                             demux_screen_failures, has_barcode_column, has_quality_scores):
+    """
+    Process BAM entries for a single reference.
+
+    Args:
+        bam_file: Open pysam AlignmentFile
+        ref_name: Name of the reference to process
+        ref_sequences: Dictionary with reference sequence information
         quality_minimum: Minimum quality score threshold
         analyze_seqs_with_indels: Whether to analyze sequences with frameshift indels
         do_aa_analysis: Whether to perform AA mutation analysis
-        use_raw_mut_count: Whether to output raw counts vs proportions
-        highest_abundance_genotypes: Number of high-abundance genotypes to output
-        desired_genotype_ids: Specific genotype IDs to output
         demux_screen_failures: Whether to screen sequences with failed barcodes
         has_barcode_column: Whether barcode information is available
+        has_quality_scores: Whether BAM file has quality scores
 
     Returns:
-        None (writes output files)
+        tuple: (nt_mut_array, nt_mut_dist, aa_mut_array, aa_mut_dist, genotypes_list, failures_list)
     """
-    # Load reference sequences
-    ref_sequences = load_reference_sequences(reference_fasta, do_aa_analysis)
-
     ref_nt_str = ref_sequences['ref_nt_str']
     use_reverse_complement = ref_sequences['use_reverse_complement']
 
@@ -427,43 +476,20 @@ def process_bam_file(bam_path, reference_fasta, output_files, quality_minimum,
     # Initialize data structures
     nt_mut_array = np.zeros((len(ref_nt_str), len(nts)), dtype=int)
     nt_mut_dist = np.zeros(len(ref_nt_str), dtype=int)
+    aa_mut_array = None
+    aa_mut_dist = None
 
-    failures_list = []
-    genotypes_list = []
-
-    all_seqs_columns = [
-        'seq_ID', 'avg_quality_score', 'NT_substitutions', 'NT_substitutions_count',
-        'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length'
-    ]
-
-    if do_aa_analysis:
+    if do_aa_analysis and 'ref_protein_str' in ref_sequences:
         ref_protein_str = ref_sequences['ref_protein_str']
         prot_length = int(len(ref_protein_str) / 3)
         aa_mut_array = np.zeros((prot_length, len(aas)), dtype=int)
         aa_mut_dist = np.zeros(prot_length + 1, dtype=int)
-        all_seqs_columns.extend([
-            'AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous',
-            'AA_substitutions_nonsynonymous_count'
-        ])
 
-    if has_barcode_column:
-        all_seqs_columns.append('barcode(s)')
+    failures_list = []
+    genotypes_list = []
 
-    genotypes_columns = all_seqs_columns[2:]  # Columns for grouping genotypes
-
-    # Open BAM file
-    bam_file = pysam.AlignmentFile(bam_path, 'rb')
-
-    # Detect if quality scores are present
-    has_quality_scores = False
-    for bam_entry in bam_file:
-        if bam_entry.query_alignment_qualities:
-            has_quality_scores = True
-        bam_file.reset()
-        break
-
-    # Process each sequence
-    for bam_entry in bam_file:
+    # Fetch BAM entries for this reference
+    for bam_entry in bam_file.fetch(reference=ref_name):
         # Skip sequences with failed barcodes if screening
         if demux_screen_failures and has_barcode_column:
             if 'fail' in bam_entry.get_tag('BC'):
@@ -494,93 +520,231 @@ def process_bam_file(bam_path, reference_fasta, output_files, quality_minimum,
         seq_total_nt_muts = seq_nt_mut_array.sum()
         nt_mut_dist[seq_total_nt_muts] += 1
 
-        if do_aa_analysis:
+        if do_aa_analysis and aa_mut_array is not None:
             aa_mut_array += seq_aa_mut_array
             seq_total_aa_muts = seq_aa_mut_array.sum()
             aa_mut_dist[seq_total_aa_muts] += 1
 
         # Build record
         avg_q_score = np.average(clean_aln[3]) if has_quality_scores else -1
-        record = [bam_entry.query_name, avg_q_score] + genotype_data
+        record = [bam_entry.query_name, avg_q_score, ref_name] + genotype_data
 
         if has_barcode_column:
             record.append(bam_entry.get_tag('BC'))
 
         genotypes_list.append(record)
 
-    bam_file.close()
-
-    # Build DataFrames
-    all_seqs_df = pd.DataFrame(genotypes_list, columns=all_seqs_columns)
-    failures_df = pd.DataFrame(failures_list, columns=['seq_ID', 'failure_reason', 'failure_index'])
-
-    # Group identical genotypes
-    all_seqs_df['genotype->seq'] = all_seqs_df.groupby(by=genotypes_columns).ngroup()
-    all_seqs_df['count'] = all_seqs_df.groupby(by='genotype->seq')['seq_ID'].transform('count')
-
-    # Create condensed genotypes DataFrame
-    genotypes_condensed = (all_seqs_df
-                          .sort_values('avg_quality_score', ascending=False)
-                          .drop_duplicates('genotype->seq', keep='first')
-                          [['genotype->seq', 'count'] + all_seqs_columns])
-
-    genotypes_condensed = genotypes_condensed.sort_values(['count', 'NT_substitutions_count'],
-                                                          ascending=[False, True])
-
-    # Move wildtype to beginning if present
-    wildtype_mask = ((genotypes_condensed['NT_substitutions'] == '') &
-                     (genotypes_condensed['NT_insertions'] == '') &
-                     (genotypes_condensed['NT_deletions'] == ''))
-    wildtype_df = genotypes_condensed[wildtype_mask]
-
-    if len(wildtype_df) > 0:
-        genotypes_condensed = genotypes_condensed.drop(index=wildtype_df.index)
-        genotypes_condensed = pd.concat([wildtype_df, genotypes_condensed]).reset_index(drop=True)
-        genotypes_condensed.rename(index={0: 'wildtype'}, inplace=True)
-    else:
-        genotypes_condensed.reset_index(drop=True, inplace=True)
-
-    # Make genotype IDs 1-indexed
-    if len(genotypes_condensed) != 0 and genotypes_condensed.index[0] == 0:
-        genotypes_condensed.index += 1
-
-    # Add genotype_ID column
-    genotypes_condensed = genotypes_condensed.reset_index().rename(columns={'index': 'genotype_ID'})
-    seq_to_genotype_dict = dict(zip(genotypes_condensed['genotype->seq'],
-                                    genotypes_condensed['genotype_ID']))
-    all_seqs_df['genotype_ID'] = all_seqs_df['genotype->seq'].map(seq_to_genotype_dict)
-
-    # Write alignments for high-abundance genotypes
-    write_genotype_alignments(
-        bam_path, genotypes_condensed, ref_sequences,
-        highest_abundance_genotypes, desired_genotype_ids,
-        quality_minimum, analyze_seqs_with_indels, do_aa_analysis,
-        has_quality_scores, output_files[0]
-    )
-
-    # Prepare output DataFrames
+    # Convert mutation arrays to tidy DataFrames
     total_seqs = int(nt_mut_dist.sum())
 
-    # NT mutation frequencies
-    if use_reverse_complement:
-        nt_ids = list(str(Seq(ref_nt_str).reverse_complement()))
-    else:
-        nt_ids = list(ref_nt_str)
-
-    wt_nts = [f'{nt_id}{i + 1}' for i, nt_id in enumerate(nt_ids)]
-    nt_mut_df = pd.DataFrame(nt_mut_array, columns=list(nts))
-    nt_mut_df['wt_nucleotide'] = pd.Series(wt_nts)
-    nt_mut_df.set_index('wt_nucleotide', inplace=True)
-
-    if not use_raw_mut_count and total_seqs > 0:
-        nt_mut_df = nt_mut_df.divide(total_seqs)
+    nt_freq_df = mutation_array_to_tidy_df(
+        nt_mut_array, ref_nt_str, ref_name, 'NT',
+        use_reverse_complement, total_seqs, use_raw_mut_count=False
+    )
 
     # NT mutation distribution
     nt_dist_df = dist_to_DF(np.trim_zeros(nt_mut_dist, 'b'), 'NT mutations', 'sequences')
+    nt_dist_df['reference_name'] = ref_name
+
+    # AA mutation frequencies if applicable
+    aa_freq_df = None
+    aa_dist_df = None
+
+    if do_aa_analysis and aa_mut_array is not None:
+        ref_protein_str = ref_sequences['ref_protein_str']
+        total_aa_seqs = int(aa_mut_dist.sum())
+
+        # Translate nucleotide coding sequence to amino acids
+        ref_protein_translated = str(Seq(ref_protein_str).translate())
+
+        aa_freq_df = mutation_array_to_tidy_df(
+            aa_mut_array, ref_protein_translated, ref_name, 'AA',
+            use_reverse_complement, total_aa_seqs, use_raw_mut_count=False
+        )
+
+        # AA mutation distribution
+        aa_dist_df = dist_to_DF(np.trim_zeros(aa_mut_dist, 'b'), 'AA mutations', 'sequences')
+        aa_dist_df['reference_name'] = ref_name
+
+    return nt_freq_df, nt_dist_df, aa_freq_df, aa_dist_df, genotypes_list, failures_list
+
+
+def process_bam_file(bam_path, references_csv, output_files, quality_minimum,
+                     analyze_seqs_with_indels, do_aa_analysis, use_raw_mut_count,
+                     highest_abundance_genotypes, desired_genotype_ids,
+                     demux_screen_failures, has_barcode_column):
+    """
+    Process BAM file to identify mutations and generate output files.
+
+    Args:
+        bam_path: Path to input BAM file
+        references_csv: Path to references CSV file
+        output_files: List of output file paths
+        quality_minimum: Minimum quality score threshold
+        analyze_seqs_with_indels: Whether to analyze sequences with frameshift indels
+        do_aa_analysis: Whether to perform AA mutation analysis
+        use_raw_mut_count: Whether to output raw counts vs proportions
+        highest_abundance_genotypes: Number of high-abundance genotypes to output
+        desired_genotype_ids: Specific genotype IDs to output
+        demux_screen_failures: Whether to screen sequences with failed barcodes
+        has_barcode_column: Whether barcode information is available
+
+    Returns:
+        None (writes output files)
+    """
+    # Load reference sequences
+    references_dict = load_reference_sequences(references_csv, do_aa_analysis)
+
+    # Open BAM file
+    bam_file = pysam.AlignmentFile(bam_path, 'rb')
+
+    # Detect if quality scores are present
+    has_quality_scores = False
+    for bam_entry in bam_file:
+        if bam_entry.query_alignment_qualities:
+            has_quality_scores = True
+        bam_file.reset()
+        break
+
+    # Count sequences per reference to determine order
+    ref_counts = {}
+    for ref_name in references_dict.keys():
+        ref_counts[ref_name] = bam_file.count(reference=ref_name)
+
+    # Sort references by abundance (most abundant first)
+    sorted_refs = sorted(ref_counts.items(), key=lambda x: x[1], reverse=True)
+    most_abundant_ref = sorted_refs[0][0] if sorted_refs else None
+
+    # Process each reference in order of abundance
+    all_nt_freq_dfs = []
+    all_nt_dist_dfs = []
+    all_aa_freq_dfs = []
+    all_aa_dist_dfs = []
+    all_genotypes_lists = []
+    all_failures_lists = []
+
+    for ref_name, _ in sorted_refs:
+        ref_sequences = references_dict[ref_name]
+        nt_freq_df, nt_dist_df, aa_freq_df, aa_dist_df, genotypes_list, failures_list = process_single_reference(
+            bam_file, ref_name, ref_sequences, quality_minimum,
+            analyze_seqs_with_indels, do_aa_analysis,
+            demux_screen_failures, has_barcode_column, has_quality_scores
+        )
+
+        # Collect DataFrames and lists
+        all_nt_freq_dfs.append(nt_freq_df)
+        all_nt_dist_dfs.append(nt_dist_df)
+
+        if aa_freq_df is not None:
+            all_aa_freq_dfs.append(aa_freq_df)
+        if aa_dist_df is not None:
+            all_aa_dist_dfs.append(aa_dist_df)
+
+        all_genotypes_lists.extend(genotypes_list)
+        all_failures_lists.extend(failures_list)
+
+    bam_file.close()
+
+    # Concatenate all DataFrames
+    nt_freq_combined = pd.concat(all_nt_freq_dfs, ignore_index=True)
+    nt_dist_combined = pd.concat(all_nt_dist_dfs, ignore_index=True)
+
+    aa_freq_combined = None
+    aa_dist_combined = None
+    if all_aa_freq_dfs:
+        aa_freq_combined = pd.concat(all_aa_freq_dfs, ignore_index=True)
+    if all_aa_dist_dfs:
+        aa_dist_combined = pd.concat(all_aa_dist_dfs, ignore_index=True)
+
+    # Define column names
+    all_seqs_columns = [
+        'seq_ID', 'avg_quality_score', 'reference_name', 'NT_substitutions', 'NT_substitutions_count',
+        'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length'
+    ]
+
+    if do_aa_analysis:
+        all_seqs_columns.extend([
+            'AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous',
+            'AA_substitutions_nonsynonymous_count'
+        ])
+
+    if has_barcode_column:
+        all_seqs_columns.append('barcode(s)')
+
+    genotypes_columns = all_seqs_columns[3:]  # Columns for grouping genotypes (skip seq_ID, avg_quality_score, reference_name)
+
+    # Build DataFrames
+    all_seqs_df = pd.DataFrame(all_genotypes_lists, columns=all_seqs_columns)
+    failures_df = pd.DataFrame(all_failures_lists, columns=['seq_ID', 'failure_reason', 'failure_index'])
+
+    # Process genotypes per reference
+    genotypes_condensed_list = []
+
+    for ref_name in all_seqs_df['reference_name'].unique():
+        ref_mask = all_seqs_df['reference_name'] == ref_name
+        ref_df = all_seqs_df[ref_mask].copy()
+
+        # Group identical genotypes within this reference
+        ref_df['genotype->seq'] = ref_df.groupby(by=genotypes_columns).ngroup()
+        ref_df['count'] = ref_df.groupby(by='genotype->seq')['seq_ID'].transform('count')
+
+        # Create condensed genotypes DataFrame
+        ref_genotypes_condensed = (ref_df
+                              .sort_values('avg_quality_score', ascending=False)
+                              .drop_duplicates('genotype->seq', keep='first')
+                              [['genotype->seq', 'count'] + all_seqs_columns])
+
+        ref_genotypes_condensed = ref_genotypes_condensed.sort_values(['count', 'NT_substitutions_count'],
+                                                              ascending=[False, True])
+
+        # Move wildtype to beginning if present
+        wildtype_mask = ((ref_genotypes_condensed['NT_substitutions'] == '') &
+                         (ref_genotypes_condensed['NT_insertions'] == '') &
+                         (ref_genotypes_condensed['NT_deletions'] == ''))
+        wildtype_df = ref_genotypes_condensed[wildtype_mask]
+
+        if len(wildtype_df) > 0:
+            ref_genotypes_condensed = ref_genotypes_condensed.drop(index=wildtype_df.index)
+            ref_genotypes_condensed = pd.concat([wildtype_df, ref_genotypes_condensed]).reset_index(drop=True)
+            ref_genotypes_condensed.rename(index={0: 'wildtype'}, inplace=True)
+        else:
+            ref_genotypes_condensed.reset_index(drop=True, inplace=True)
+
+        # Make genotype IDs 1-indexed
+        if len(ref_genotypes_condensed) != 0 and ref_genotypes_condensed.index[0] == 0:
+            ref_genotypes_condensed.index += 1
+
+        # Add genotype_ID column
+        ref_genotypes_condensed = ref_genotypes_condensed.reset_index().rename(columns={'index': 'genotype_ID'})
+        seq_to_genotype_dict = dict(zip(ref_genotypes_condensed['genotype->seq'],
+                                        ref_genotypes_condensed['genotype_ID']))
+        ref_df['genotype_ID'] = ref_df['genotype->seq'].map(seq_to_genotype_dict)
+
+        # Update all_seqs_df
+        all_seqs_df.loc[ref_mask, 'genotype_ID'] = ref_df['genotype_ID'].values
+        all_seqs_df.loc[ref_mask, 'count'] = ref_df['count'].values
+        all_seqs_df.loc[ref_mask, 'genotype->seq'] = ref_df['genotype->seq'].values
+
+        genotypes_condensed_list.append(ref_genotypes_condensed)
+
+    # Concatenate all reference genotypes
+    genotypes_condensed = pd.concat(genotypes_condensed_list, ignore_index=True)
+
+    # Write alignments for high-abundance genotypes (from most abundant reference only)
+    if most_abundant_ref:
+        most_abundant_ref_sequences = references_dict[most_abundant_ref]
+        most_abundant_genotypes = genotypes_condensed[genotypes_condensed['reference_name'] == most_abundant_ref]
+
+        write_genotype_alignments(
+            bam_path, most_abundant_genotypes, most_abundant_ref_sequences,
+            highest_abundance_genotypes, desired_genotype_ids,
+            quality_minimum, analyze_seqs_with_indels, do_aa_analysis,
+            has_quality_scores, output_files[0]
+        )
 
     # Prepare columns to drop/include
     condensed_drop = ['genotype->seq', 'seq_ID', 'avg_quality_score']
-    all_include = ['seq_ID', 'genotype_ID']
+    all_include = ['seq_ID', 'reference_name', 'genotype_ID']
 
     if has_barcode_column:
         condensed_drop.append('barcode(s)')
@@ -590,26 +754,13 @@ def process_bam_file(bam_path, reference_fasta, output_files, quality_minimum,
     genotypes_condensed.drop(columns=condensed_drop).to_csv(output_files[1], index=False)
     all_seqs_df[all_include].to_csv(output_files[2], index=False)
     failures_df.to_csv(output_files[3], index=False)
-    nt_mut_df.to_csv(output_files[4])
-    nt_dist_df.to_csv(output_files[5], index=False)
+    nt_freq_combined.to_csv(output_files[4], index=False)
+    nt_dist_combined.to_csv(output_files[5], index=False)
 
     # AA analysis outputs
-    if do_aa_analysis:
-        resi_ids = list(str(Seq(ref_protein_str).translate()))
-        resi_positions = [str(i) for i in range(1, prot_length + 1)]
-        wt_resis = [f'{res_id}{pos}' for res_id, pos in zip(resi_ids, resi_positions)]
-
-        aa_mut_df = pd.DataFrame(aa_mut_array, columns=list(aas))
-        aa_mut_df['wt_residues'] = pd.Series(wt_resis)
-        aa_mut_df.set_index('wt_residues', inplace=True)
-
-        if not use_raw_mut_count and total_seqs > 0:
-            aa_mut_df = aa_mut_df.divide(total_seqs)
-
-        aa_dist_df = dist_to_DF(np.trim_zeros(aa_mut_dist, 'b'), 'AA mutations', 'sequences')
-
-        aa_mut_df.to_csv(output_files[6])
-        aa_dist_df.to_csv(output_files[7], index=False)
+    if do_aa_analysis and aa_freq_combined is not None:
+        aa_freq_combined.to_csv(output_files[6], index=False)
+        aa_dist_combined.to_csv(output_files[7], index=False)
 
 
 def write_genotype_alignments(bam_path, genotypes_condensed, ref_sequences,
@@ -696,7 +847,7 @@ def main():
         # Running as snakemake script
         args = type('Args', (), {
             'bam': str(snakemake.input.bam),
-            'reference': snakemake.config['runs'][snakemake.wildcards.tag]['reference'],
+            'references_csv': snakemake.config['runs'][snakemake.wildcards.tag]['reference_csv'],
             'output': list(snakemake.output),
             'quality_minimum': snakemake.config.get('mutation_analysis_quality_score_minimum', 5),
             'analyze_seqs_with_indels': snakemake.params.analyze_seqs_with_indels,
@@ -720,7 +871,7 @@ def main():
         # Running as standalone script
         parser = argparse.ArgumentParser(description=__doc__)
         parser.add_argument('--bam', required=True, help='Input BAM file')
-        parser.add_argument('--reference', required=True, help='Reference FASTA file')
+        parser.add_argument('--references-csv', required=True, help='References CSV file')
         parser.add_argument('--output-dir', type=str, default=None,
                           help='Output directory (basename from BAM file will be used for output names)')
         parser.add_argument('--output', nargs='+', default=None,
@@ -753,12 +904,12 @@ def main():
                 os.path.join(args.output_dir, f'{bam_basename}_genotypes.csv'),
                 os.path.join(args.output_dir, f'{bam_basename}_seq-IDs.csv'),
                 os.path.join(args.output_dir, f'{bam_basename}_failures.csv'),
-                os.path.join(args.output_dir, f'{bam_basename}_NT-mutation-frequencies.csv'),
+                os.path.join(args.output_dir, f'{bam_basename}_NT-mutations-aggregated.csv'),
                 os.path.join(args.output_dir, f'{bam_basename}_NT-mutation-distribution.csv'),
             ]
             if args.do_aa_analysis:
                 args.output.extend([
-                    os.path.join(args.output_dir, f'{bam_basename}_AA-mutation-frequencies.csv'),
+                    os.path.join(args.output_dir, f'{bam_basename}_AA-mutations-aggregated.csv'),
                     os.path.join(args.output_dir, f'{bam_basename}_AA-mutation-distribution.csv'),
                 ])
         elif not args.output:
@@ -767,7 +918,7 @@ def main():
     # Process BAM file
     process_bam_file(
         args.bam,
-        args.reference,
+        args.references_csv,
         args.output,
         args.quality_minimum,
         args.analyze_seqs_with_indels,

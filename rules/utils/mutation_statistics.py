@@ -87,8 +87,7 @@ def build_input_file_dict(input_file_list):
     return out_dict
 
 
-def calculate_statistics_for_sample(df_dict, tag, barcode_group,
-                                     do_aa_analysis, mutations_frequencies_raw=False):
+def calculate_statistics_for_sample(df_dict, tag, barcode_group, do_aa_analysis, reference_name='N/A'):
     """
     Calculate all statistics for a single tag/barcode combination.
 
@@ -97,13 +96,13 @@ def calculate_statistics_for_sample(df_dict, tag, barcode_group,
         tag: Sample tag
         barcode_group: Barcode group name
         do_aa_analysis: Whether AA mutation analysis was performed
-        mutations_frequencies_raw: Whether frequencies are raw proportions (default: False)
+        reference_name: Reference name (default 'N/A' for aggregated stats)
     """
     # Basic counts
     nt_dist = df_dict['NT-mutation-distribution']['total sequences']
     total_seqs = nt_dist.sum()
     fail_count = len(df_dict['failures'])
-    reference_length = len(df_dict['NT-mutation-frequencies'])
+    reference_length = len(df_dict['NT-mutations-aggregated']['position'].unique())
 
     # Count unique genotypes
     num_genotypes = (df_dict['genotypes']
@@ -112,50 +111,43 @@ def calculate_statistics_for_sample(df_dict, tag, barcode_group,
                      .drop_duplicates()
                      .shape[0])
 
-    values_list = [tag, barcode_group, total_seqs, num_genotypes, fail_count]
+    values_list = [tag, reference_name, barcode_group, total_seqs, num_genotypes, fail_count]
 
     # AA mutation statistics
     if do_aa_analysis:
         aa_dist = df_dict['AA-mutation-distribution']['total sequences']
-        if mutations_frequencies_raw:
-            total_aa_muts = df_dict['AA-mutation-frequencies'].values.sum()
-        else:
-            total_aa_muts = int(round((df_dict['AA-mutation-frequencies'] * total_seqs).values.sum()))
-        unique_aa_muts = int(df_dict['AA-mutation-frequencies'].where(
-            df_dict['AA-mutation-frequencies'] == 0, 1).values.sum())
+        total_aa_muts = int(df_dict['AA-mutations-aggregated']['total_count'].sum())
+        unique_aa_muts = int((df_dict['AA-mutations-aggregated']['total_count'] > 0).sum())
         values_list.extend([total_aa_muts, unique_aa_muts,
                            compute_mean_from_dist(aa_dist),
                            compute_median_from_dist(aa_dist)])
     else:
         values_list.extend(['N/A'] * 4)
 
-    # NT mutation processing
-    nt_muts = df_dict['NT-mutation-frequencies'].copy()
-    if not mutations_frequencies_raw:
-        nt_muts = np.rint(nt_muts * total_seqs).astype(int)
+    # NT mutation processing - pivot tidy format to wide format
+    nt_muts_tidy = df_dict['NT-mutations-aggregated'].copy()
+    nt_muts = nt_muts_tidy.pivot_table(index=['wt', 'position'], columns='mutation', values='total_count', fill_value=0)
+    nt_muts = nt_muts.reset_index()
+    nt_muts = nt_muts.rename(columns={'wt': 'wt_nucleotide'})
 
-    nt_muts_unique = nt_muts.where(nt_muts == 0, 1).astype(int)
-    total_nt_muts = int(nt_muts.values.sum())
-    unique_nt_muts = int(nt_muts_unique.values.sum())
-
-    nt_muts.reset_index(inplace=True)
-    nt_muts_unique.reset_index(inplace=True)
+    total_nt_muts = int(nt_muts[['A', 'T', 'G', 'C']].values.sum())
+    unique_nt_muts = int((nt_muts[['A', 'T', 'G', 'C']] > 0).values.sum())
 
     # Calculate mutation types
     trans_nt_muts = nt_muts.apply(
         lambda row: transversions_transitions(row['wt_nucleotide'], {nt: row[nt] for nt in 'ATGC'}),
         axis=1, result_type='expand'
     )
-    trans_nt_muts_unique = nt_muts_unique.apply(
-        lambda row: transversions_transitions(row['wt_nucleotide'], {nt: row[nt] for nt in 'ATGC'}),
+    trans_nt_muts_binarized = nt_muts.apply(
+        lambda row: transversions_transitions(row['wt_nucleotide'], {nt: 1 if row[nt] > 0 else 0 for nt in 'ATGC'}),
         axis=1, result_type='expand'
     )
     all_mut_types = nt_muts.apply(
         lambda row: mut_type(row['wt_nucleotide'], {nt: row[nt] for nt in 'ATGC'}),
         axis=1, result_type='expand'
     )
-    all_mut_types_unique = nt_muts_unique.apply(
-        lambda row: mut_type(row['wt_nucleotide'], {nt: row[nt] for nt in 'ATGC'}),
+    all_mut_types_binarized = nt_muts.apply(
+        lambda row: mut_type(row['wt_nucleotide'], {nt: 1 if row[nt] > 0 else 0 for nt in 'ATGC'}),
         axis=1, result_type='expand'
     ).add_suffix('_unique')
 
@@ -171,15 +163,15 @@ def calculate_statistics_for_sample(df_dict, tag, barcode_group,
         compute_median_from_dist(nt_dist),
         int(trans_nt_muts['transversions'].sum()),
         int(trans_nt_muts['transitions'].sum()),
-        int(trans_nt_muts_unique['transversions'].sum()),
-        int(trans_nt_muts_unique['transitions'].sum()),
+        int(trans_nt_muts_binarized['transversions'].sum()),
+        int(trans_nt_muts_binarized['transitions'].sum()),
         int(total_insertion_length),
         int(total_deletion_length)
     ])
 
     # Add individual mutation type counts (convert to int)
     values_list.extend([int(all_mut_types[mut_type].sum()) for mut_type in all_mut_types])
-    values_list.extend([int(all_mut_types_unique[mut_type].sum()) for mut_type in all_mut_types_unique])
+    values_list.extend([int(all_mut_types_binarized[mut_type].sum()) for mut_type in all_mut_types_binarized])
 
     return values_list
 
@@ -187,7 +179,7 @@ def calculate_statistics_for_sample(df_dict, tag, barcode_group,
 def build_column_names():
     """Build column names for statistics DataFrame."""
     cols = [
-        'tag', 'barcode_group', 'total_seqs', 'total_unique_seqs', 'total_failed_seqs',
+        'tag', 'reference_name', 'barcode_group', 'total_seqs', 'total_unique_seqs', 'total_failed_seqs',
         'total_AA_mutations', 'unique_AA_mutations', 'mean_AA_mutations_per_seq',
         'median_AA_mutations_per_seq', 'total_NT_mutations', 'unique_NT_mutations',
         'mean_NT_mutations_per_base', 'mean_NT_mutations_per_seq',
@@ -211,15 +203,14 @@ def build_column_names():
     return cols
 
 
-def calculate_all_statistics(input_list, do_aa_analysis=False,
-                             mutations_frequencies_raw=False):
+def calculate_all_statistics(input_list, do_aa_analysis=False, split_by_reference=False):
     """
     Calculate statistics for all tag/barcode combinations.
 
     Args:
         input_list: List of input file paths
         do_aa_analysis: Whether AA mutation analysis was performed
-        mutations_frequencies_raw: Whether frequencies are raw proportions (default: False)
+        split_by_reference: Whether to output per-reference stats (default: aggregate across references)
 
     Returns:
         pandas.DataFrame: Statistics for all samples
@@ -229,25 +220,43 @@ def calculate_all_statistics(input_list, do_aa_analysis=False,
 
     for tag in file_dict:
         # Determine datatypes needed
-        datatypes = ['genotypes', 'failures', 'NT-mutation-frequencies', 'NT-mutation-distribution']
+        datatypes = ['genotypes', 'failures', 'NT-mutations-aggregated', 'NT-mutation-distribution']
         if do_aa_analysis:
-            datatypes.extend(['AA-mutation-distribution', 'AA-mutation-frequencies'])
+            datatypes.extend(['AA-mutation-distribution', 'AA-mutations-aggregated'])
 
         for barcode_group in file_dict[tag]:
             # Load all data files
             df_dict = {dtype: pd.read_csv(file_dict[tag][barcode_group][dtype], index_col=0)
                       for dtype in datatypes}
+            # Remove NaN rows (wild-type positions) from mutations-aggregated files
+            df_dict = {k: v.dropna(subset=['total_count']) if 'mutations-aggregated' in k else v for k, v in df_dict.items()}
 
-            values = calculate_statistics_for_sample(
-                df_dict, tag, barcode_group,
-                do_aa_analysis, mutations_frequencies_raw
-            )
-            stats_list.append(values)
+            if split_by_reference:
+                # Calculate statistics per reference
+                for ref_name in df_dict['genotypes']['reference_name'].unique():
+                    # Filter DataFrames by reference
+                    ref_df_dict = {}
+                    for dtype, df in df_dict.items():
+                        if 'reference_name' in df.columns:
+                            ref_df_dict[dtype] = df[df['reference_name'] == ref_name]
+                        else:
+                            ref_df_dict[dtype] = df  # failures doesn't have reference_name
+
+                    values = calculate_statistics_for_sample(
+                        ref_df_dict, tag, barcode_group, do_aa_analysis, reference_name=ref_name
+                    )
+                    stats_list.append(values)
+            else:
+                # Aggregate across all references (pass full dataframes)
+                values = calculate_statistics_for_sample(
+                    df_dict, tag, barcode_group, do_aa_analysis, reference_name='N/A'
+                )
+                stats_list.append(values)
 
     # Build DataFrame
     cols = build_column_names()
     stats_df = pd.DataFrame(stats_list, columns=cols)
-    stats_df.sort_values('barcode_group', inplace=True)
+    stats_df.sort_values('total_seqs', ascending=False, inplace=True)
 
     # Round numeric columns
     stats_df['mean_NT_mutations_per_base'] = stats_df['mean_NT_mutations_per_base'].round(10)
@@ -264,7 +273,7 @@ def main():
         input_list = snakemake.input
         output_file = str(snakemake.output)
         do_aa_analysis = snakemake.params.do_aa_analysis
-        mutations_frequencies_raw = snakemake.params.get('mutations_frequencies_raw', False)
+        split_by_reference = snakemake.params.split_by_reference
     else:
         # Running as standalone script
         parser = argparse.ArgumentParser(description=__doc__)
@@ -274,17 +283,17 @@ def main():
                           help='Output statistics CSV file')
         parser.add_argument('--do-aa-analysis', action='store_true',
                           help='Whether AA mutation analysis was performed')
-        parser.add_argument('--mutations-frequencies-raw', action='store_true',
-                          help='Whether frequencies are raw proportions')
+        parser.add_argument('--split-by-reference', action='store_true',
+                          help='Calculate statistics per reference (default: aggregate)')
         args = parser.parse_args()
 
         input_list = args.input
         output_file = args.output
         do_aa_analysis = args.do_aa_analysis
-        mutations_frequencies_raw = args.mutations_frequencies_raw
+        split_by_reference = args.split_by_reference
 
     # Calculate statistics
-    stats_df = calculate_all_statistics(input_list, do_aa_analysis, mutations_frequencies_raw)
+    stats_df = calculate_all_statistics(input_list, do_aa_analysis, split_by_reference)
 
     # Save output
     stats_df.to_csv(output_file, index=False)
