@@ -24,15 +24,13 @@ def get_dashboard_datasets_df():
             if 'enrichment' in config['runs'][tag]:
                 genotypes_csv = genotypes_csv[:-4] + '-enrichment.csv'
 
-            reference_fasta = config['timepointsInfo'][timepoint_name]['reference']
+            reference_csv = config['timepointsInfo'][timepoint_name].get('reference_csv', '')
             exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
-            structure_file = config['runs'][tag].get('structure_file', '')
 
             rows.append({
                 'genotypes_csv': genotypes_csv,
-                'reference_fasta': reference_fasta,
-                'exclude_indels': exclude_indels,
-                'structure_file': structure_file
+                'reference_csv': reference_csv,
+                'exclude_indels': exclude_indels
             })
     # Otherwise add individual tags
     else:
@@ -41,15 +39,13 @@ def get_dashboard_datasets_df():
             if 'enrichment' in config['runs'][tag]:
                 genotypes_csv = genotypes_csv[:-4] + '-enrichment.csv'
 
-            reference_fasta = config['runs'][tag]['reference']
+            reference_csv = config['runs'][tag].get('reference_csv', '')
             exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
-            structure_file = config['runs'][tag].get('structure_file', '')
 
             rows.append({
                 'genotypes_csv': genotypes_csv,
-                'reference_fasta': reference_fasta,
-                'exclude_indels': exclude_indels,
-                'structure_file': structure_file
+                'reference_csv': reference_csv,
+                'exclude_indels': exclude_indels
             })
 
     return pd.DataFrame(rows)
@@ -149,7 +145,7 @@ rule generate_barcode_ref:
     output:
         fasta = '{fasta}'
     params:
-        references = lambda wildcards: [config['runs'][tag]['reference'] for tag in config['barcode_fasta_to_tags'][wildcards.fasta]],
+        references = lambda wildcards: [config['runs'][tag]['reference_aln'] for tag in config['barcode_fasta_to_tags'][wildcards.fasta]],
         tags = lambda wildcards: config['barcode_fasta_to_tags'][wildcards.fasta]
     wildcard_constraints:
         fasta = '|'.join([re.escape(f) for f in config.get('barcode_fasta_to_tags', {}).keys()]) if config.get('barcode_fasta_to_tags') else '__no_barcode_fastas__'
@@ -168,10 +164,11 @@ checkpoint demultiplex:
         flag = touch('demux/.{tag, [^\/_]*}_demultiplex.done'),
         stats = 'demux/{tag, [^\/_]*}_demux-stats.csv'
     params:
-        reference = lambda wildcards: config['runs'][wildcards.tag]['reference'],
-        demux_threshold = lambda wildcards: config['runs'][wildcards.tag].get('demux_threshold', config.get('demux_threshold', 0)),
-        demux_screen_failures = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_failures', config.get('demux_screen_failures', True)),
-        demux_screen_no_group = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_no_group', config.get('demux_screen_no_group', True))
+        references_csv = lambda wildcards: config['runs'][wildcards.tag]['reference_csv'],
+        threshold = lambda wildcards: config['runs'][wildcards.tag].get('demux_threshold', config.get('demux_threshold', 0)),
+        screen_failures = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_failures', config.get('demux_screen_failures', True)),
+        screen_no_group = lambda wildcards: config['runs'][wildcards.tag].get('demux_screen_no_group', config.get('demux_screen_no_group', True)),
+        max_references = lambda wildcards: config.get('demux_max_references', False)
     script:
         'utils/demux.py'
 
@@ -203,7 +200,8 @@ rule plot_demux:
         plot = 'plots/{tag, [^\/]*}_demux.html'
     params:
         barcodeInfo = lambda wildcards: config['runs'][wildcards.tag]['barcode_info'],
-        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {})
+        barcodeGroups = lambda wildcards: config['runs'][wildcards.tag].get('barcodeGroups', {}),
+        distribution_split_by_reference = lambda wildcards: config.get('distribution_split_by_reference', False)
     script:
         'utils/plot_demux.py'
 
@@ -247,7 +245,7 @@ rule mutation_analysis:
         bam = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam',
         bai = lambda wildcards: expand('demux/{tag}_{{barcodes}}.bam.bai', tag=wildcards.tag) if config['do_demux'][wildcards.tag] else f'alignments/{wildcards.tag}.bam.bai'
     output:
-        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv', 'AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
+        expand('mutation_data/{{tag, [^\/_]*}}/{{barcodes, [^\/_]*}}/{{tag}}_{{barcodes}}_{datatype}', datatype = ['alignments.txt', 'genotypes.csv', 'seq-IDs.csv', 'failures.csv', 'NT-mutations-aggregated.csv', 'NT-mutation-distribution.csv', 'AA-mutations-aggregated.csv', 'AA-mutation-distribution.csv'])
     params:
         NT_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('NT_muts_of_interest',''),
         AA_muts_of_interest = lambda wildcards: config['runs'][wildcards.tag].get('AA_muts_of_interest',''),
@@ -296,9 +294,9 @@ def get_demuxed_barcodes_timepoint(tag_bcs):
     return out
 
 def mut_stats_input(wildcards):
-    datatypes = ['genotypes.csv', 'failures.csv', 'NT-mutation-frequencies.csv', 'NT-mutation-distribution.csv']
+    datatypes = ['genotypes.csv', 'failures.csv', 'NT-mutations-aggregated.csv', 'NT-mutation-distribution.csv']
     if config['do_AA_mutation_analysis'][wildcards.tag]:
-        datatypes.extend(['AA-mutation-frequencies.csv', 'AA-mutation-distribution.csv'])
+        datatypes.extend(['AA-mutations-aggregated.csv', 'AA-mutation-distribution.csv'])
     if config['do_demux'][wildcards.tag]:
         checkpoint_demux_output = checkpoints.demultiplex.get(tag=wildcards.tag).output[0]
         checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
@@ -316,7 +314,7 @@ rule mut_stats:
 		'mutation_data/{tag, [^\/]*}/{tag}_mutation-stats.csv'
 	params:
 		do_aa_analysis = lambda wildcards: config['do_AA_mutation_analysis'][wildcards.tag],
-		mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False)
+		split_by_reference = lambda wildcards: config.get('mut_stats_split_by_reference', False)
 	script:
 		'utils/mutation_statistics.py'
 
@@ -357,7 +355,7 @@ def get_timepoint_plots_all_input(wildcards):
     print_flag = False
     plot_types = ['mutation-distribution-violin', 'genotypes-distribution']
     if config.get('plot_mutation-frequencies', False):
-        plot_types.append('AA-mutation-frequencies')
+        plot_types.append('AA-mutations-aggregated')
     if config.get('genotypes2D_plot_groups', False):
         plot_types.append('genotypes2D')
     out.extend(expand('plots/timepoints/{timepointSample}_{plot_type}.html', timepointSample=timepoint_rows, plot_type=plot_types))    # each of these outputs includes data for a single row in the timepoints file
@@ -383,22 +381,6 @@ rule timepoint_plots_all:
         'plots/.all_timepoints.done'
     shell:
         'touch {output}'
-    
-
-def dms_view_input(wildcards):
-    out = []
-    for tag in config['runs']:
-        out.extend( expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_AA-mutation-frequencies.csv', tag=tag, barcodes=get_demuxed_barcodes(tag, config['runs'][tag].get('barcodeGroups', {}) )) )
-    return out
-
-# combines all AA mutation frequency data into a table that is compatible with dms-view (https://dms-view.github.io/) which visualizes mutations onto a crystal structure
-rule dms_view:
-    input:
-        dms_view_input
-    output:
-        'dms-view-table.csv'
-    script:
-        'utils/frequencies_to_dmsview.py'
 
 rule genotypes_distribution:
     input:
@@ -445,17 +427,17 @@ rule plot_mutation_rate:
     script:
         'utils/plot_mutation_rate.py'
 
-rule plot_mutation_frequencies_tag:
+rule plot_mutations_aggregated_tag:
     input:
-        genotypes = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
+        genotypes = lambda wildcards: expand('mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_{NTorAA}-mutations-aggregated.csv',
                                                     tag=wildcards.tag,
                                                     barcodes=get_demuxed_barcodes(wildcards.tag, config['runs'][wildcards.tag].get('barcodeGroups', {})),
                                                     NTorAA = wildcards.NTorAA ),
         mut_stats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
-        all_muts = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies.html',
-        most_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies-common.html',
-        least_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutation-frequencies-rare.html'
+        all_muts = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutations-aggregated.html',
+        most_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutations-aggregated-common.html',
+        least_frequent = 'plots/{tag, [^\/_]*}_{NTorAA, [^\/_]*}-mutations-aggregated-rare.html'
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
         number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
@@ -467,16 +449,16 @@ rule plot_mutation_frequencies_tag:
     script:
         'utils/plot_mutations_frequencies.py'
 
-rule plot_mutation_frequencies_timepointGroup:
+rule plot_mutations_aggregated_timepointGroup:
     input:
-        genotypes = lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-mutation-frequencies.csv',
+        genotypes = lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-mutations-aggregated.csv',
                                                     tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )],
                                                     NTorAA = wildcards.NTorAA ),
         mut_stats = 'mutation-stats.csv'
     output:
-        all_muts = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies.html',
-        most_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies-common.html',
-        least_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutation-frequencies-rare.html'
+        all_muts = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated.html',
+        most_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-common.html',
+        least_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-rare.html'
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
         number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
@@ -488,14 +470,14 @@ rule plot_mutation_frequencies_timepointGroup:
     script:
         'utils/plot_mutations_frequencies.py'
 
-rule plot_mutations_frequencies:
+rule plot_mutations_aggregated:
     input:
-        frequencies = 'mutation_data/{tag}_{barcodes}_{NTorAA}-mutation-frequencies.csv',
+        frequencies = 'mutation_data/{tag}_{barcodes}_{NTorAA}-mutations-aggregated.csv',
         mutStats = 'mutation_data/{tag}/{tag}_mutation-stats.csv'
     output:
-        all_muts = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies.html',
-        most_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies-common.html',
-        least_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutation-frequencies-rare.html',
+        all_muts = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutations-aggregated.html',
+        most_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutations-aggregated-common.html',
+        least_frequent = 'plots/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA, [^\/_]*}-mutations-aggregated-rare.html',
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
         number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
@@ -508,7 +490,7 @@ rule plot_mutations_frequencies:
 rule hamming_distance:
     input:
         genotypesCSV = 'mutation_data/{tag}/{barcodes}/{tag}_{barcodes}_genotypes.csv',
-        ref_fasta = lambda wildcards: config['runs'][wildcards.tag].get('reference', False)
+        ref_csv = lambda wildcards: config['runs'][wildcards.tag]['reference_csv']
     output:
         # HDmatrixCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-matrix.csv', # not currently using and takes up a lot of disk space
         HDdistCSV = 'mutation_data/{tag, [^\/_]*}/{barcodes, [^\/_]*}/{tag}_{barcodes}_{NTorAA}-hamming-distance-distribution.csv'
@@ -516,12 +498,47 @@ rule hamming_distance:
         downsample = lambda wildcards: config.get('hamming_distance_distribution_downsample', False),
         analyze_seqs_with_indels = lambda wildcards: config.get('analyze_seqs_with_indels', True)
     run:
-        from utils.common import dist_to_DF
+        import pandas as pd
+        from utils.common import dist_to_DF, load_references_from_csv
         from utils.SequenceAnalyzer import SequenceAnalyzer
-        data = SequenceAnalyzer(reference_fasta=input.ref_fasta, genotypesCSV=input.genotypesCSV, exclude_indels=(not params.analyze_seqs_with_indels))
-        matrixDF, HDdistDF = data.HD_matrix_and_dist(NTorAA=wildcards.NTorAA, downsample=params.downsample)
-        HD_dist_DF = dist_to_DF(HDdistDF, f'{wildcards.NTorAA} hamming distance', 'sequence pairs')
-        HD_dist_DF.to_csv(output.HDdistCSV, index=False)
+
+        # Load references
+        references_dict, errors, _, _ = load_references_from_csv(input.ref_csv)
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            raise ValueError("Failed to load references from CSV")
+
+        # Load genotypes to determine which references are present
+        genotypes_df = pd.read_csv(input.genotypesCSV)
+
+        # Process each reference separately
+        hd_dist_dfs = []
+        for ref_name in genotypes_df['reference_name'].unique():
+            # Filter genotypes for this reference
+            ref_genotypes = genotypes_df[genotypes_df['reference_name'] == ref_name]
+
+            # Get reference sequences for this reference [alignment_seq, NT_seq, AA_seq]
+            ref_data = references_dict[ref_name]
+            reference_sequences = [ref_data['alignment_seq'], ref_data['NT_seq'], ref_data['coding_seq']]
+
+            # Create SequenceAnalyzer with filtered genotypes
+            data = SequenceAnalyzer(reference_sequences=reference_sequences,
+                                   genotypes_df=ref_genotypes,
+                                   exclude_indels=(not params.analyze_seqs_with_indels))
+
+            # Calculate hamming distance
+            matrixDF, HDdistDF = data.HD_matrix_and_dist(NTorAA=wildcards.NTorAA, downsample=params.downsample)
+
+            # Convert to DataFrame and add reference_name column
+            HD_dist_DF = dist_to_DF(HDdistDF, f'{wildcards.NTorAA} hamming distance', 'sequence pairs')
+            HD_dist_DF['reference_name'] = ref_name
+
+            hd_dist_dfs.append(HD_dist_DF)
+
+        # Concatenate all references and save
+        combined_hd_dist = pd.concat(hd_dist_dfs, ignore_index=True)
+        combined_hd_dist.to_csv(output.HDdistCSV, index=False)
 
 def plot_mutations_distribution_input(wildcards):
     if config['do_demux'][wildcards.tag]:
@@ -546,7 +563,8 @@ rule plot_distribution:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
         x_max = lambda wildcards: config.get('distribution_x_range', False),
-        y_max = lambda wildcards: config.get('distribution_y_range', False)
+        y_max = lambda wildcards: config.get('distribution_y_range', False),
+        split_by_reference = lambda wildcards: config.get('split_by_reference', False)
     script:
         'utils/plot_distribution.py'
 
@@ -568,7 +586,8 @@ rule plot_distribution_tag:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
         x_max = lambda wildcards: config.get('distribution_x_range', False),
-        y_max = lambda wildcards: config.get('distribution_y_range', False)
+        y_max = lambda wildcards: config.get('distribution_y_range', False),
+        split_by_reference = lambda wildcards: config.get('split_by_reference', False)
     script:
         'utils/plot_distribution.py'
 
@@ -589,7 +608,8 @@ rule plot_distribution_timepointGroup:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
         x_max = lambda wildcards: config.get('distribution_x_range', False),
-        y_max = lambda wildcards: config.get('distribution_y_range', False)
+        y_max = lambda wildcards: config.get('distribution_y_range', False),
+        split_by_reference = lambda wildcards: config.get('split_by_reference', False)
     script:
         'utils/plot_distribution.py'
 
@@ -608,7 +628,8 @@ rule plot_genotypes_distribution_timepointGroup:
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
         x_max = lambda wildcards: config.get('distribution_x_range', False),
-        y_max = lambda wildcards: config.get('distribution_y_range', False)
+        y_max = lambda wildcards: config.get('distribution_y_range', False),
+        split_by_reference = lambda wildcards: config.get('split_by_reference', False)
     script:
         'utils/plot_distribution.py'
 
@@ -646,14 +667,47 @@ rule reduce_genotypes_dimensions:
     output:
         reduced = '{dir}/{tag, [^\/_]*}{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
     params:
-        ref_seqs = lambda wildcards: config['runs'][wildcards.tag].get('reference', False) if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference', False)
+        ref_csv = lambda wildcards: config['runs'][wildcards.tag].get('reference_csv', '') if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference_csv', '')
     run:
+        import pandas as pd
         from utils.SequenceAnalyzer import SequenceAnalyzer
-        sequences = SequenceAnalyzer(reference_fasta=params.ref_seqs, genotypesCSV=input.genotypes)
-        sequences.assign_dimension_reduction('NT')
-        if sequences.do_AA_analysis:
-            sequences.assign_dimension_reduction('AA')
-        sequences.genotypes.to_csv(output.reduced, index=False)
+        from utils.common import load_references_from_csv
+
+        # Load genotypes
+        genotypes_df = pd.read_csv(input.genotypes)
+
+        # Add reference_name column if not present (backward compatibility)
+        if 'reference_name' not in genotypes_df.columns:
+            genotypes_df['reference_name'] = 'N/A'
+
+        # Load references
+        references_dict, errors, _, _ = load_references_from_csv(params.ref_csv)
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            raise ValueError("Failed to load references from CSV")
+
+        # Process each reference separately
+        reduced_dfs = []
+        for ref_name in genotypes_df['reference_name'].unique():
+            # Filter genotypes for this reference
+            ref_genotypes = genotypes_df[genotypes_df['reference_name'] == ref_name]
+
+            # Get reference sequences [alignment_seq, NT_seq, coding_seq]
+            ref_data = references_dict[ref_name]
+            reference_sequences = [ref_data['alignment_seq'], ref_data['NT_seq'], ref_data['coding_seq']]
+
+            # Create SequenceAnalyzer with filtered genotypes
+            sequences = SequenceAnalyzer(reference_sequences=reference_sequences, genotypes_df=ref_genotypes, exclude_indels=False)
+            sequences.assign_dimension_reduction('NT')
+            if sequences.do_AA_analysis:
+                sequences.assign_dimension_reduction('AA')
+
+            reduced_dfs.append(sequences.genotypes)
+
+        # Concatenate all references
+        combined = pd.concat(reduced_dfs, ignore_index=True)
+        combined.to_csv(output.reduced, index=False)
 
 rule merge_tag_genotypes:
     input:
@@ -826,7 +880,8 @@ rule create_dashboard_datasets_csv:
 rule run_dashboard:
     input:
         datasets_csv = lambda wildcards: dashboard_input(wildcards=wildcards, config=config, single=False)['datasets_csv'],
-        genotypes = lambda wildcards: get_dashboard_datasets_df()['genotypes_csv'].tolist()
+        genotypes = lambda wildcards: get_dashboard_datasets_df()['genotypes_csv'].tolist(),
+        structure_files = lambda wildcards: dashboard_input(wildcards=wildcards, config=config, single=False)['structure_files']
     params:
         port = config.get('dashboard_port', 3365),
         basedir = workflow.basedir
