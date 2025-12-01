@@ -517,7 +517,7 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
 class ControlsPanel(pn.viewable.Viewer):
     """Control widgets for the dashboard"""
 
-    def __init__(self, data_manager, scatter_component, histogram_component, mutation_analysis_component, table_component, downsample_slider, structure_component=None, dataset_selector=None, **params):
+    def __init__(self, data_manager, scatter_component, histogram_component, mutation_analysis_component, table_component, downsample_slider, structure_component=None, dataset_selector=None, reference_selector=None, **params):
         super().__init__(**params)
         self.data_manager = data_manager
         self.scatter = scatter_component
@@ -527,6 +527,7 @@ class ControlsPanel(pn.viewable.Viewer):
         self.downsample_slider = downsample_slider
         self.structure = structure_component
         self.dataset_selector = dataset_selector
+        self.reference_selector = reference_selector
 
         # Create control widgets
         self._create_widgets()
@@ -1112,15 +1113,13 @@ class ControlsPanel(pn.viewable.Viewer):
     def __panel__(self):
         """Return the controls panel layout"""
 
-        # Build data controls with optional dataset selector at top
-        data_controls_widgets = []
-        if self.dataset_selector is not None:
-            data_controls_widgets.append(self.dataset_selector)
-        data_controls_widgets.extend([
+        # Build data controls with dataset and reference selectors at top
+        data_controls_widgets = [
+            pn.Row(self.dataset_selector, self.reference_selector),
             pn.Row(self.downsample_slider, self.datashade_toggle),
             pn.Row(self.filter1_column_select, self.filter1_range_slider),
             pn.Row(self.filter2_column_select, self.filter2_range_slider)
-        ])
+        ]
 
         data_controls = pn.Card(
             pn.Column(*data_controls_widgets),
@@ -1218,40 +1217,44 @@ class ControlsPanel(pn.viewable.Viewer):
 class MapleDashboard:
     """Main dashboard class orchestrating all components"""
 
-    def __init__(self, genotypes_file=None, reference_file=None, exclude_indels=False, initial_downsample=100000, structure_file=None, datasets_config=None):
+    def __init__(self, datasets_config, initial_downsample=100000):
+        """
+        Initialize dashboard with unified datasets_config.
 
-        # Multi-dataset mode
-        if datasets_config is not None:
-            self.datasets_config = datasets_config
-            self.multi_dataset_mode = True
+        datasets_config: list of dicts with keys: name, genotypes_file, reference_file, exclude_indels, structure_file
+        """
+        self.datasets_config = datasets_config
+        dataset_names = [d['name'] for d in datasets_config]
 
-            # Create dataset selector widget
-            dataset_names = [d['name'] for d in datasets_config]
-            self.dataset_selector = pn.widgets.Select(
-                name='Dataset',
-                options=dataset_names,
-                value=dataset_names[0],
-                width=200
-            )
+        # Create dataset selector (disabled if only one option)
+        self.dataset_selector = pn.widgets.Select(
+            name='Dataset',
+            options=dataset_names,
+            value=dataset_names[0],
+            width=200,
+            disabled=(len(dataset_names) == 1)
+        )
 
-            # Load first dataset
-            first_dataset = datasets_config[0]
-            self.data_manager = DataManager(
-                first_dataset['genotypes_file'],
-                first_dataset['reference_file'],
-                first_dataset['exclude_indels'],
-                downsample_size=initial_downsample
-            )
-            self.structure_file = first_dataset['structure_file']
-            self.genotypes_filename = pathlib.Path(first_dataset['genotypes_file']).name
+        # Load first dataset
+        first_dataset = datasets_config[0]
+        self.data_manager = DataManager(
+            first_dataset['genotypes_file'],
+            first_dataset['reference_file'],
+            first_dataset['exclude_indels'],
+            downsample_size=initial_downsample
+        )
+        self.structure_file = first_dataset['structure_file']
+        self.genotypes_filename = pathlib.Path(first_dataset['genotypes_file']).name
 
-        # Single dataset mode
-        else:
-            self.multi_dataset_mode = False
-            self.dataset_selector = None
-            self.data_manager = DataManager(genotypes_file, reference_file, exclude_indels, downsample_size=initial_downsample)
-            self.structure_file = structure_file
-            self.genotypes_filename = pathlib.Path(genotypes_file).name
+        # Create reference selector (populated from loaded data)
+        reference_names = self._get_reference_names()
+        self.reference_selector = pn.widgets.Select(
+            name='Reference',
+            options=reference_names,
+            value=reference_names[0],
+            width=200,
+            disabled=(len(reference_names) <= 1)
+        )
 
         # Cache for saved selection
         self.saved_selection = None
@@ -1283,11 +1286,13 @@ class MapleDashboard:
             self.table_component,
             self.downsample_slider,
             structure_component=self.structure_component,
-            dataset_selector=self.dataset_selector if self.multi_dataset_mode else None
+            dataset_selector=self.dataset_selector,
+            reference_selector=self.reference_selector
         )
 
         # Reactive data pipeline with filtering (already downsampled at load time)
         self.filtered_data = pn.rx(self._get_filtered_data)(
+            self.reference_selector.param.value,
             self.controls_panel.filter1_column_select.param.value,
             self.controls_panel.filter1_range_slider.param.value,
             self.controls_panel.filter2_column_select.param.value,
@@ -1398,20 +1403,32 @@ class MapleDashboard:
         self.controls_panel.max_mut_combos_slider.param.watch(self._update_NT_muts_options, 'value')
         self.controls_panel.max_mut_combos_slider.param.watch(self._update_AA_muts_options, 'value')
 
-        # Link dataset selector callback (multi-dataset mode only)
-        if self.multi_dataset_mode:
+        # Link dataset selector callback (only active if more than one dataset)
+        if len(datasets_config) > 1:
             self.dataset_selector.param.watch(self._switch_dataset, 'value')
 
         # Create the dashboard template
         self._create_template()
 
-    def _get_filtered_data(self, filter1_col, filter1_range, filter2_col, filter2_range, NT_muts, AA_muts, max_groups, NT_muts_filter, AA_muts_filter):
+    def _get_reference_names(self):
+        """Get list of reference names sorted by abundance from current data_manager"""
+        if 'reference_name' in self.data_manager.genotypes.columns:
+            ref_abundance = self.data_manager.genotypes.groupby('reference_name')['count'].sum().sort_values(ascending=False)
+            return ref_abundance.index.tolist()
+        else:
+            return ['N/A']
+
+    def _get_filtered_data(self, reference_name, filter1_col, filter1_range, filter2_col, filter2_range, NT_muts, AA_muts, max_groups, NT_muts_filter, AA_muts_filter):
         """Get filtered data (already downsampled at load time)"""
         # Clear cache when filters change (data subset changes)
         self.data_manager.clear_agg_muts_cache()
 
         # Start with analyzer genotypes (already downsampled)
         df = self.data_manager.analyzer.genotypes.copy()
+
+        # Apply reference filter if reference_name column exists and not N/A
+        if 'reference_name' in df.columns and reference_name != 'N/A':
+            df = df[df['reference_name'] == reference_name]
 
         # Apply filter 1 if column and range are valid
         if filter1_col and filter1_col in df.columns and filter1_range:
@@ -1586,6 +1603,12 @@ class MapleDashboard:
 
         # Update filter ranges for new dataset
         self.controls_panel._update_filter_ranges()
+
+        # Update reference selector for new dataset
+        reference_names = self._get_reference_names()
+        self.reference_selector.options = reference_names
+        self.reference_selector.value = reference_names[0]
+        self.reference_selector.disabled = (len(reference_names) <= 1)
 
         # Clear selection - this will trigger updates for components that depend on selection_expr
         self.ls.selection_expr = []
@@ -2049,7 +2072,7 @@ try:
 
     print("Starting Maple Dashboard 2025...")
 
-    # Check if using multi-dataset mode
+    # Build datasets_config from either CSV or command line args
     if args.datasets:
         print(f"Multi-dataset mode: {args.datasets}")
         # Load datasets CSV
@@ -2085,16 +2108,8 @@ try:
                 'structure_file': structure_file
             })
 
-        # Create dashboard with multiple datasets
-        dashboard = MapleDashboard(
-            datasets_config=datasets_config,
-            initial_downsample=args.downsample
-        )
-
-        layout = dashboard.servable(title='Maple Dashboard')
-
     else:
-        # Single dataset mode (original behavior)
+        # Single dataset mode - convert to datasets_config format
         if not args.genotypes or not args.reference:
             raise ValueError("Single dataset mode requires --genotypes and --reference arguments")
 
@@ -2102,17 +2117,22 @@ try:
         print(f"Genotypes: {args.genotypes}")
         print(f"Reference: {args.reference}")
 
-        # Create dashboard with downsample argument and optional PDB file
-        dashboard = MapleDashboard(
-            genotypes_file=args.genotypes,
-            reference_file=args.reference,
-            exclude_indels=args.exclude_indels,
-            initial_downsample=args.downsample,
-            structure_file=args.structure_file if args.structure_file else None
-        )
+        # Build single-item datasets_config
+        datasets_config = [{
+            'name': pathlib.Path(args.genotypes).name.replace('_genotypes.csv', ''),
+            'genotypes_file': args.genotypes,
+            'reference_file': args.reference,
+            'exclude_indels': args.exclude_indels,
+            'structure_file': args.structure_file if args.structure_file else None
+        }]
 
-        # Make template servable
-        layout = dashboard.servable(title=f'Maple Dashboard: {pathlib.Path(args.genotypes).name}')
+    # Create dashboard with unified datasets_config
+    dashboard = MapleDashboard(
+        datasets_config=datasets_config,
+        initial_downsample=args.downsample
+    )
+
+    layout = dashboard.servable(title='Maple Dashboard')
 
 except Exception as e:
     print(f"Error creating dashboard: {e}")
