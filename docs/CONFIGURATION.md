@@ -72,6 +72,22 @@ This directory should contain all files that define a Maple run except for the c
 
 </details>
 
+<details>
+<summary>use_longest_orf_default</summary>
+
+Default behavior for identifying protein coding sequences in references.
+
+**Type:** Boolean
+**Default:** `FALSE`
+**Example:** `use_longest_orf_default: TRUE`
+
+Controls whether the pipeline automatically identifies and uses the longest open reading frame (ORF) as the coding sequence for protein analysis. This can be overridden per-reference by including a `use_longest_ORF` column in the reference CSV file. When enabled, the pipeline will:
+- Identify the longest ORF in each reference sequence
+- Use it for amino acid mutation analysis
+- Validate that manually provided `ref_seq_coding` values match the longest ORF (if both are provided)
+
+</details>
+
 ## Consensus Generation
 
 <details>
@@ -134,6 +150,18 @@ Parameters for UMI-based consensus generation using medaka and umicollapse.
 - **Description:** Number of files to split BAM file into prior to running medaka. Increase if medaka throws memory errors
 - **Example:** `UMI_medaka_batches: 10`
 
+**UMI_distribution_log_x**
+- **Type:** Boolean
+- **Default:** `False`
+- **Description:** If True, uses logarithmic scale for x-axis in UMI distribution plots
+- **Example:** `UMI_distribution_log_x: True`
+
+**UMI_distribution_log_y**
+- **Type:** Boolean
+- **Default:** `False`
+- **Description:** If True, uses logarithmic scale for y-axis in UMI distribution plots
+- **Example:** `UMI_distribution_log_y: True`
+
 </details>
 
 <details>
@@ -152,6 +180,12 @@ Parameters for medaka consensus generation (Nanopore only).
 - **Default:** `'--quiet'`
 - **Description:** Additional flags to add to medaka smolecule command. Threads and model flags are already added
 - **Example:** `medaka_flags: '--quiet --chunk-len 10000'`
+
+**medaka_use_gpu**
+- **Type:** Boolean
+- **Default:** `True`
+- **Description:** Controls thread allocation for medaka consensus to optimize for GPU or CPU usage. When `True` (GPU mode), uses all available cores per batch to prevent GPU memory overload from parallel jobs. When `False` (CPU mode), uses 1 thread per batch to enable parallel processing of multiple batches simultaneously with `-j` flag.
+- **Example:** `medaka_use_gpu: False`
 
 </details>
 
@@ -249,6 +283,12 @@ To name demultiplexed files and/or label demultiplexed sequences based on combin
 - **Description:** Minimum proportion of total reads required for a demultiplexed file to be processed further
 - **Example:** `demux_threshold: 0.05`
 
+**demux_max_references**
+- **Type:** Integer or Boolean
+- **Default:** `False`
+- **Description:** Maximum number of reference sequences to keep for downstream analysis. If set to an integer N, only sequences aligning to the top N most abundant references will be written to output BAM files. Sequences aligning to filtered references still appear in demultiplexing statistics but not in output files. Set to `False` to keep all references
+- **Example:** `demux_max_references: 100`
+
 </details>
 
 ## Paired-End Read Processing
@@ -321,6 +361,12 @@ Parameters controlling mutation detection and analysis.
 - **Description:** If True, only uses unique mutations to determine mutation spectrum
 - **Example:** `uniques_only: True`
 
+**mut_stats_split_by_reference**
+- **Type:** Boolean
+- **Default:** `False`
+- **Description:** Controls how mutation statistics are reported in mutation-stats.csv. If `True`, statistics are calculated and reported separately for each reference sequence (one row per reference per sample). If `False`, statistics are aggregated across all references (one row per sample). Useful for multi-reference experiments where you want to analyze each reference independently
+- **Example:** `mut_stats_split_by_reference: True`
+
 </details>
 
 <details>
@@ -372,6 +418,12 @@ Parameters controlling plot generation and appearance.
 - **Default:** `False`
 - **Description:** Comma-separated pair of values for y-axis range of distribution plots, or False for auto-range
 - **Example:** `distribution_y_range: '0,0.5'`
+
+**distribution_split_by_reference**
+- **Type:** Boolean or Integer
+- **Default:** `False`
+- **Description:** Controls how mutation distribution plots handle multiple references. `False`: aggregate data across all references into a single plot. `True`: plot all references separately in a grid layout. Integer N: plot only the top N most abundant references (rows: samples, columns: references)
+- **Example:** `distribution_split_by_reference: 5`
 
 **export_SVG**
 - **Type:** Boolean or String
@@ -501,8 +553,14 @@ Parameters for 2D genotype visualization using dimensionality reduction.
 **genotypes2D_plot_point_size_range**
 - **Type:** String
 - **Default:** `'30, 60'`
-- **Description:** Comma-separated pair of integers for minimum and maximum point sizes
+- **Description:** Comma-separated pair of integers for minimum and maximum point sizes. If all values in the size column are the same, the minimum size will be used
 - **Example:** `genotypes2D_plot_point_size_range: '20, 80'`
+
+**genotypes2D_plot_point_color_col**
+- **Type:** String (optional)
+- **Default:** None (depends on genotypes.csv file being used)
+- **Description:** Genotypes column to use for coloring data points. Any genotypes column is valid, though some choices work better than others. Numerical columns will be colored continuously from white to deep blue. Categorical columns will be colored as rainbow
+- **Example:** `genotypes2D_plot_point_color_col: 'NT_substitutions_count'`
 
 </details>
 

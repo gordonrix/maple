@@ -1,4 +1,4 @@
-name: maple
+name: maple_test
 channels:
   - conda
   - bioconda
@@ -25,7 +25,6 @@ dependencies:
   - scikit-learn
   - statsmodels
   - pacmap
-  - selenium # for bokeh SVG export, conda installation is broken
   - nanoplot
   - biopython
   - jupyter
@@ -37,7 +36,7 @@ dependencies:
   - holoviews
   - datashader
   - py3dmol
-  - bokeh==3.6 # pinned until bokeh 14502 is addressed https://github.com/bokeh/bokeh/issues/14502
+  - bokeh # pinned until bokeh 14502 is addressed https://github.com/bokeh/bokeh/issues/14502
   - spatialpandas # allows for lasso selections of datashaded plots
   - panel
   - editdistance
@@ -49,3 +48,5 @@ dependencies:
   - bioconda::umicollapse
   - mappy
   - pip
+  - selenium # for bokeh SVG export, conda installation is broken
+  - chromedriver-binary

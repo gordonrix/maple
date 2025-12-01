@@ -8,6 +8,7 @@ fastq_dir: fastq_pass, fastq_fail
 ## Note, after this point most settings may not need to be changed for a given analysis run
 
 metadata: metadata
+use_longest_orf_default: FALSE
 
 # RCA Consensus 
 peak_finder_settings: '23,3,27,2'
@@ -20,13 +21,16 @@ UMI_mismatches: 2
 UMI_consensus_minimum: 1
 UMI_consensus_maximum: 1
 UMI_medaka_batches: 1
+UMI_distribution_log_x: False
+UMI_distribution_log_y: False
 
 # Medaka
 medaka_model: 'r104_e81_sup_variant_g610'
 medaka_flags: '--quiet'
+medaka_use_gpu: True
 
 # alignment
-alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --secondary=no'
+alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --score-N=0 --secondary=no'
 alignment_samtools_flags: ''
 
 # Thread configuration
@@ -39,6 +43,7 @@ threads_demux: 4
 demux_screen_no_group: True
 demux_screen_failures: False
 demux_threshold: 0.01
+demux_max_references: 100
 
 # NGmerge
 merge_paired_end: False
@@ -52,6 +57,7 @@ analyze_seqs_with_indels: True
 mutations_frequencies_number_of_positions: 20
 mutations_frequencies_heatmap: True
 uniques_only: False
+mut_stats_split_by_reference: False
 # background: control
 
 # Genotype analysis
@@ -63,6 +69,7 @@ unique_genotypes_count_threshold: 5
 colormap: 'kbc_r'
 distribution_x_range: False
 distribution_y_range: False
+distribution_split_by_reference: False
 export_SVG: False
 
 # plot enable/disable
@@ -81,17 +88,17 @@ enrichment_missing_replicates_filter: True
 enrichment_reference_bc: 'all_barcodes'
 
 # genotypes2D plotting
-genotypes2D_plot_all: False                                     # set to True if 2D genotypes should be plotted for all samples individually
-genotypes2D_plot_groups: False                                  # set to True if 2D genotypes should be plotted for groups of samples 
+genotypes2D_plot_all: False
+genotypes2D_plot_groups: False
 genotypes2D_plot_downsample: 10000
-genotypes2D_plot_AA: True                                      # if set to true and a protein reference sequence is provided, will use the protein sequence for dimension reduction
-genotypes2D_plot_point_size_col: count                         # genotypes column to use for node size. must be numerical
-genotypes2D_plot_point_size_range: 30, 60                 # comma separated pair of integers, minimum and maximum point size to be used on the genotypes2D plot. If all values in 'genotypes_plot_point_size_col' are the same, the minimum size will be used 
-# genotypes2D_plot_point_color_col: NT_substitutions_count       # genotypes column to use for color of data points. any genotypes column is an option, though some are obviously bad choices. numerical columns will be colored continuously from white to deep blue, categorical columns will be colored as rainbow. default depends on the genotypes.csv file being used. 
+genotypes2D_plot_AA: True
+genotypes2D_plot_point_size_col: count
+genotypes2D_plot_point_size_range: 30, 60
+# genotypes2D_plot_point_color_col: NT_substitutions_count 
 
 # hamming distance analysis
-hamming_distance_distribution_downsample: 1000                             # int, if the number of unique genotypes is above this number, then genotypes will be downsampled to this number. This can dramatically speed up hamming distance calculation at the cost of not capturing all sequences. Set to False to use all genotypes
-hamming_distance_distribution_raw: False                     # bool, if True, y axis for individual hamming distance plots will show raw counts of sequence pairs instead of proprotion of total sequence pairs
+hamming_distance_distribution_downsample: 1000
+hamming_distance_distribution_raw: False
 
 # dashboard configuration
 dashboard_input: TrpB-IE5
@@ -102,4 +109,4 @@ timepoints: timepoints.csv
 
 # nanoplot integration
 nanoplot: False
-nanoplot_flags: '--plots dot'  # command line flags that will be added to all nanoplot function calls. -o and -p are already added
+nanoplot_flags: '--plots dot'
