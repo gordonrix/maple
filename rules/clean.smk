@@ -197,5 +197,6 @@ rule clean:
     shell:
         """
         rm {input}
-        zip -r -m {params.timestamp_dir}.zip {params.timestamp_dir}
+        zip -r {params.timestamp_dir}.zip {params.timestamp_dir}
+        rm -rf {params.timestamp_dir}
         """
