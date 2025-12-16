@@ -161,6 +161,12 @@ def filter_barcodes_by_hamming_distance(barcode_df, min_hamming_distance, qualit
     os.unlink(temp_input_path)
     os.unlink(temp_output_path)
 
+    # Remove tmp directory if empty
+    try:
+        os.rmdir('tmp')
+    except OSError:
+        pass  # Directory not empty or doesn't exist
+
     return selected_barcodes
 
 

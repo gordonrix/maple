@@ -400,7 +400,7 @@ def get_group_for_barcodes(sequence_barcodes, groups_list, barcode_types):
     for group_name, group_def in groups_list:
         if all(group_def.get(bt) == group_barcodes.get(bt) for bt in barcode_types if bt in group_def):
             return group_name, list(remaining_barcodes.values())
-    
+
     return None, list(sequence_barcodes.values())
 
 
@@ -496,10 +496,10 @@ def demultiplex_bam(bam_path, output_dir, barcode_info, partition_groups,
         if label_barcodes:
             # Find matching label group
             label_name, remaining = get_group_for_barcodes(
-                label_barcodes, label_groups, 
+                label_barcodes, label_groups,
                 [bt for bt in label_bc_types if bt in label_group_barcodes]
             )
-            
+
             if label_name and remaining:
                 label_tag = f"{label_name}_{'_'.join(remaining)}"
                 label_output = f"{label_name}-{'-'.join(remaining)}"
@@ -678,51 +678,7 @@ def generate_statistics_dataframe(row_counts, barcode_info, tag, partition_group
                 new_row[f'{barcode_type}{suffix}'] = 0
 
         df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    
-    # Add rows for expected label groups within each output file group
-    for output_file in df['output_file_barcodes'].unique():
-        output_df = df[df['output_file_barcodes'] == output_file]
-        existing_labels = set(output_df['label_barcodes'])
-        expected_labels = {group_name for group_name, _ in label_groups}
-        
-        # Get the demuxed_count for this output file
-        output_demuxed_count = output_df['demuxed_count'].iloc[0] if len(output_df) > 0 else 0
-        
-        # Add 'none' if there are any rows without label groups
-        if expected_labels and 'none' not in existing_labels and any(lb not in expected_labels for lb in existing_labels if lb != 'none'):
-            expected_labels.add('none')
-        
-        missing_labels = expected_labels - existing_labels
-        
-        for label_name in missing_labels:
-            # Get barcode values from an existing row for this output file
-            sample_row = output_df.iloc[0] if len(output_df) > 0 else None
-            
-            new_row = {
-                'tag': tag,
-                'output_file_barcodes': output_file,
-                'named_by_group': sample_row['named_by_group'] if sample_row is not None else False,
-                'label_barcodes': label_name,
-                'demuxed_count': output_demuxed_count,
-                'barcodes_count': 0
-            }
-            
-            # Add barcode columns - use same values as other rows for this output file, but 'n/a' for label barcodes
-            for barcode_type in barcode_info:
-                if sample_row is not None and barcode_type in sample_row:
-                    if barcode_info[barcode_type].get('label_only', False):
-                        new_row[barcode_type] = 'n/a'
-                    else:
-                        new_row[barcode_type] = sample_row[barcode_type]
-                else:
-                    new_row[barcode_type] = 'n/a'
-                    
-                for suffix in [':not_exact_match', '_failed:context_not_present_in_reference_sequence',
-                              '_failed:barcode_not_in_fasta', '_failed:low_confidence_barcode_identification']:
-                    new_row[f'{barcode_type}{suffix}'] = 0
-            
-            df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    
+
     df.sort_values(['demuxed_count', 'barcodes_count'], ascending=False, inplace=True)
 
     # reorder to put the label_barcodes column right before barcodes_count
