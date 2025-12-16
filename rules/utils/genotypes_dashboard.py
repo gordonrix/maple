@@ -29,7 +29,7 @@ from natsort import natsorted, index_natsorted
 
 # Import existing utilities
 from SequenceAnalyzer import SequenceAnalyzer
-from common import cmap_dict, conspicuous_mutations, colormaps, export_svg_plots
+from common import cmap_dict, conspicuous_mutations, colormaps, export_svg_plots, load_references_from_csv
 from structure_heatmap import create_structure_pane
 
 # Configure Panel
@@ -119,6 +119,13 @@ class DataManager:
         self.reference_file = reference_file
         self.exclude_indels = exclude_indels
 
+        # Load reference sequences from CSV
+        self.references_dict, errors, _, _ = load_references_from_csv(reference_file)
+        if errors:
+            raise ValueError(f"Error loading references: {errors}")
+
+        self.current_reference = list(self.references_dict.keys())[0]
+
         # Load only genotypes DataFrame (lightweight)
         genotypes = pd.read_csv(genotypes_file, low_memory=False)
         if exclude_indels:
@@ -149,14 +156,27 @@ class DataManager:
             sampled_genotypes = genotypes
 
         # Create SequenceAnalyzer with downsampled data only
+        ref_data = self.references_dict[self.current_reference]
+        reference_sequences = [
+            ref_data['alignment_seq'],
+            ref_data['NT_seq'],
+            ref_data['coding_seq']
+        ]
+
         self.analyzer = SequenceAnalyzer(
-            reference_fasta=reference_file,
+            reference_sequences=reference_sequences,
             genotypesCSV=sampled_genotypes,
             exclude_indels=False
         )
 
         # Cache for aggregate_mutations to avoid duplicate computation
         self._agg_muts_cache = {}
+
+    def get_structure_file(self):
+        """Get structure file for current reference"""
+        ref_data = self.references_dict.get(self.current_reference, {})
+        structure_file = ref_data.get('structure_file', '')
+        return structure_file if structure_file else None
 
     def get_aggregated_mutations(self, NTorAA, idx=None, unique_only=False):
         """
@@ -467,16 +487,18 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
     label_step = param.Selector(default=50, objects=[None, 10, 50, 100], doc="Label every Nth residue (None = no labels)")
     frequency_floor = param.Number(default=0.0, bounds=(0, 1), doc="Minimum frequency threshold for coloring residues")
 
-    def __init__(self, data_manager, structure_file=None, **params):
+    def __init__(self, data_manager, **params):
         super().__init__(**params)
         self.data_manager = data_manager
-        self.structure_file = structure_file
 
     def plot(self, position_range=''):
         """Create structure viewer - method that takes position_range as argument"""
 
+        # Get structure file from data_manager based on current reference
+        structure_file = self.data_manager.get_structure_file()
+
         # Return empty spacer if no structure file
-        if not self.structure_file:
+        if not structure_file:
             return pn.Spacer(width=0)
 
         # Use selected data if available, otherwise use all data
@@ -492,7 +514,7 @@ class StructureHeatmapComponent(pn.viewable.Viewer):
 
             # Create structure viewer pane
             structure_pane = create_structure_pane(
-                structure_file=self.structure_file,
+                structure_file=structure_file,
                 agg_df=agg_df,
                 colormap=self.colormap,
                 width=500,
@@ -1221,7 +1243,8 @@ class MapleDashboard:
         """
         Initialize dashboard with unified datasets_config.
 
-        datasets_config: list of dicts with keys: name, genotypes_file, reference_file, exclude_indels, structure_file
+        datasets_config: list of dicts with keys: name, genotypes_file, reference_file, exclude_indels
+        Note: structure_file is now obtained from the reference CSV file
         """
         self.datasets_config = datasets_config
         dataset_names = [d['name'] for d in datasets_config]
@@ -1243,7 +1266,6 @@ class MapleDashboard:
             first_dataset['exclude_indels'],
             downsample_size=initial_downsample
         )
-        self.structure_file = first_dataset['structure_file']
         self.genotypes_filename = pathlib.Path(first_dataset['genotypes_file']).name
 
         # Create reference selector (populated from loaded data)
@@ -1277,7 +1299,7 @@ class MapleDashboard:
         self.histogram_component = HistogramComponent(self.data_manager)
         self.mutation_analysis_component = MutationAnalysisComponent(self.data_manager)
         self.table_component = TableComponent(self.data_manager)
-        self.structure_component = StructureHeatmapComponent(self.data_manager, structure_file=self.structure_file)
+        self.structure_component = StructureHeatmapComponent(self.data_manager)
         self.controls_panel = ControlsPanel(
             self.data_manager,
             self.scatter_component,
@@ -1382,17 +1404,15 @@ class MapleDashboard:
                                     table_component=self.table_component)
 
         # Create reactive structure viewer that updates with selections and filtered data (only if PDB file provided)
-        if self.structure_file:
-            self.reactive_structure = pn.bind(self._create_structure_with_selection,
-                                            data=self.filtered_data,
-                                            selection_expr=self.ls.param.selection_expr,
-                                            structure_component=self.structure_component,
-                                            position_range=self.mutation_analysis_component.param.position_range,
-                                            colormap=self.structure_component.param.colormap,
-                                            label_step=self.structure_component.param.label_step,
-                                            frequency_floor=self.structure_component.param.frequency_floor)
-        else:
-            self.reactive_structure = pn.Spacer(width=0)
+        # Note: Structure file availability is checked dynamically in StructureHeatmapComponent
+        self.reactive_structure = pn.bind(self._create_structure_with_selection,
+                                        data=self.filtered_data,
+                                        selection_expr=self.ls.param.selection_expr,
+                                        structure_component=self.structure_component,
+                                        position_range=self.mutation_analysis_component.param.position_range,
+                                        colormap=self.structure_component.param.colormap,
+                                        label_step=self.structure_component.param.label_step,
+                                        frequency_floor=self.structure_component.param.frequency_floor)
 
         # Link export plots button callback (button is in ControlsPanel, logic is here)
         self.controls_panel.export_plots_button.on_click(self._export_plots)
@@ -1406,6 +1426,9 @@ class MapleDashboard:
         # Link dataset selector callback (only active if more than one dataset)
         if len(datasets_config) > 1:
             self.dataset_selector.param.watch(self._switch_dataset, 'value')
+
+        # Link reference selector callback to same method (reference switch is same as dataset switch)
+        self.reference_selector.param.watch(self._switch_dataset, 'value')
 
         # Create the dashboard template
         self._create_template()
@@ -1565,12 +1588,24 @@ class MapleDashboard:
         print("Selection applied")
 
     def _switch_dataset(self, event):
-        """Switch to a different dataset"""
-        dataset_name = event.new
+        """Switch to a different dataset or reference"""
+        # If triggered by reference selector, use current dataset. Otherwise use new dataset.
+        if event.obj == self.reference_selector:
+            dataset_name = self.dataset_selector.value
+        else:
+            dataset_name = event.new
         dataset_config = next(d for d in self.datasets_config if d['name'] == dataset_name)
+
+        # Clear selection state BEFORE switching data manager
+        self.selected_indices = []
+        if self.data_manager.analyzer.selected_idx is not None:
+            self.data_manager.analyzer.selected_idx = None
 
         # Clear cache from old data manager before switching
         self.data_manager.clear_agg_muts_cache()
+
+        # Clear selection expr to prevent reactive updates during switch
+        self.ls.selection_expr = []
 
         # Create new data manager with new reference (old data_manager will be garbage collected)
         current_downsample = self.downsample_slider.value
@@ -1580,29 +1615,20 @@ class MapleDashboard:
             dataset_config['exclude_indels'],
             downsample_size=current_downsample
         )
-        self.structure_file = dataset_config['structure_file']
         self.genotypes_filename = pathlib.Path(dataset_config['genotypes_file']).name
 
-        # Update data_manager and structure_file reference in all components FIRST (before any reactive changes)
+        # Update data_manager reference in all components
         self.scatter_component.data_manager = self.data_manager
         self.histogram_component.data_manager = self.data_manager
         self.mutation_analysis_component.data_manager = self.data_manager
         self.table_component.data_manager = self.data_manager
         self.structure_component.data_manager = self.data_manager
-        self.structure_component.structure_file = self.structure_file  # Update structure file too!
         self.controls_panel.data_manager = self.data_manager
-
-        # Clear selection state (non-reactive parts)
-        self.selected_indices = []
-        self.data_manager.analyzer.selected_idx = None
 
         # Update downsample slider range
         max_size = len(self.data_manager.genotypes)
         self.downsample_slider.end = max_size
         self.downsample_slider.value = min(current_downsample, max_size)
-
-        # Update filter ranges for new dataset
-        self.controls_panel._update_filter_ranges()
 
         # Update reference selector for new dataset
         reference_names = self._get_reference_names()
@@ -1610,8 +1636,8 @@ class MapleDashboard:
         self.reference_selector.value = reference_names[0]
         self.reference_selector.disabled = (len(reference_names) <= 1)
 
-        # Clear selection - this will trigger updates for components that depend on selection_expr
-        self.ls.selection_expr = []
+        # Update filter ranges for new dataset (do this last to trigger reactive update with fresh data)
+        self.controls_panel._update_filter_ranges()
 
     def _update_NT_muts_options(self, event):
         """Update NT mutations MultiChoice options based on current filtered data"""
@@ -2079,7 +2105,7 @@ try:
         datasets_df = pd.read_csv(args.datasets)
 
         # Validate required columns
-        required_cols = ['genotypes_csv', 'reference_fasta']
+        required_cols = ['genotypes_csv', 'reference_csv']
         missing_cols = [col for col in required_cols if col not in datasets_df.columns]
         if missing_cols:
             raise ValueError(f"Datasets CSV missing required columns: {missing_cols}")
@@ -2096,16 +2122,11 @@ try:
             if 'exclude_indels' in row and pd.notna(row['exclude_indels']):
                 exclude_indels = str(row['exclude_indels']).lower() in ['true', '1', 'yes']
 
-            structure_file = None
-            if 'structure_file' in row and pd.notna(row['structure_file']) and str(row['structure_file']).strip():
-                structure_file = str(row['structure_file'])
-
             datasets_config.append({
                 'name': dataset_name,
                 'genotypes_file': genotypes_path,
-                'reference_file': row['reference_fasta'],
-                'exclude_indels': exclude_indels,
-                'structure_file': structure_file
+                'reference_file': row['reference_csv'],
+                'exclude_indels': exclude_indels
             })
 
     else:
@@ -2118,12 +2139,12 @@ try:
         print(f"Reference: {args.reference}")
 
         # Build single-item datasets_config
+        # Note: structure_file now comes from reference CSV, not command line
         datasets_config = [{
             'name': pathlib.Path(args.genotypes).name.replace('_genotypes.csv', ''),
             'genotypes_file': args.genotypes,
             'reference_file': args.reference,
-            'exclude_indels': args.exclude_indels,
-            'structure_file': args.structure_file if args.structure_file else None
+            'exclude_indels': args.exclude_indels
         }]
 
     # Create dashboard with unified datasets_config
