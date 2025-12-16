@@ -669,9 +669,10 @@ def process_bam_file(bam_path, references_csv, output_files, quality_minimum,
         ])
 
     if has_barcode_column:
-        all_seqs_columns.append('barcode(s)')
+        all_seqs_columns.append('label_barcodes')
 
-    genotypes_columns = all_seqs_columns[3:]  # Columns for grouping genotypes (skip seq_ID, avg_quality_score, reference_name)
+    # Columns for grouping genotypes (skip seq_ID, avg_quality_score, reference_name, and label_barcodes)
+    genotypes_columns = [col for col in all_seqs_columns[3:] if col != 'label_barcodes']
 
     # Build DataFrames
     all_seqs_df = pd.DataFrame(all_genotypes_lists, columns=all_seqs_columns)
@@ -747,8 +748,8 @@ def process_bam_file(bam_path, references_csv, output_files, quality_minimum,
     all_include = ['seq_ID', 'reference_name', 'genotype_ID']
 
     if has_barcode_column:
-        condensed_drop.append('barcode(s)')
-        all_include.append('barcode(s)')
+        condensed_drop.append('label_barcodes')
+        all_include.append('label_barcodes')
 
     # Write output files
     genotypes_condensed.drop(columns=condensed_drop).to_csv(output_files[1], index=False)

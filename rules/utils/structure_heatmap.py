@@ -276,11 +276,18 @@ def create_hover_callbacks(selected_chain, js_data):
                 }
                 labelText += refPos + ": " + freq.toFixed(3);
 
-                // Position label on CA (alpha carbon) instead of hovered atom
+                // Find max position to detect last residue
+                var allPositions = Object.keys(data).map(Number);
+                var maxPos = Math.max.apply(null, allPositions);
+                var currentPos = parseInt(atom.resi);
+
+                // Position label on next residue (+1) or previous residue (-1) if last
+                var labelResi = (currentPos >= maxPos) ? currentPos - 1 : currentPos + 1;
+
                 window.hoverLabel = viewer.addLabel(labelText,
                     {backgroundColor: 'lightgray', fontColor:'black',
                      backgroundOpacity: 0.8, fontSize: 12},
-                    {chain: atom.chain, resi: atom.resi, atom: 'CA'});
+                    {chain: atom.chain, resi: labelResi, atom: 'CA'});
             }
         }
         // For non-selected chains, just show chain ID
