@@ -100,7 +100,7 @@ def calculate_statistics_for_sample(df_dict, tag, barcode_group, do_aa_analysis,
     """
     # Basic counts
     nt_dist = df_dict['NT-mutation-distribution']['total sequences']
-    total_seqs = nt_dist.sum()
+    total_seqs = int(nt_dist.sum())
     fail_count = len(df_dict['failures'])
     reference_length = len(df_dict['NT-mutations-aggregated']['position'].unique())
 
@@ -203,14 +203,16 @@ def build_column_names():
     return cols
 
 
-def calculate_all_statistics(input_list, do_aa_analysis=False, split_by_reference=False):
+def calculate_all_statistics(input_list, do_aa_analysis=False):
     """
     Calculate statistics for all tag/barcode combinations.
+
+    Statistics are calculated separately for each reference sequence
+    (one row per reference per sample).
 
     Args:
         input_list: List of input file paths
         do_aa_analysis: Whether AA mutation analysis was performed
-        split_by_reference: Whether to output per-reference stats (default: aggregate across references)
 
     Returns:
         pandas.DataFrame: Statistics for all samples
@@ -231,25 +233,18 @@ def calculate_all_statistics(input_list, do_aa_analysis=False, split_by_referenc
             # Remove NaN rows (wild-type positions) from mutations-aggregated files
             df_dict = {k: v.dropna(subset=['total_count']) if 'mutations-aggregated' in k else v for k, v in df_dict.items()}
 
-            if split_by_reference:
-                # Calculate statistics per reference
-                for ref_name in df_dict['genotypes']['reference_name'].unique():
-                    # Filter DataFrames by reference
-                    ref_df_dict = {}
-                    for dtype, df in df_dict.items():
-                        if 'reference_name' in df.columns:
-                            ref_df_dict[dtype] = df[df['reference_name'] == ref_name]
-                        else:
-                            ref_df_dict[dtype] = df  # failures doesn't have reference_name
+            # Calculate statistics per reference
+            for ref_name in df_dict['genotypes']['reference_name'].unique():
+                # Filter DataFrames by reference
+                ref_df_dict = {}
+                for dtype, df in df_dict.items():
+                    if 'reference_name' in df.columns:
+                        ref_df_dict[dtype] = df[df['reference_name'] == ref_name]
+                    else:
+                        ref_df_dict[dtype] = df  # failures doesn't have reference_name
 
-                    values = calculate_statistics_for_sample(
-                        ref_df_dict, tag, barcode_group, do_aa_analysis, reference_name=ref_name
-                    )
-                    stats_list.append(values)
-            else:
-                # Aggregate across all references (pass full dataframes)
                 values = calculate_statistics_for_sample(
-                    df_dict, tag, barcode_group, do_aa_analysis, reference_name='N/A'
+                    ref_df_dict, tag, barcode_group, do_aa_analysis, reference_name=ref_name
                 )
                 stats_list.append(values)
 
@@ -273,7 +268,6 @@ def main():
         input_list = snakemake.input
         output_file = str(snakemake.output)
         do_aa_analysis = snakemake.params.do_aa_analysis
-        split_by_reference = snakemake.params.split_by_reference
     else:
         # Running as standalone script
         parser = argparse.ArgumentParser(description=__doc__)
@@ -283,17 +277,14 @@ def main():
                           help='Output statistics CSV file')
         parser.add_argument('--do-aa-analysis', action='store_true',
                           help='Whether AA mutation analysis was performed')
-        parser.add_argument('--split-by-reference', action='store_true',
-                          help='Calculate statistics per reference (default: aggregate)')
         args = parser.parse_args()
 
         input_list = args.input
         output_file = args.output
         do_aa_analysis = args.do_aa_analysis
-        split_by_reference = args.split_by_reference
 
     # Calculate statistics
-    stats_df = calculate_all_statistics(input_list, do_aa_analysis, split_by_reference)
+    stats_df = calculate_all_statistics(input_list, do_aa_analysis)
 
     # Save output
     stats_df.to_csv(output_file, index=False)
