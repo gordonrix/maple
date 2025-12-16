@@ -66,7 +66,7 @@ def load_reference_sequences(references_csv, do_aa_analysis):
             - ref_protein_end: end position of protein reference
     """
     # Load from CSV
-    references_dict, errors, _, _ = load_references_from_csv(references_csv)
+    references_dict, errors, _, _, _ = load_references_from_csv(references_csv)
 
     if errors:
         for error in errors:
