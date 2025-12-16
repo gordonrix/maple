@@ -58,26 +58,6 @@ WILDCARD_CONSTRAINTS = {
     "timepointsGroup": "[^\/_]+",
 }
 
-def get_demuxed_barcodes(tag, bcGroupsDict):
-    """
-    tag:            string, run tag
-    bcGroupsDict:   dictionary, barcodeGroups dict from config file for a specific tag,
-                        if it exists, otherwise an empty dict if no sorting is needed
-
-    grabs all barcodes for a given tag that were properly demultiplexed
-            if that tag was demultiplexed, then sorts according to the
-            barcode groups in the config file"""
-
-    if config['do_demux'][tag]:
-        checkpoint_demux_output = checkpoints.demultiplex.get(tag=tag).output[0]
-        checkpoint_demux_prefix = checkpoint_demux_output.split('demultiplex')[0]
-        checkpoint_demux_files = checkpoint_demux_prefix.replace('.','') + '{BCs}.bam'
-        BCs = glob_wildcards(checkpoint_demux_files).BCs
-        out = sort_barcodes(BCs, bcGroupsDict)
-    else:
-        out = ['all']
-    return out
-
 def sort_barcodes(bcList, bcGroupsDict):
     """
     bcList:         list of strings, barcode groups
@@ -442,19 +422,19 @@ def str_to_bool(value):
 
 def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
     """
-    Load the given csv file as a nested dictionary in which the first column is used as the outer key 
+    Load the given csv file as a nested dictionary in which the first column is used as the outer key
     and columns are used as the inner key, with values as the inner values.
-    If a tag is given then the tag column will be used to filter the dataframe, then removed, 
+    If a tag is given then the tag column will be used to filter the dataframe, then removed,
     and the first of the remaining columns will be used as the outer key.
 
     params:
         csv_path: str, path to the csv file
         required: list, optional, list of required column values to check for in each row in the csv file
-        lists: list, optional, list of column names that should be converted to lists using '__' as the delimiter
+        lists: list, optional, list of column names that should be converted to lists using ',' as the delimiter (or '__' for backward compatibility)
         tag: str, optional, the tag to filter the dataframe by. If this is used but no tag column is present,
             no filtering will be done. This is to allow for the same file to be used by multiple tags
         defaults: dict, optional, default values to use if a column is not present or if a value is missing
-    
+
     returns:
         dict, the csv file as a nested dictionary
     """
@@ -528,10 +508,16 @@ def load_csv_as_dict(csv_path, required=[], lists=[], tag=False, defaults={}):
             cleaned_dict[key] = row_dict
         
         # Convert list columns to lists
+        # Accept both ',' (preferred) and '__' (backward compatibility) as delimiters
         for col in lists:
             for key in cleaned_dict:
                 if col in cleaned_dict[key]:
-                    cleaned_dict[key][col] = str(cleaned_dict[key][col]).split('__')
+                    value_str = str(cleaned_dict[key][col])
+                    # Use ',' if present, otherwise fall back to '__'
+                    if ',' in value_str:
+                        cleaned_dict[key][col] = [item.strip() for item in value_str.split(',')]
+                    else:
+                        cleaned_dict[key][col] = value_str.split('__')
 
         return cleaned_dict
     else:
@@ -924,17 +910,20 @@ def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=Fa
         use_longest_orf_default: Default value for use_longest_ORF if not specified
 
     Returns:
-        tuple: (references_dict, errors_list, has_NT_analysis, has_AA_analysis)
+        tuple: (references_dict, errors_list, has_NT_analysis, has_AA_analysis, notices_list)
             references_dict: {ref_name: {'alignment_seq': ..., 'NT_seq': ..., 'coding_seq': ...}}
             errors_list: List of error message strings
             has_NT_analysis: Boolean indicating if any reference has NT analysis
             has_AA_analysis: Boolean indicating if any reference has AA analysis
+            notices_list: List of notice message strings
     """
     errors = []
+    notices = []
+    refs_using_coding_for_NT = []
 
     if not os.path.isfile(ref_csv_path):
         errors.append(f"[ERROR] Reference CSV file `{ref_csv_path}` for tag `{tag}` not found.")
-        return {}, errors, False, False
+        return {}, errors, False, False, notices
 
     # Parse reference CSV
     references_dict_raw = load_csv_as_dict(ref_csv_path,
@@ -943,7 +932,7 @@ def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=Fa
 
     if not references_dict_raw:
         errors.append(f"[ERROR] Failed to parse reference CSV `{ref_csv_path}` for tag `{tag}`.")
-        return {}, errors, False, False
+        return {}, errors, False, False, notices
 
     # Process each reference
     references_dict = {}
@@ -977,7 +966,7 @@ def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=Fa
         else:
             # If ref_seq_coding provided but not ref_seq_NT, use ref_seq_coding for both
             if ref_coding and not ref_NT:
-                print(f"[NOTICE] ref_seq_coding provided without ref_seq_NT for reference `{ref_name}` (tag `{tag}`). Using ref_seq_coding for both NT and AA analysis.", file=sys.stderr)
+                refs_using_coding_for_NT.append(ref_name)
                 ref_NT = ref_coding
 
         # Validate
@@ -992,11 +981,20 @@ def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=Fa
         if ref_coding:
             has_AA_analysis = True
 
+        # Get structure file if provided
+        structure_file = str(row.get('structure_file', '')) if pd.notna(row.get('structure_file')) else ''
+
         # Store reference data
         references_dict[ref_name] = {
             'alignment_seq': ref_seq,
             'NT_seq': ref_NT,
-            'coding_seq': ref_coding
+            'coding_seq': ref_coding,
+            'structure_file': structure_file
         }
 
-    return references_dict, errors, has_NT_analysis, has_AA_analysis
+    # Generate consolidated notice for refs using coding for NT
+    if refs_using_coding_for_NT:
+        ref_set = '{' + ', '.join(sorted(set(refs_using_coding_for_NT))) + '}'
+        notices.append(f"[NOTICE] ref_seq_coding provided without ref_seq_NT for tag `{tag}`, references {ref_set}. Using ref_seq_coding for both NT and AA analysis.")
+
+    return references_dict, errors, has_NT_analysis, has_AA_analysis, notices

@@ -96,7 +96,13 @@ def validate_contexts_in_references(tag, references_dict, barcode_contexts=None,
         return validation_errors
 
     # Check for duplicates within barcode contexts and UMI contexts separately
-    for context_type, contexts in [('barcode', barcode_contexts), ('UMI', umi_contexts)]:
+    # For barcodes: partition and label barcodes can share contexts, so check separately
+    partition_barcodes = {name: ctx for name, ctx in barcode_contexts.items()
+                         if not config['runs'][tag].get('barcode_info', {}).get(name, {}).get('label_only', False)} if barcode_contexts else {}
+    label_barcodes = {name: ctx for name, ctx in barcode_contexts.items()
+                     if config['runs'][tag].get('barcode_info', {}).get(name, {}).get('label_only', False)} if barcode_contexts else {}
+
+    for context_type, contexts in [('partition barcode', partition_barcodes), ('label barcode', label_barcodes), ('UMI', umi_contexts)]:
         if contexts:
             context_list = list(contexts.values()) if isinstance(contexts, dict) else contexts
             if len(set(c.upper() for c in context_list)) != len(context_list):
@@ -324,6 +330,17 @@ runs_to_import = []
 if type(config.get('runs', False)) is str:
     full_csv_path = os.path.join(config['metadata'], config['runs'])
     df = pd.read_csv(full_csv_path, index_col=False)
+
+    # Validate column names in tags.csv
+    valid_columns = {
+        'tag', 'reference_csv', 'runname', 'bs_project_ID', 'sample_ID',
+        'fwdReads', 'rvsReads', 'barcode_info_csv', 'partition_barcode_groups_csv',
+        'label_barcode_groups_csv', 'splint', 'UMI_contexts', 'timepoint'
+    }
+    invalid_columns = set(df.columns) - valid_columns
+    if invalid_columns:
+        print(f"[WARNING] Invalid column name(s) in tags.csv: {', '.join(sorted(invalid_columns))}. Valid columns are: {', '.join(sorted(valid_columns))}\n", file=sys.stderr)
+
     config['runs'] = load_csv_as_dict(full_csv_path, required=['reference_csv'], lists=['runname', 'UMI_contexts'])
 
 for tag in config['runs']:
@@ -485,7 +502,7 @@ for tag in config['runs']:
 
     # Load and validate references using common.py function
     use_longest_orf_default = config.get('use_longest_orf_default', False)
-    references_dict, ref_errors, has_NT_analysis, has_AA_analysis = load_references_from_csv(
+    references_dict, ref_errors, has_NT_analysis, has_AA_analysis, ref_notices = load_references_from_csv(
         ref_csv_path, tag, use_longest_orf_default
     )
 
@@ -493,6 +510,11 @@ for tag in config['runs']:
     errors.extend(ref_errors)
     if ref_errors:
         continue
+
+    # Add notices to global notices list
+    if ref_notices:
+        notices.extend(ref_notices)
+        notice_of_notices = True
 
     # Store references and set analysis flags
     config['runs'][tag]['references'] = references_dict
@@ -800,22 +822,22 @@ if config.get('background', False):
 config['do_enrichment_analysis'] = {}
 
 #TODO: update enrichment analysis to work for both genotypes and barcodes
-if 'timepoints' in config:
-    for tag in config['runs']:
-        # Check for label-only barcodes
-        label_only_count = 0
-        if 'barcode_info_csv' in config['runs'][tag]:
-            try:
-                barcode_df = pd.read_csv(config['runs'][tag]['barcode_info_csv'])
-                if 'tag' in barcode_df.columns:
-                    barcode_df = barcode_df[barcode_df['tag'] == tag]
-                label_only_count = barcode_df['label_only'].sum() if 'label_only' in barcode_df.columns else 0
-            except Exception:
-                pass
-        
-        # Enrichment analysis requires exactly 1 label-only barcode
-        config['do_enrichment_analysis'][tag] = (label_only_count == 1)
+for tag in config['runs']:
+    # Check for label-only barcodes
+    label_only_count = 0
+    if 'barcode_info_csv' in config['runs'][tag]:
+        try:
+            barcode_df = pd.read_csv(config['runs'][tag]['barcode_info_csv'])
+            if 'tag' in barcode_df.columns:
+                barcode_df = barcode_df[barcode_df['tag'] == tag]
+            label_only_count = barcode_df['label_only'].sum() if 'label_only' in barcode_df.columns else 0
+        except Exception:
+            pass
 
+    # Enrichment analysis requires exactly 1 label-only barcode
+    config['do_enrichment_analysis'][tag] = (label_only_count == 1)
+
+if 'timepoints' in config:
     CSVpath = os.path.join(config['metadata'], config['timepoints'])
     config['timepoints'] = CSVpath
 
@@ -906,7 +928,7 @@ if 'timepoints' in config:
                             errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
             config['timepointsInfo'] = timepoints_info_dict
     else:
-        print(f"[WARNING] Timepoints .CSV file for run tag `{tag}`, `{CSVpath}` does not exist.\n", file=sys.stderr)
+        notices.append(f"[NOTICE] Timepoints .CSV file `{CSVpath}` does not exist. Timepoint analysis will not be run.")
 if len(errors) > 0:
     for err in errors:
         print(err, file=sys.stderr)
@@ -921,7 +943,15 @@ if (rename_csv := config.get('rename', False)):
         print(f"[WARNING] Rename .CSV file `{rename_csv}` does not exist.\n", file=sys.stderr)
 
 if notice_of_notices:
-    print("[NOTICE] Some notices not printed to terminal. Please see log file for more information.\n", file=sys.stderr)
+    # Also write notices to a startup log file for dry runs
+    os.makedirs('log', exist_ok=True)
+    startup_log = os.path.join('log', 'startup_notices.log')
+    with open(startup_log, 'w') as fp:
+        fp.write("Notices from pipeline configuration:\n")
+        fp.write("=" * 50 + "\n")
+        fp.write('\n'.join(notices))
+        fp.write("\n")
+    print(f"[NOTICE] Some notices not printed to terminal. See {startup_log} for details.\n", file=sys.stderr)
 
 with open(os.path.join(config['metadata'], 'config_final.yaml'), 'w') as outfile:
     yaml.dump(config, outfile, default_flow_style=False)
