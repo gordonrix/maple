@@ -47,7 +47,7 @@ if snakemake_mode:
     args = Args()
     args.input_bam = snakemake.input.bam
     args.references = snakemake.input.references
-    args.output_fastas = snakemake.output.fastas
+    args.output_bams = snakemake.output.bams
     args.extract_log = snakemake.output.extract_log
     args.groups_log = snakemake.output.groups_log
     args.UMI_contexts = snakemake.params.UMI_contexts
@@ -59,7 +59,7 @@ else:
     parser = argparse.ArgumentParser(description="Unified UMI processing: extract, group, filter, and batch")
     parser.add_argument("--input_bam", required=True, help="Input aligned BAM file")
     parser.add_argument("--references", required=True, help="FASTA file containing reference sequences")
-    parser.add_argument("--output_dir", required=True, help="Output directory for batch FASTA files")
+    parser.add_argument("--output_dir", required=True, help="Output directory for batch BAM files")
     parser.add_argument("--extract_log", required=True, help="Output CSV log for UMI extraction")
     parser.add_argument("--groups_log", required=True, help="Output CSV log for UMI groups")
     parser.add_argument("--UMI_contexts", required=True, help="Comma-separated UMI contexts")
@@ -236,13 +236,14 @@ def group_umis(umi_groups, UMI_mismatches, output_dir):
                     f.write(f"{'I' * len(umi)}\n")  # Dummy quality scores
 
         # Run UMICollapse
+        print(f"Running UMI collapse on reference sequence {ref_name}")
         subprocess.run([
             "umicollapse", "fastq",
             "-i", tmp_umi_in,
             "-o", tmp_umi_out,
             "--tag",
             "-k", str(UMI_mismatches)
-        ], check=True)
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # Parse UMICollapse output to get cluster assignments
         umi_to_cluster = {}  # {(read_id, umi): cluster_id}
@@ -283,19 +284,16 @@ def group_umis(umi_groups, UMI_mismatches, output_dir):
     return grouped_umi_groups, groups_log_entries
 
 
-def filter_and_batch_groups(umi_groups, output_dir, minimum, maximum, batches):
+def filter_and_batch_groups(umi_groups, bam_in, output_dir, minimum, maximum, batches):
     """
-    Filter UMI groups by size and split into batches for consensus.
+    Filter UMI groups by size and split into BAM batch files for consensus.
 
-    For each UMI group:
-    1. Filter by minimum read count
-    2. Downsample to maximum read count (keeping highest quality, balancing strand bias)
-    3. Assign to batch file (hash-based or round-robin)
-    4. Write reads to batch FASTA files
+    Writes BAM files preserving alignment information from the input BAM.
 
     Args:
         umi_groups (dict): {(ref_name, unique_id): [ReadData, ...]}
-        output_dir (str): Directory for output batch FASTA files
+        bam_in (pysam.AlignmentFile): Input BAM file (must be open)
+        output_dir (str): Directory for output batch BAM files
         minimum (int): Minimum reads required per UMI group
         maximum (int): Maximum reads to keep per UMI group
         batches (int): Number of batch files to create
@@ -303,13 +301,24 @@ def filter_and_batch_groups(umi_groups, output_dir, minimum, maximum, batches):
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Open all batch file handles
+    # Create dict: read_id → BAM record for fast lookup
+    print("Building read ID to BAM record mapping...")
+    read_to_record = {}
+    for read in bam_in.fetch():
+        if not read.is_unmapped:
+            read_to_record[read.query_name] = read
+    print(f"Loaded {len(read_to_record)} BAM records")
+
+    # Open all batch BAM file handles
     batch_handles = {}
     for batch_num in range(batches):
-        batch_path = os.path.join(output_dir, f'batch{batch_num}.fasta')
-        batch_handles[batch_num] = open(batch_path, 'w')
+        batch_path = os.path.join(output_dir, f'batch{batch_num}.bam')
+        # Create BAM with same header as input
+        batch_handles[batch_num] = pysam.AlignmentFile(batch_path, 'wb', template=bam_in)
 
-    # Process each UMI group
+    # Process each UMI group (same filtering logic as FASTA version)
+    groups_written = 0
+    reads_written = 0
     for (ref_name, unique_id), read_list in umi_groups.items():
         # Filter by minimum
         if len(read_list) < minimum:
@@ -318,7 +327,7 @@ def filter_and_batch_groups(umi_groups, output_dir, minimum, maximum, batches):
         # Sort by quality (ascending, so lowest quality first)
         read_list.sort(key=lambda r: r.mean_quality)
 
-        # Downsample to maximum if needed (logic from UMI_split_fastqs.py)
+        # Downsample to maximum if needed
         if len(read_list) > maximum:
             # Build parallel strand list
             group_strand_dict = [1 if r.strand == '+' else -1 for r in read_list]
@@ -342,14 +351,38 @@ def filter_and_batch_groups(umi_groups, output_dir, minimum, maximum, batches):
         # Assign to batch
         batch_num = unique_id % batches
 
-        # Write reads to batch file
+        # Write BAM records to batch file
         for read in read_list:
-            header = f'UMI-{unique_id}|ref-{ref_name}|{read.read_id}'
-            batch_handles[batch_num].write(f'>{header}\n{read.sequence}\n')
+            if read.read_id in read_to_record:
+                bam_record = read_to_record[read.read_id]
+                # Update read name to include UMI info
+                bam_record.query_name = f'UMI-{unique_id}|ref-{ref_name}|{read.read_id}'
+                batch_handles[batch_num].write(bam_record)
+                reads_written += 1
+            else:
+                print(f"Warning: Read {read.read_id} not found in BAM file")
+        groups_written += 1
 
-    # Close all file handles
+    # Close all batch BAM files
     for handle in batch_handles.values():
         handle.close()
+
+    # Sort and index all batch BAM files
+    for batch_num in range(batches):
+        batch_path = os.path.join(output_dir, f'batch{batch_num}.bam')
+        sorted_path = os.path.join(output_dir, f'batch{batch_num}.sorted.bam')
+
+        # Sort the BAM file
+        pysam.sort("-o", sorted_path, batch_path)
+
+        # Replace unsorted with sorted
+        os.remove(batch_path)
+        os.rename(sorted_path, batch_path)
+
+        # Index the sorted BAM file
+        pysam.index(batch_path)
+
+    print(f"Wrote {reads_written} reads from {groups_written} UMI groups to {batches} batch BAM files")
 
 
 def write_extract_log(extract_log_entries, log_path, num_umi_contexts):
@@ -427,9 +460,9 @@ def main():
     """
     Main entry point for UMI processing.
     """
-    # Get output directory from first fasta path
+    # Get output directory from first bam path
     if snakemake_mode:
-        output_dir = os.path.dirname(args.output_fastas[0])
+        output_dir = os.path.dirname(args.output_bams[0])
     else:
         output_dir = args.output_dir
 
@@ -454,13 +487,17 @@ def main():
 
     # Step 3: Filter and batch groups
     print("Step 3: Filtering and batching groups...")
+    # Open BAM file for reading to get records
+    bam_in = pysam.AlignmentFile(args.input_bam, 'rb')
     filter_and_batch_groups(
         umi_groups,
+        bam_in,
         output_dir,
         args.minimum,
         args.maximum,
         args.batches
     )
+    bam_in.close()
 
     # Step 4: Write logs
     print("Step 4: Writing logs...")

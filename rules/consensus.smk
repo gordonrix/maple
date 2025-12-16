@@ -153,7 +153,8 @@ rule UMI_process:
         index = "sequences/UMI/{tag}_pre-consensus.bam.bai",
         references = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
     output:
-        fastas = temp(expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.fasta", x=UMIbatchesList)),
+        bams = temp(expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.bam", x=UMIbatchesList)),
+        bais = temp(expand("sequences/UMI/{{tag, [^\/_]*}}-temp/batch{x}.bam.bai", x=UMIbatchesList)),
         extract_log = temp('sequences/UMI/{tag, [^\/_]*}_UMI-extract.csv'),
         groups_log = temp("sequences/UMI/{tag, [^\/_]*}_UMI-groups-log.csv")
     params:
@@ -161,7 +162,8 @@ rule UMI_process:
         UMI_mismatches = lambda wildcards: config['UMI_mismatches'],
         batches = lambda wildcards: config['UMI_medaka_batches'],
         minimum = lambda wildcards: config['UMI_consensus_minimum'],
-        maximum = lambda wildcards: config['UMI_consensus_maximum']
+        maximum = lambda wildcards: config['UMI_consensus_maximum'],
+        output_format = 'bam'
     script:
         "utils/UMI_process.py"
 
@@ -316,26 +318,29 @@ rule plot_distribution_UMI_group:
 #     script:
 #         "utils/UMI_split_fastqs.py"
 
-# use medaka to generate consensus sequences if either min or max reads/UMI not set to 1, otherwise can just merge the sequences as they have been deduplicated by the split_BAMs_to_fasta rule
+# use medaka to generate consensus sequences if either min or max reads/UMI not set to 1, otherwise can just merge the sequences as they have been deduplicated by the UMI_process rule
 if config['UMI_consensus_minimum'] == config['UMI_consensus_maximum'] == 1:
 
     rule UMI_merge_deduplicated_seqs:
         input:
-            expand('sequences/UMI/{{tag}}-temp/batch{x}.fasta', x = UMIbatchesList)
+            bams = expand('sequences/UMI/{{tag}}-temp/batch{x}.bam', x = UMIbatchesList)
         output:
             seqs = 'sequences/UMI/{tag, [^\/_]*}_UMIconsensuses.fasta.gz'
         run:
+            import pysam
             with open(output.seqs[:-3], 'w') as fp_out:
-                for f in input:
-                    with open(f, 'r') as fp_in:
-                        fp_out.write(fp_in.read())
+                for bam_file in input.bams:
+                    with pysam.AlignmentFile(bam_file, 'rb', check_sq=False) as bam:
+                        for read in bam:
+                            fp_out.write(f'>{read.query_name}\n{read.query_sequence}\n')
             os.system(f'gzip {output.seqs[:-3]}')
 
 else:
 
     rule UMI_consensus:
         input:
-            fasta = 'sequences/UMI/{tag}-temp/batch{batch}.fasta',
+            bam = 'sequences/UMI/{tag}-temp/batch{batch}.bam',
+            bai = 'sequences/UMI/{tag}-temp/batch{batch}.bam.bai',
             references = lambda wildcards: config['runs'][wildcards.tag]['reference_aln']
         output:
             outDir = temp(directory('sequences/UMI/{tag, [^\/_]*}-temp/batch{batch,\\d+}')),
@@ -351,7 +356,7 @@ else:
             """
             echo "Running medaka consensus with {threads} threads"
             rm -rf {output.outDir}
-            medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} --depth {params.depth} {output.outDir} {input.references} {input.fasta}
+            medaka maple_smolecule --threads {threads} --model {params.model} {params.flags} --depth {params.depth} {output.outDir} {input.references} {input.bam}
             mv {output.outDir}/consensus.fasta {output.consensus}
             """
 
