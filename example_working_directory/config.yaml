@@ -30,7 +30,7 @@ medaka_flags: '--quiet'
 medaka_use_gpu: True
 
 # alignment
-alignment_minimap2_flags: '-a -A2 -B4 -O4 -E2 --end-bonus=30 --score-N=0 --secondary=no'
+alignment_minimap2_flags: '-a -A2 -B4 -O6,24 -E2,1 --end-bonus=30 --score-N=0 --secondary=no'
 alignment_samtools_flags: ''
 
 # Thread configuration
@@ -58,6 +58,7 @@ mutations_frequencies_number_of_positions: 20
 mutations_frequencies_heatmap: True
 uniques_only: False
 mut_stats_split_by_reference: False
+mutations_aggregated_split_by_reference: 10
 # background: control
 
 # Genotype analysis
@@ -75,7 +76,7 @@ export_SVG: False
 # plot enable/disable
 plot_demux: True
 plot_mutation-distribution: True
-plot_mutation-frequencies: True
+plot_mutations-aggregated: True
 plot_hamming-distance-distribution: True
 plot_mutation-distribution-violin: True
 plot_genotypes2D: False

@@ -18,14 +18,14 @@ The tags.csv file must be located within the `metadata` directory and contains c
 - `reference`: Reference FASTA filename in the metadata directory
 - one of the following for sequence import:
     - `runname`: Directory or individual file name containing FASTQ files/sequences, must be within the config-defined `sequences_dir`
-    - `bs_project_ID` and `sample_ID`: For pulling pre-demultiplexed data from Illumina's BaseSpace. Downloads the specified project ID and grabs the fastq.gz for the specified sample ID.
+    - `bs_project_ID` and `sample_ID`: For pulling pre-demultiplexed data from Illumina's BaseSpace. Downloads the specified project ID and grabs the two paired fastq.gz files for the specified sample ID.
     - `fwdReads` and `rvsReads`: For paired-end read merging
 - optional columns:
     - `barcode_info_csv`: CSV file defining barcode types and contexts. See 'Demultiplexing'
     - `partition_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and partitioning sequences to distinct files. See 'Demultiplexing'
     - `label_barcode_groups_csv`: CSV file defining names to assign to barcode groups for demultiplexing and labeling sequences (in the 'BC' tag of a sequence in BAM file output). See 'Demultiplexing'
     - `splint`: Splint sequence for RCA consensus generation
-    - `UMI_contexts`: Context patterns for UMI extraction, in order of appearance in the reference, separated by `__` (double underscore)
+    - `UMI_contexts`: Context patterns for UMI extraction, in order of appearance in the reference, separated by `,` (comma)
     - `timepoint`: A CSV file used for time series analysis (see below)
 
 </details>
@@ -141,7 +141,7 @@ Parameters for UMI-based consensus generation using medaka and umicollapse.
 **UMI_consensus_maximum**
 - **Type:** Integer
 - **Default:** None
-- **Description:** Inclusive maximum number of subreads used to generate a UMI consensus read. Groups with more subreads will be downsampled to this number. Note that this behavior differs slightly from that of RCA_consensus_maximum
+- **Description:** Inclusive maximum number of subreads used to generate a UMI consensus read. Groups with more subreads will be downsampled to this number. Note that this behavior differs slightly from that of RCA_consensus_maximum. Setting this parameter to 1 will trigger 'deduplication' behavior in which consensus sequence construction is skipped
 - **Example:** `UMI_consensus_maximum: 20`
 
 **UMI_medaka_batches**
@@ -274,7 +274,7 @@ To name demultiplexed files and/or label demultiplexed sequences based on combin
 **demux_screen_failures**
 - **Type:** Boolean
 - **Default:** `False`
-- **Description:** Set to True if sequences that fail barcode detection should be blocked from subsequent analysis
+- **Description:** Set to True if sequences that fail barcode detection should be blocked from subsequent analysis. Also used for enrichment calculations to exclude failed barcodes.
 - **Example:** `demux_screen_failures: True`
 
 **demux_threshold**
@@ -361,12 +361,6 @@ Parameters controlling mutation detection and analysis.
 - **Description:** If True, only uses unique mutations to determine mutation spectrum
 - **Example:** `uniques_only: True`
 
-**mut_stats_split_by_reference**
-- **Type:** Boolean
-- **Default:** `False`
-- **Description:** Controls how mutation statistics are reported in mutation-stats.csv. If `True`, statistics are calculated and reported separately for each reference sequence (one row per reference per sample). If `False`, statistics are aggregated across all references (one row per sample). Useful for multi-reference experiments where you want to analyze each reference independently
-- **Example:** `mut_stats_split_by_reference: True`
-
 </details>
 
 <details>
@@ -450,11 +444,17 @@ Boolean flags to enable or disable inclusion of specific plot outputs in the `ta
 - **Description:** Generate mutation distribution plots
 - **Example:** `plot_mutation-distribution: False`
 
-**plot_mutation-frequencies**
+**plot_mutations-aggregated**
 - **Type:** Boolean
 - **Default:** `True`
-- **Description:** Generate mutation frequency plots
-- **Example:** `plot_mutation-frequencies: False`
+- **Description:** Generate mutations aggregated plots
+- **Example:** `plot_mutations-aggregated: False`
+
+**mutations_aggregated_split_by_reference**
+- **Type:** Integer
+- **Default:** `10`
+- **Description:** Number of top references (by sequence abundance) to include in mutations-aggregated plots. Each reference will be plotted as a separate column. References with fewer sequences will be excluded from the plot.
+- **Example:** `mutations_aggregated_split_by_reference: 5`
 
 **plot_hamming-distance-distribution**
 - **Type:** Boolean
@@ -512,6 +512,12 @@ Parameters for enrichment score calculation and filtering.
 - **Default:** `'all_barcodes'`
 - **Description:** Barcode to use as reference for normalization. 'all_barcodes' normalizes to all barcodes. If '' or False, a single barcode that is abundant within all samples will be chosen as the reference. If no such barcode exists, the first barcode in the list will be used as the reference
 - **Example:** `enrichment_reference_bc: 'control'`
+
+**do_enrichment**
+- **Type:** Boolean
+- **Default:** `False`
+- **Description:** When True, the genotypes dashboard will use enrichment score files as input. Requires timepoint-based analysis with enrichment score calculation enabled. When False, dashboard uses base genotypes without enrichment scores
+- **Example:** `do_enrichment: True`
 
 </details>
 
