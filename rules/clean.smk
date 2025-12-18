@@ -33,9 +33,9 @@ rule sequences_clean:
         # Create log directory if it doesn't exist
         os.makedirs('log', exist_ok=True)
 
-        # Move UMI csv and fasta files to timestamp directory
+        # Move UMI csv, fasta, and log files to timestamp directory
         if os.path.isdir('sequences/UMI'):
-            umi_files = glob.glob('sequences/UMI/*.csv') + glob.glob('sequences/UMI/*.fasta*') + glob.glob('sequences/UMI/*noConsensus.log')
+            umi_files = glob.glob('sequences/UMI/*.csv') + glob.glob('sequences/UMI/*.fasta*') + glob.glob('sequences/UMI/*.log')
             if umi_files:
                 os.makedirs(os.path.join(params.timestamp_dir, 'sequences/UMI'), exist_ok=True)
                 for f in umi_files:
