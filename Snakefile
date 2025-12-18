@@ -20,7 +20,7 @@ import yaml
 import pandas as pd
 import numpy as np
 import logging
-from rules.utils.common import load_csv_as_dict, validate_bc, str_to_bool, load_references_from_csv
+from rules.utils.common import load_csv_as_dict, validate_bc, str_to_bool, load_references_from_csv, process_timepoints_csv
 
 start_time = datetime.now()
 
@@ -853,79 +853,96 @@ if 'timepoints' in config:
     # decide whether to do barcode enrichment analysis
 
     if os.path.isfile(CSVpath):
-        timepointsCSV = pd.read_csv(CSVpath, index_col=0, header=1)
-        topRow = [x for x in pd.read_csv(CSVpath).columns if 'Unnamed: ' not in x]
+        # Process timepoints CSV to add group/replicate columns
+        timepointsCSV = process_timepoints_csv(CSVpath)
 
-        if len(topRow) > 1:
-            print(f"[NOTICE] More than one cell is filled in the top row of timepoint CSV file {CSVpath}. Only the first cell in this row will be used for labeling timepoint-based plots.\n", file=sys.stderr)
-            units = topRow[0]
-        elif len(topRow) == 0: 
-            print(f"[NOTICE] No time unit provided in top row of timepoint CSV file {CSVpath}. Default 'generations' will be used.\n", file=sys.stderr)
-            units = 'generations'
-        else:
-            units = topRow[0]
+        # Check for old timepoints format with units in first row (causes "Unnamed" columns)
+        unnamed_cols = [col for col in timepointsCSV.columns if 'Unnamed' in str(col)]
+        if unnamed_cols:
+            raise ValueError(
+                f"\n[ERROR] Detected 'Unnamed' columns in timepoints CSV file '{CSVpath}'.\n"
+                f"This suggests you're using the old format with units in the first row.\n\n"
+                f"Please update your timepoints CSV to the new format:\n"
+                f"  1. Remove the units row from your timepoints CSV\n"
+                f"  2. Add 'timepoints_units: <your_units>' to your config.yaml (e.g., 'timepoints_units: generations')\n"
+                f"  3. See the example timepoints CSV at: example_working_directory/metadata/timepoints.csv\n\n"
+                f"The new format should have column headers: sample_label, <timepoint1>, <timepoint2>, ...\n"
+                f"(The 'group' and 'replicate' columns are added automatically based on sample_label)\n"
+            )
 
-        if len(timepointsCSV.columns) <= 1:
+        # Get units from config or use default
+        units = config.get('timepoints_units', 'timepoint')
+
+        # Timepoint columns start at index 3 (after group, replicate, sample_label)
+        timepoint_cols = timepointsCSV.columns[3:]
+
+        if len(timepoint_cols) <= 1:
             print(f"[WARNING] Timepoints .CSV file `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
         else:
-            rowIndex = 3    # start at 3 because first two rows are ignored with pd.read_csv call, and errors/warnings will use 1-indexing
-            uniqueSamples = list(timepointsCSV.index.unique())
-            replicates = False
-            if len(uniqueSamples) != len(timepointsCSV.index): # assign replicate designations for samples with replicates (more than one row with the same sample name)
-                replicates = True
+            # Iterate through processed timepoints DataFrame
+            for idx, row in timepointsCSV.iterrows():
+                rowIndex = idx + 2  # +2 because idx starts at 0 and we want 1-indexed rows starting from data row
+                group = row['group']
+                sample = row['sample_label']
 
-            for sampleGroup in uniqueSamples:
+                # Validate sample names
+                if group in config['runs']:
+                    errors.append(f"[ERROR] Timepoint sample name used for row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`, `{group}` is also used as a tag. This is forbidden.\n")
+                if '_' in group:
+                    errors.append(f"[ERROR] Underscore used in timepoint sample name `{group}` in row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`. This is forbidden.\n")
 
-                replicateIndex = 0
+                # Find first non-null timepoint
+                firstTP = None
+                for tp in timepoint_cols:
+                    if pd.notna(row[tp]) and str(row[tp]) != 'nan':
+                        firstTP = tp
+                        break
 
-                if sampleGroup in config['runs']:
-                    errors.append(f"[ERROR] Timepoint sample name used for row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`, `{sampleGroup}` is also used as a tag. This is forbidden.\n")
-                if '_' in sampleGroup:
-                    errors.append(f"[ERROR] Underscore used in timepoint sample name `{sampleGroup}` in row {rowIndex} (1-indexed) of timepoints .CSV file `{CSVpath}`. This is forbidden.\n")
-                # if (sampleGroup in config['timepointsInfo']) or (sampleGroup in [key.split('-rep')[0] for key in config['timepointsInfo']]):
-                #     print(f'[NOTICE] Sample name `{sampleGroup}` is used in timepoints file `{CSVpath}` as well as in another timepoints file. This is allowed, but note that plots in `plots/timepoints` will only be based on the first timepoints file that uses this sample name.\n', file=sys.stderr)
-                #     continue
+                if firstTP is None:
+                    errors.append(f"[ERROR] Row {rowIndex} of timepoints .CSV file `{CSVpath}` has no valid timepoints.\n")
+                    continue
 
-                for _, row in timepointsCSV.loc[timepointsCSV.index==sampleGroup].iterrows():
-                    replicateIndex += 1
-                    if replicates:
-                        sample = sampleGroup + f"-rep{str(replicateIndex)}"
+                firstTag = str(row[firstTP]).split('_')[0]
+                if firstTag in config['runs']:
+                    first_tag_ref_csv = config['runs'][firstTag].get('reference_csv', '')
+                    replicate = int(row['replicate'])
+                    timepoints_info_dict[sample] = {
+                        'tag': firstTag,
+                        'reference_csv': first_tag_ref_csv,
+                        'units': units,
+                        'group': group,
+                        'replicate': replicate,
+                        'tag_barcode_tp': {}
+                    }
+                    firstTagRunname = config['runs'][firstTag].get('runname', '')
+                else:
+                    errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
+                    continue
+
+                # Process all timepoints
+                for tp in timepoint_cols:
+                    if pd.isna(row[tp]) or str(row[tp]) == 'nan':
+                        continue
+
+                    tag_barcodeGroup = str(row[tp]).split('_')
+                    if len(tag_barcodeGroup) != 2:
+                        errors.append(f"[ERROR] Timepoint sample `{sample}` in row {rowIndex} of timepoints .CSV file `{CSVpath}` does not have a valid tag_barcodeGroup format. Must be in the format `tag_barcodeGroup`.\n")
+                        continue
+
+                    tag, barcodeGroup = tag_barcodeGroup
+                    if tag in config['runs']:
+                        if firstTag in config['runs']:
+                            tag_ref_csv = config['runs'][tag].get('reference_csv', '')
+                            if tag_ref_csv != first_tag_ref_csv:
+                                errors.append(f"[ERROR] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference_csv files (`{first_tag_ref_csv}` vs `{tag_ref_csv}`). All tags in a timepoint sample must use the same reference_csv.\n")
+                                continue
+                            tagRunname = config['runs'][tag].get('runname', '')
+                            if tagRunname != firstTagRunname and 'background' not in config:
+                                print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
+                        timepoints_info_dict[sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
                     else:
-                        sample = sampleGroup
+                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
 
-                    firstTP = timepointsCSV.columns[0]
-                    i = 0
-                    while pd.isnull(row[firstTP]): # not all samples need to have the same first timepoint
-                        i+=1
-                        firstTP = timepointsCSV.columns[i]
-                    firstTag = str(row[firstTP]).split('_')[0]
-                    if firstTag in config['runs']:
-                        first_tag_ref_csv = config['runs'][firstTag].get('reference_csv', '')
-                        if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
-                            timepoints_info_dict[sample] = {'tag':firstTag, 'reference_csv':first_tag_ref_csv, 'units':units, 'tag_barcode_tp':{}}
-                        firstTagRunname = config['runs'][firstTag].get('runname', '')
-                    else:
-                        errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{firstTag}` is not defined in config file. Check timepoints csv file and config file for errors.\n")
-                    for tp in timepointsCSV.columns:
-                        if str(row[tp]) == 'nan':
-                            continue
-                        tag_barcodeGroup = row[tp].split('_')
-                        if len(tag_barcodeGroup) != 2:
-                            errors.append(f"[ERROR] Timepoint sample `{sample}` in row {rowIndex} of timepoints .CSV file `{CSVpath}` does not have a valid tag_barcodeGroup format. Must be in the format `tag_barcodeGroup`.\n")
-                            continue
-                        tag, barcodeGroup = tag_barcodeGroup
-                        if tag in config['runs']:
-                            if firstTag in config['runs']:
-                                tag_ref_csv = config['runs'][tag].get('reference_csv', '')
-                                if tag_ref_csv != first_tag_ref_csv:
-                                    print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different reference_csv files. Analysis may be unreliable.\n", file=sys.stderr)
-                                tagRunname = config['runs'][tag].get('runname', '')
-                                if tagRunname != firstTagRunname and 'background' not in config:
-                                    print(f"[WARNING] In row {rowIndex} of timepoints .CSV file `{CSVpath}`, samples `{row[firstTP]}` and `{row[tp]}` use different runnames, but a background barcodeGroup is not provided. Analysis may be unreliable.\n", file=sys.stderr)
-                            if config['do_NT_mutation_analysis'].get(firstTag, False): # only necessary if NT analysis is being run
-                                timepoints_info_dict[sample]['tag_barcode_tp'][(tag, barcodeGroup)] = tp
-                        else:
-                            errors.append(f"[ERROR] Tag referenced in row {rowIndex} of timepoints .CSV file `{CSVpath}`, `{tag}` is not defined in config file. Check timepoints csv file and config file for errors\n")
             config['timepointsInfo'] = timepoints_info_dict
     else:
         notices.append(f"[NOTICE] Timepoints .CSV file `{CSVpath}` does not exist. Timepoint analysis will not be run.")
