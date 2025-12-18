@@ -69,7 +69,7 @@ def apply_regression(row, x, timepoints, weighted=False):
     """
     norm_cols = [f"{tp}_normalized" for tp in timepoints]
 
-    y = row[norm_cols].astype(float).to_numpy().transpose()
+    y = row[norm_cols].astype(float).to_numpy()
     not_nan = ~np.isnan(y)
     not_nan_count = np.count_nonzero(not_nan)
     not_nan_idx = np.where(not_nan)[0]
@@ -83,18 +83,18 @@ def apply_regression(row, x, timepoints, weighted=False):
         reference_cols = [f"{tp}_reference" for tp in timepoints]
         y = y[not_nan_idx]
         slope = y[1] - y[0]
-        counts = row[count_cols].astype(int).to_numpy().transpose()[not_nan_idx]
-        reference_counts = row[reference_cols].astype(int).to_numpy().transpose()[not_nan_idx]
+        counts = row[count_cols].astype(int).to_numpy()[not_nan_idx]
+        reference_counts = row[reference_cols].astype(int).to_numpy()[not_nan_idx]
         se = np.sqrt( (1/ (reference_counts[0]+0.5) ) + (1/ (reference_counts[1]+0.5) ) + (1/ (counts[0]+0.5) ) + (1/ (counts[1]+0.5) ) )
     else:
         x = sm.add_constant(x)
         w = 1
         if weighted:
             weight_cols = [f"{tp}_weight" for tp in timepoints]
-            w = row[weight_cols].astype(float).to_numpy().transpose()
+            w = row[weight_cols].astype(float).to_numpy()
         results = sm.WLS(y, x, weights=w, missing='drop').fit()
-        slope = results.params[1]
-        se = results.bse[0]
+        slope = results.params[1]  # Slope coefficient
+        se = results.bse[1]  # SE of slope (not intercept)
 
     return slope, se
 
@@ -133,7 +133,10 @@ def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
     """
     if len(df) < 2*n_threads:
         n_threads = 1
-    df_chunks = np.array_split(df, n_threads)
+
+    # Split DataFrame into chunks manually to avoid FutureWarning from np.array_split
+    chunk_size = len(df) // n_threads + (1 if len(df) % n_threads else 0)
+    df_chunks = [df.iloc[i:i + chunk_size] for i in range(0, len(df), chunk_size)]
     with ProcessPoolExecutor(max_workers=n_threads) as executor:
         results = executor.map(regression_worker, df_chunks, itertools.repeat(x),
                              itertools.repeat(timepoints), itertools.repeat(weighted))
@@ -149,171 +152,156 @@ def regression_parallelize(n_threads, df, x, timepoints, weighted=False):
 # DATA NORMALIZATION (shared by all modes)
 # =============================================================================
 
-def normalize_counts(counts_pivot, timepoints_df, entity_columns, reference_entity=''):
+def normalize_counts(counts_pivot, entity_columns, reference_entity=''):
     """
     Apply log-normalization relative to reference entity and prepare data for regression.
 
-    This function takes a pivot table of counts (entities × samples) and normalizes each
-    sample/replicate combination according to the timepoints mapping.
+    Takes counts in wide format with metadata and timepoint columns, normalizes by sample/replicate,
+    and prepares data for enrichment score calculation via linear regression.
 
     Args:
-        counts_pivot (pd.DataFrame): DataFrame with entity_id + entity_columns + sample columns
-        timepoints_df (pd.DataFrame): Timepoints mapping with sample/replicate info
-        entity_columns (list): List of column names that define entity identity (e.g., ['reference_name', 'label_barcodes'])
-        reference_entity (str): Specific entity_id to use as reference, or '' for auto-selection, or 'all' for all entities
+        counts_pivot (pd.DataFrame): Wide-format DataFrame with columns:
+            - group, replicate, sample_label: Sample metadata
+            - entity_id: Composite entity identifier
+            - entity_columns: Columns defining entity identity (reference_name, mutations, etc.)
+            - Numeric timepoint columns (e.g., 0, 24, 48): Count values
+        entity_columns (list): Column names that define entity identity
+        reference_entity (str): Entity to normalize against. Options:
+            - 'all': Normalize to total counts across all entities
+            - '': Auto-select a stable, abundant entity
+            - Specific entity_id: Use this entity as reference
 
     Returns:
-        pd.DataFrame: DataFrame with rows per (sample, replicate, entity) and columns for:
-                     - sample info
-                     - entity_id
-                     - entity columns (reference_name, label_barcodes, etc.)
-                     - counts per timepoint
-                     - normalized values per timepoint
-                     - weights per timepoint
-                     - reference counts per timepoint (for SE calculation)
+        pd.DataFrame: Long-format with one row per (group, replicate, sample_label, entity) containing:
+            - group, replicate, sample_label: Sample metadata
+            - entity_id and entity columns
+            - {tp}_count columns: Raw counts at each timepoint
+            - {tp}_normalized columns: Log-normalized frequencies
+            - {tp}_weight columns: Regression weights
+            - {tp}_reference columns: Reference entity counts (for SE calculation)
+            - enrichment_score, standard_error: Added by regression (not present yet)
     """
-    # Determine reference entity if not specified
-    # Get sample label to identify which columns are metadata vs sample counts
-    sample_label = timepoints_df.columns[0]
+    # Identify timepoint columns by numeric dtype
+    timepoint_cols = [col for col in counts_pivot.columns if pd.api.types.is_numeric_dtype(counts_pivot[col])]
 
-    # Get all unique sample names from time points
-    timepoint_cols = [col for col in timepoints_df.columns if col != sample_label]
-    all_sample_names = set()
-    for col in timepoint_cols:
-        all_sample_names.update(timepoints_df[col].unique())
+    # Sort timepoint columns numerically for proper time ordering
+    timepoint_cols = sorted(timepoint_cols)
 
-    # Sample columns are those that appear in the timepoints data (excluding entity_id and entity_columns)
-    sample_cols = [col for col in counts_pivot.columns if col in all_sample_names]
+    # Auto-select reference entity if needed
+    # Must find an entity that meets criteria across ALL samples
+    if reference_entity != 'all' and not reference_entity:
+        # For each sample, find entities present at all timepoints
+        sample_candidates = []
+        for sample_label_val in counts_pivot['sample_label'].unique():
+            sample_data = counts_pivot[counts_pivot['sample_label'] == sample_label_val]
+            entity_counts = sample_data.groupby('entity_id')[timepoint_cols].sum()
+            # Entities with counts > 0 at all timepoints in this sample
+            present_all_tp = entity_counts[(entity_counts > 0).all(axis=1)].index.tolist()
+            sample_candidates.append(set(present_all_tp))
 
-    # Use entity_id as index for operations, get just numeric sample columns
-    counts_pivot_numeric = counts_pivot.set_index('entity_id')[sample_cols]
-    counts_pivot_no_na = counts_pivot_numeric.dropna()
+        # Intersection: entities present at all timepoints in ALL samples
+        if sample_candidates:
+            common_entities = set.intersection(*sample_candidates)
 
-    # Determine the reference entity to use
-    if reference_entity != 'all':
-        if reference_entity and reference_entity in counts_pivot_no_na.index:
-            print(f"[NOTICE] enrichment.py: Provided enrichment reference {reference_entity} found in all samples. Using this entity as the enrichment reference.\n")
-        else:
-            if reference_entity:
-                print(f"[WARNING] enrichment.py: Provided enrichment reference {reference_entity} not found in all samples.\n")
+            if common_entities:
+                # Calculate mean counts across all samples for filtering
+                common_entity_data = counts_pivot[counts_pivot['entity_id'].isin(common_entities)]
+                entity_means = common_entity_data.groupby('entity_id')[timepoint_cols].mean()
 
-            # Auto-select reference using filtering criteria
-            if counts_pivot_no_na.shape[0] > 0:
-                # Identify t0 and tLast samples
-                timepoint_values = [int(col) for col in timepoint_cols]
-                t0 = str(min(timepoint_values))
-                tLast = str(max(timepoint_values))
+                t0 = timepoint_cols[0]
+                tLast = timepoint_cols[-1]
 
-                # Get samples for each timepoint
-                t0_samples = timepoints_df[t0].unique()
-                tLast_samples = timepoints_df[tLast].unique()
+                # Apply filtering criteria
+                candidates = entity_means.copy()
+                candidates = filter_by_quantile(candidates, t0, 0.25, keep_upper=True)
+                candidates = filter_by_quantile(candidates, tLast, 0.25, keep_upper=False)
 
-                # Calculate mean counts at t0 and tLast for each entity
-                candidate_entities = counts_pivot_no_na.copy()
-                candidate_entities['t0_mean'] = candidate_entities[t0_samples].mean(axis=1)
-                candidate_entities['tLast_mean'] = candidate_entities[tLast_samples].mean(axis=1)
-
-                # Filter: keep entities with t0_mean >= 25th percentile (exclude bottom 75%)
-                candidate_entities = filter_by_quantile(candidate_entities, 't0_mean', 0.25, keep_upper=True)
-
-                # Filter: keep entities with tLast_mean <= 25th percentile (exclude top 75%)
-                candidate_entities = filter_by_quantile(candidate_entities, 'tLast_mean', 0.25, keep_upper=False)
-
-                # Select most abundant at tLast from filtered candidates
-                if len(candidate_entities) > 0:
-                    reference_entity = candidate_entities['tLast_mean'].idxmax()
-                    print(f"[NOTICE] enrichment.py: Auto-selected enrichment reference {reference_entity} (well-represented throughout, not among top enriched).\n")
+                if len(candidates) > 0:
+                    reference_entity = candidates[tLast].idxmax()
+                    print(f"[NOTICE] enrichment.py: Auto-selected enrichment reference {reference_entity} (well-represented in all samples, not among top enriched).\n")
                 else:
-                    # Fallback 1: Most abundant at tLast among entities present in all timepoints
-                    if len(counts_pivot_no_na) > 0:
-                        reference_entity = counts_pivot_no_na[tLast_samples].mean(axis=1).idxmax()
-                        print(f"[NOTICE] enrichment.py: Filtering criteria too strict. Using most abundant entity at tLast among those present in all timepoints, {reference_entity}, as the enrichment reference.\n")
-                    else:
-                        # Fallback 2: Use 'all' if no entities present in all timepoints
-                        reference_entity = 'all'
+                    # Fallback: most abundant at tLast among common entities
+                    reference_entity = entity_means[tLast].idxmax()
+                    print(f"[NOTICE] enrichment.py: Filtering criteria too strict. Using most abundant common entity at tLast, {reference_entity}.\n")
             else:
                 reference_entity = 'all'
+                print("[WARNING] enrichment.py: No entities present at all timepoints in all samples. Using 'all' as reference.\n")
+        else:
+            reference_entity = 'all'
 
     if reference_entity == 'all':
-        print("[NOTICE] enrichment.py: Using all entities as the enrichment reference.\n")
+        print("[NOTICE] enrichment.py: Using all entities as the enrichment reference (per-sample totals).\n")
+    elif reference_entity and reference_entity in counts_pivot['entity_id'].values:
+        print(f"[NOTICE] enrichment.py: Using {reference_entity} as the enrichment reference.\n")
+    elif reference_entity:
+        print(f"[WARNING] enrichment.py: Specified reference {reference_entity} not found. Using 'all' as reference.\n")
+        reference_entity = 'all'
 
-    # Add replicate column to timepoints_df
-    replicate_col = []
-    sample_count = Counter()
-    for _, row in timepoints_df.iterrows():
-        sample_count[row[sample_label]] += 1
-        replicate_col.append(sample_count[row[sample_label]])
-    timepoints_df = timepoints_df.copy()
-    timepoints_df['replicate'] = replicate_col
-    timepoints_df = timepoints_df.set_index([sample_label, 'replicate'])
+    # Process each sample separately
+    sample_dfs = []
+    for sample_label_val in counts_pivot['sample_label'].unique():
+        sample_df = counts_pivot[counts_pivot['sample_label'] == sample_label_val].copy()
 
-    # Loop through each sample/replicate and normalize
-    sample_df_list = []
-    # After set_index, columns only contain timepoints (sample_label is now in index)
-    tp_cols = timepoints_df.columns.to_list()
+        # Extract counts as numpy array (rows=entities, cols=timepoints)
+        counts = sample_df[timepoint_cols].to_numpy().astype(float)
 
-    cols_dict = {tp_type:[f'{x}_{tp_type}' for x in tp_cols] for tp_type in ['count', 'normalized', 'weight', 'reference']}
-
-    for idx_num, (index, row) in enumerate(timepoints_df.iterrows()):
-        # Get the tag_bcGroup names for each timepoint (exclude sample label column)
-        slice_cols = row[tp_cols].to_list()
-
-        # Check that all required columns exist
-        for col in slice_cols:
-            if col not in counts_pivot.columns:
-                print(f'[WARNING] enrichment.py: No entities above the threshold were identified for sample `{col}`, setting counts for this sample to 0\n')
-                counts_pivot = counts_pivot.assign(**{col:0})
-
-        # Select entity_id + entity_columns + sample counts for this timepoint
-        sample_df = counts_pivot.loc[:,['entity_id'] + entity_columns + slice_cols].copy()
-
-        # Remove rows with first timepoint counts of 0
-        sample_df = sample_df[sample_df[slice_cols[0]] > 0]
-
-        # Calculate reference counts
+        # Calculate reference counts for THIS sample
         if reference_entity == 'all':
-            # Get the total counts for all entities
-            reference_counts = sample_df[slice_cols].sum(axis=0).to_numpy()
-        elif reference_entity:
-            # Get the counts for the specific reference entity
-            reference_counts = sample_df[sample_df['entity_id'] == reference_entity][slice_cols].sum(axis=0).to_numpy()
+            # Sum across all entities in this sample
+            reference_counts = counts.sum(axis=0)
         else:
-            # Get the total counts for only entities that appear in all timepoints
-            reference_counts = sample_df[(sample_df[slice_cols] > 0).all(axis=1)][slice_cols].sum(axis=0).to_numpy()
+            # Get counts for specific reference entity in this sample
+            ref_row = sample_df[sample_df['entity_id'] == reference_entity]
+            if len(ref_row) > 0:
+                reference_counts = ref_row[timepoint_cols].to_numpy().astype(float)[0]
+            else:
+                # Fallback to 'all' if reference not found in this sample
+                print(f"[WARNING] enrichment.py: Reference {reference_entity} not found in sample {sample_label_val}, using 'all' for this sample.\n")
+                reference_counts = counts.sum(axis=0)
 
-        reference_proportion = reference_counts / reference_counts.sum()
-        counts = sample_df[slice_cols].to_numpy().astype(float)
-
-        # Set counts following 0 counts to nan then calculate normalized log transformed y values
+        # Calculate normalized values: log((count+0.5) / (reference+0.5))
+        # Set counts to nan after first zero (entity dropped out)
         counts_pruned = counts.copy()
         mask = (np.cumsum(counts_pruned == 0, axis=1) > 1)
         counts_pruned[mask] = np.nan
-        y_normalized = np.log( (counts_pruned+0.5) / (reference_counts+0.5) )
+        normalized = np.log((counts_pruned + 0.5) / (reference_counts + 0.5))
 
-        # Calculate weights as reference_proportion / ( 1/(counts)+0.5 + 1/(reference_counts)+0.5) )
-        weights = np.repeat(reference_proportion[np.newaxis,], counts.shape[0], axis=0) / ( ( 1/ (counts + 0.5) ) + np.repeat(( 1/ (reference_counts + 0.5) )[np.newaxis,], counts.shape[0], axis=0) )
+        # Calculate weights: reference_proportion / (1/(count+0.5) + 1/(reference+0.5))
+        reference_proportion = reference_counts / reference_counts.sum()
+        weights = reference_proportion / ((1 / (counts + 0.5)) + (1 / (reference_counts + 0.5)))
 
-        # Add normalized values, weights, reference count to the sample_df
-        sample_df[cols_dict['normalized']] = y_normalized
-        sample_df[cols_dict['weight']] = weights
-        sample_df[cols_dict['reference']] = np.repeat(reference_counts[np.newaxis,], counts.shape[0], axis=0)
+        # Add new columns to dataframe
+        for i, tp in enumerate(timepoint_cols):
+            sample_df[f'{tp}_count'] = counts[:, i].astype(int)
+            sample_df[f'{tp}_normalized'] = normalized[:, i]
+            sample_df[f'{tp}_weight'] = weights[:, i]
+            sample_df[f'{tp}_reference'] = reference_counts[i]
 
-        # Add sample and replicate info, rename count columns
-        sample_cols = {sample_label:index[0], 'replicate':index[1]}
-        rename_dict = {old:new for old, new in zip(slice_cols, cols_dict['count'])}
-        sample_df = sample_df.assign(**sample_cols).rename(columns=rename_dict)
-        sample_df = sample_df.astype({count_col:'int64' for count_col in cols_dict['count']})
-        # Reorder columns: sample info, entity_id, entity_columns, then count/normalized/weight/reference data
-        sample_df = sample_df[[sample_label, 'replicate', 'entity_id'] + entity_columns + cols_dict['count'] + cols_dict['normalized'] + cols_dict['weight'] + cols_dict['reference']]
-        sample_df_list.append(sample_df)
+        # Drop original timepoint columns (now have _count versions)
+        sample_df = sample_df.drop(columns=timepoint_cols)
 
-    enrichment_df = pd.concat(sample_df_list)
+        sample_dfs.append(sample_df)
 
-    # Bring the reference entity to the top of the dataframe if specified
-    if reference_entity != 'all':
-        ref_df = enrichment_df[enrichment_df['entity_id'] == reference_entity]
-        no_ref_df = enrichment_df[enrichment_df['entity_id'] != reference_entity]
-        enrichment_df = pd.concat([ref_df, no_ref_df])
+    # Concatenate all samples
+    enrichment_df = pd.concat(sample_dfs, ignore_index=True)
+
+    # Reorder columns: metadata, entity info, then timepoint data grouped by type
+    # (all counts, all normalized, all weights, all reference)
+    entity_columns_list = entity_columns if isinstance(entity_columns, list) else [entity_columns]
+    metadata_cols = ['group', 'replicate', 'sample_label', 'entity_id'] + entity_columns_list
+
+    count_cols = [f'{tp}_count' for tp in timepoint_cols]
+    normalized_cols = [f'{tp}_normalized' for tp in timepoint_cols]
+    weight_cols = [f'{tp}_weight' for tp in timepoint_cols]
+    reference_cols = [f'{tp}_reference' for tp in timepoint_cols]
+
+    enrichment_df = enrichment_df[metadata_cols + count_cols + normalized_cols + weight_cols + reference_cols]
+
+    # Move reference entity to top of dataframe if specified (not 'all')
+    if reference_entity != 'all' and reference_entity:
+        ref_rows = enrichment_df[enrichment_df['entity_id'] == reference_entity]
+        other_rows = enrichment_df[enrichment_df['entity_id'] != reference_entity]
+        enrichment_df = pd.concat([ref_rows, other_rows], ignore_index=True)
 
     return enrichment_df
 
@@ -322,26 +310,27 @@ def normalize_counts(counts_pivot, timepoints_df, entity_columns, reference_enti
 # MODE-SPECIFIC DATA LOADING FUNCTIONS
 # =============================================================================
 
-def load_demux_data(demux_stats_path, screen_failures=True):
+def load_demux_data(demux_stats_path, timepoints_df, screen_failures=True):
     """
     Load and pivot barcode counts from demux-stats.csv for demux enrichment mode.
 
-    Groups by (reference_name, label_barcodes) to create entity identities.
-
-    Structure:
-    - output_file_barcodes: partition group (defines the sample)
-    - label_barcodes: entity to track (barcode sequence or group name)
-    - Numerator: count of each label_barcodes
-    - Denominator: total count within each tag/output_file_barcodes
+    Reads demux-stats.csv to get entity counts by tag_bcGroup, then uses timepoints DataFrame
+    to map tag_bcGroups to (group, replicate, sample_label, timepoint) metadata.
 
     Args:
         demux_stats_path (str): Path to demux-stats.csv file
+        timepoints_df (pd.DataFrame): Must contain exactly three metadata columns (group, replicate,
+            sample_label) followed by numeric timepoint columns. Timepoint columns contain tag_bcGroup
+            identifiers (tag_barcode format). Each row represents one sample replicate across all timepoints.
         screen_failures (bool): Whether to exclude reads with 'fail' in label_barcodes column
 
     Returns:
         tuple: (counts_pivot, entity_columns)
-            - counts_pivot: DataFrame with entity_id (for operations) + entity columns (for data) + sample columns
-            - entity_columns: list of column names that define entity identity ['reference_name', 'label_barcodes']
+            - counts_pivot (pd.DataFrame): Wide-format counts with columns [group, replicate,
+              sample_label, entity_id, entity_columns..., timepoint1, timepoint2, ...]. Each row
+              represents one (group, replicate, sample_label, entity) combination with counts at
+              each timepoint.
+            - entity_columns (list): Column names defining entity identity ['reference_name', 'label_barcodes']
     """
     all_demux_df = pd.read_csv(demux_stats_path, index_col=False)
 
@@ -352,7 +341,6 @@ def load_demux_data(demux_stats_path, screen_failures=True):
         raise ValueError(f"Missing required columns in demux-stats.csv: {missing_cols}")
 
     # Remove failures if requested
-    # label_barcodes can be 'fail' or contain 'fail-' or '-fail' if multiple barcodes
     if screen_failures:
         n_before = len(all_demux_df)
         all_demux_df = all_demux_df[~all_demux_df['label_barcodes'].str.contains('fail', na=False)].copy()
@@ -361,55 +349,81 @@ def load_demux_data(demux_stats_path, screen_failures=True):
         if n_removed > 0:
             print(f"[NOTICE] enrichment.py: Removed {n_removed} rows with 'fail' in label_barcodes\n")
 
-    # Create tag_bcGroup identifier for samples (partition groups within tags)
+    # Create tag_bcGroup identifier
     all_demux_df['tag_bcGroup'] = all_demux_df['tag'] + '_' + all_demux_df['output_file_barcodes']
+
+    # Build mapping DataFrame from tag_bcGroup to metadata (allows multiple samples per tag_bcGroup)
+    metadata_cols = ['group', 'replicate', 'sample_label']
+    timepoint_cols = [col for col in timepoints_df.columns if col not in metadata_cols]
+
+    mapping_rows = []
+    for _, row in timepoints_df.iterrows():
+        for tp_col in timepoint_cols:
+            tag_bcgroup = row[tp_col]
+            if pd.notna(tag_bcgroup) and str(tag_bcgroup).strip() != '':
+                mapping_rows.append({
+                    'tag_bcGroup': tag_bcgroup,
+                    'group': row['group'],
+                    'replicate': row['replicate'],  # Already str from timepoints_df
+                    'sample_label': row['sample_label'],
+                    'timepoint': float(tp_col)  # Numeric for easy identification later
+                })
+
+    mapping_df = pd.DataFrame(mapping_rows)
 
     # Entity identity columns
     entity_columns = ['reference_name', 'label_barcodes']
 
-    # Aggregate by entity columns + sample
+    # Aggregate by entity + tag_bcGroup
     counts_aggregated = all_demux_df.groupby(entity_columns + ['tag_bcGroup'])['count'].sum().reset_index()
 
-    # Pivot to get entities as rows, samples as columns
-    counts_pivot = counts_aggregated.pivot(index=entity_columns, columns='tag_bcGroup', values='count')
+    # Merge with metadata mapping (this will duplicate rows for shared tag_bcGroups)
+    counts_with_metadata = counts_aggregated.merge(mapping_df, on='tag_bcGroup', how='inner')
+
+    # Aggregate by entity + metadata + timepoint (in case of duplicates)
+    groupby_cols = entity_columns + ['group', 'replicate', 'sample_label', 'timepoint']
+    counts_aggregated = counts_with_metadata.groupby(groupby_cols)['count'].sum().reset_index()
+
+    # Pivot to get (group, replicate, sample_label, entity) × timepoints
+    index_cols = entity_columns + ['group', 'replicate', 'sample_label']
+    counts_pivot = counts_aggregated.pivot(index=index_cols, columns='timepoint', values='count')
     counts_pivot = counts_pivot.fillna(0).reset_index()
 
-    # Create entity_id as a helper column for operations (but keep original columns)
-    # Format: "ref|label"
+    # Create entity_id
     counts_pivot['entity_id'] = counts_pivot['reference_name'] + '|' + counts_pivot['label_barcodes']
 
-    # Reorder columns: entity_id, entity columns, then samples
-    sample_cols = [col for col in counts_pivot.columns if col not in entity_columns + ['entity_id']]
-    counts_pivot = counts_pivot[['entity_id'] + entity_columns + sample_cols]
+    # Reorder columns: metadata, entity_id, entity columns, timepoint columns
+    timepoint_value_cols = [col for col in counts_pivot.columns
+                            if col not in ['group', 'replicate', 'sample_label', 'entity_id'] + entity_columns]
+    counts_pivot = counts_pivot[['group', 'replicate', 'sample_label', 'entity_id'] + entity_columns + timepoint_value_cols]
 
-    print(f"[NOTICE] enrichment.py: Loaded {len(counts_pivot)} unique entities (reference × label_barcodes combinations)\n")
-    print(f"[NOTICE] enrichment.py: Found {len(sample_cols)} samples: {sample_cols[:5]}{'...' if len(sample_cols) > 5 else ''}\n")
+    print(f"[NOTICE] enrichment.py: Loaded {len(counts_pivot)} unique (group, replicate, sample_label, entity) combinations\n")
+    print(f"[NOTICE] enrichment.py: Timepoints: {timepoint_value_cols}\n")
 
     return counts_pivot, entity_columns
 
 
-def load_genotype_data(timepoints_df, timepoints_path):
+def load_genotype_data(timepoints_df):
     """
     Load and aggregate genotype counts from multiple CSV files for genotype enrichment mode.
 
-    Uses timepoints DataFrame to identify which genotype files correspond to which samples,
-    then aggregates counts by genotype (combination of mutation columns).
+    Reads the timepoints DataFrame to identify which genotype files belong to which samples
+    and timepoints, then aggregates counts by genotype identity (combination of mutation columns).
 
     Args:
-        timepoints_df (pd.DataFrame): Timepoints DataFrame with columns:
-            - First column: sample names
-            - Other columns: timepoint values, with cells containing 'tag_barcode' identifiers
-        timepoints_path (str): Path to timepoints CSV file, used to locate mutation_data directory
+        timepoints_df (pd.DataFrame): Must contain exactly three metadata columns (group, replicate,
+            sample_label) followed by numeric timepoint columns. Timepoint columns contain file paths
+            to genotype CSV files. Each row represents one sample replicate across all timepoints.
 
     Returns:
         tuple: (counts_pivot, entity_columns)
-            - counts_pivot: DataFrame with entity_id (for operations) + entity columns (for data) + sample columns
-            - entity_columns: list of column names that define genotype identity:
-                ['reference_name', 'NT_substitutions', 'NT_insertions', 'NT_deletions',
-                 'AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous']
-
-    Expected directory structure:
-        mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes.csv
+            - counts_pivot (pd.DataFrame): Wide-format counts with columns [group, replicate,
+              sample_label, entity_id, entity_columns..., timepoint1, timepoint2, ...]. Each row
+              represents one (group, replicate, sample_label, entity) combination with counts at
+              each timepoint.
+            - entity_columns (list): Column names defining genotype identity (reference_name,
+              NT_substitutions, NT_insertions, NT_deletions, and optionally AA columns if present
+              in all input files).
     """
     # Entity columns for genotypes (NT columns always required, AA columns optional)
     nt_entity_columns = ['reference_name', 'NT_substitutions', 'NT_insertions', 'NT_deletions']
@@ -418,62 +432,59 @@ def load_genotype_data(timepoints_df, timepoints_path):
     # Collect all genotype dataframes
     all_genotype_dfs = []
 
-    # Get base directory (mutation_data should be in same directory as timepoints file)
-    base_dir = os.path.dirname(timepoints_path)
-    mutation_data_dir = os.path.join(base_dir, 'mutation_data')
-
-    if not os.path.exists(mutation_data_dir):
-        raise ValueError(f"mutation_data directory not found at {mutation_data_dir}")
-
-    # Iterate through timepoints to find all genotype files
-    sample_col = timepoints_df.columns[0]
-    timepoint_cols = timepoints_df.columns[1:]
-
-    # Collect unique tag_barcode identifiers from timepoints
-    tag_barcodes = set()
-    for _, row in timepoints_df.iterrows():
-        for timepoint_col in timepoint_cols:
-            tag_barcodes.add(row[timepoint_col])
+    # Identify metadata vs timepoint columns
+    metadata_cols = ['group', 'replicate', 'sample_label']
+    timepoint_cols = [col for col in timepoints_df.columns if col not in metadata_cols]
 
     # Track which files have AA columns
     files_with_aa = 0
     files_without_aa = 0
 
-    # Parse tag_barcode format: "tag_barcode"
-    # Split on underscore to get tag and barcode
-    for tag_barcode in tag_barcodes:
-        parts = tag_barcode.split('_')
-        if len(parts) != 2:
-            print(f"[WARNING] enrichment.py: Could not parse tag_barcode '{tag_barcode}', expected format 'tag_barcode'\n")
-            continue
+    # Iterate through timepoints DataFrame to collect all files
+    for _, row in timepoints_df.iterrows():
+        group = row['group']
+        replicate = row['replicate']
+        sample_label = row['sample_label']
 
-        tag, barcode = parts
+        for timepoint_col in timepoint_cols:
+            file_path = row[timepoint_col]
 
-        # Construct file path: mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes.csv
-        genotype_file = os.path.join(mutation_data_dir, tag, barcode, f"{tag}_{barcode}_genotypes.csv")
-
-        if os.path.exists(genotype_file):
-            # Read genotype file
-            geno_df = pd.read_csv(genotype_file)
-
-            # Check that required NT columns exist
-            required_cols = nt_entity_columns + ['count']
-            missing_cols = [col for col in required_cols if col not in geno_df.columns]
-            if missing_cols:
-                print(f"[WARNING] enrichment.py: Missing required columns {missing_cols} in {genotype_file}, skipping\n")
+            # Skip empty cells
+            if pd.isna(file_path) or str(file_path).strip() == '':
                 continue
 
-            # Check if AA columns are present
-            has_aa = all(col in geno_df.columns for col in aa_entity_columns)
-            if has_aa:
-                files_with_aa += 1
-            else:
-                files_without_aa += 1
+            # Read genotype file
+            if os.path.exists(file_path):
+                geno_df = pd.read_csv(file_path)
 
-            # Store dataframe with AA status
-            all_genotype_dfs.append((geno_df, tag_barcode, has_aa))
-        else:
-            print(f"[WARNING] enrichment.py: Genotype file not found: {genotype_file}\n")
+                # Check that required NT columns exist
+                required_cols = nt_entity_columns + ['count']
+                missing_cols = [col for col in required_cols if col not in geno_df.columns]
+                if missing_cols:
+                    print(f"[WARNING] enrichment.py: Missing required columns {missing_cols} in {file_path}, skipping\n")
+                    continue
+
+                # Check if AA columns are present
+                has_aa = all(col in geno_df.columns for col in aa_entity_columns)
+                if has_aa:
+                    files_with_aa += 1
+                else:
+                    files_without_aa += 1
+
+                # Add metadata columns to genotype dataframe
+                geno_df = geno_df.copy()
+                geno_df['group'] = group
+                geno_df['replicate'] = replicate  # Already str from timepoints_df
+                geno_df['sample_label'] = sample_label
+                geno_df['timepoint'] = float(timepoint_col)  # Numeric for easy identification later
+
+                # Store dataframe with metadata
+                all_genotype_dfs.append((geno_df, has_aa))
+            else:
+                print(f"[WARNING] enrichment.py: Genotype file not found: {file_path}\n")
+
+    if not all_genotype_dfs:
+        raise ValueError(f"No genotype files could be loaded from timepoints DataFrame")
 
     # Determine whether to include AA columns (only if ALL files have them)
     if files_without_aa > 0:
@@ -486,17 +497,11 @@ def load_genotype_data(timepoints_df, timepoints_path):
 
     # Process genotype dataframes with final column set
     processed_dfs = []
-    for geno_df, tag_barcode, has_aa in all_genotype_dfs:
-        # Select entity columns + count
-        geno_df = geno_df[entity_columns + ['count']].copy()
-
-        # Add tag_barcode identifier
-        geno_df['tag_barcode'] = tag_barcode
-
+    for geno_df, has_aa in all_genotype_dfs:
+        # Select entity columns + metadata + count
+        cols_to_keep = entity_columns + ['group', 'replicate', 'sample_label', 'timepoint', 'count']
+        geno_df = geno_df[cols_to_keep].copy()
         processed_dfs.append(geno_df)
-
-    if not processed_dfs:
-        raise ValueError(f"No genotype files found in {mutation_data_dir}")
 
     # Concatenate all genotype dataframes
     all_genotypes = pd.concat(processed_dfs, ignore_index=True)
@@ -509,11 +514,13 @@ def load_genotype_data(timepoints_df, timepoints_path):
         # Replace empty string with placeholder temporarily
         all_genotypes[col] = all_genotypes[col].replace('', placeholder)
 
-    # Aggregate by entity columns + tag_barcode
-    counts_aggregated = all_genotypes.groupby(entity_columns + ['tag_barcode'])['count'].sum().reset_index()
+    # Aggregate by entity columns + metadata + timepoint
+    groupby_cols = entity_columns + ['group', 'replicate', 'sample_label', 'timepoint']
+    counts_aggregated = all_genotypes.groupby(groupby_cols)['count'].sum().reset_index()
 
-    # Pivot to get entities as rows, samples as columns
-    counts_pivot = counts_aggregated.pivot(index=entity_columns, columns='tag_barcode', values='count')
+    # Pivot to get entities + metadata as rows, timepoints as columns
+    index_cols = entity_columns + ['group', 'replicate', 'sample_label']
+    counts_pivot = counts_aggregated.pivot(index=index_cols, columns='timepoint', values='count')
     counts_pivot = counts_pivot.fillna(0).reset_index()
 
     # Convert placeholder back to empty strings in entity columns
@@ -530,12 +537,13 @@ def load_genotype_data(timepoints_df, timepoints_path):
     for component in id_components[1:]:
         counts_pivot['entity_id'] = counts_pivot['entity_id'] + '|' + component
 
-    # Reorder columns: entity_id, entity columns, then samples
-    sample_cols = [col for col in counts_pivot.columns if col not in entity_columns + ['entity_id']]
-    counts_pivot = counts_pivot[['entity_id'] + entity_columns + sample_cols]
+    # Reorder columns: metadata, entity_id, entity columns, then timepoint columns
+    timepoint_value_cols = [col for col in counts_pivot.columns
+                            if col not in ['group', 'replicate', 'sample_label', 'entity_id'] + entity_columns]
+    counts_pivot = counts_pivot[['group', 'replicate', 'sample_label', 'entity_id'] + entity_columns + timepoint_value_cols]
 
-    print(f"[NOTICE] enrichment.py: Loaded {len(counts_pivot)} unique genotypes\n")
-    print(f"[NOTICE] enrichment.py: Found {len(sample_cols)} samples: {sample_cols[:5]}{'...' if len(sample_cols) > 5 else ''}\n")
+    print(f"[NOTICE] enrichment.py: Loaded {len(counts_pivot)} unique (group, replicate, sample_label, genotype) combinations\n")
+    print(f"[NOTICE] enrichment.py: Timepoints: {timepoint_value_cols}\n")
 
     return counts_pivot, entity_columns
 
@@ -583,49 +591,80 @@ def calculate_enrichment(mode='demux', output_csv='', **kwargs):
             - enrichment_score
             - standard_error
     """
-    # Load timepoints CSV once
-    timepoints_df = pd.read_csv(kwargs['timepoints_path']).astype(str)
+    # Load timepoints CSV
+    # Keep replicate/group/sample_label as str so only timepoint columns are numeric (for easy identification)
+    timepoints_df = pd.read_csv(kwargs['timepoints_path'],
+                                dtype={'replicate': str, 'group': str, 'sample_label': str})
 
     # Filter to specific timepoint sample if provided
     if kwargs.get('timepoint_sample'):
         timepoint_sample = kwargs['timepoint_sample']
-        if timepoint_sample not in timepoints_df.iloc[:, 0].values:
+        if timepoint_sample not in timepoints_df['sample_label'].values:
             raise ValueError(f"Timepoint sample '{timepoint_sample}' not found in timepoints CSV")
-        timepoints_df = timepoints_df[timepoints_df.iloc[:, 0] == timepoint_sample].copy()
+        timepoints_df = timepoints_df[timepoints_df['sample_label'] == timepoint_sample].copy()
         print(f"[NOTICE] enrichment.py: Processing single timepoint sample: {timepoint_sample}\n")
 
-    # Timepoints are all columns except the first (sample label)
-    timepoints = timepoints_df.columns.to_list()[1:]
+    # Validate sample_label uniqueness
+    if not timepoints_df['sample_label'].is_unique:
+        duplicate_labels = timepoints_df[timepoints_df['sample_label'].duplicated()]['sample_label'].tolist()
+        raise ValueError(f"sample_label values must be unique. Found duplicates: {duplicate_labels}")
+
+    # Timepoints are all columns after group, replicate, sample_label (starting at index 3)
+    timepoints = timepoints_df.columns.to_list()[3:]
 
     # Load data based on mode
     if mode == 'demux':
         counts_pivot, entity_columns = load_demux_data(
             kwargs['demux_stats'],
+            timepoints_df,
             screen_failures=kwargs.get('screen_failures', True)
         )
     elif mode == 'genotype':
-        counts_pivot, entity_columns = load_genotype_data(
-            timepoints_df,
-            kwargs['timepoints_path']
-        )
+        counts_pivot, entity_columns = load_genotype_data(timepoints_df)
     else:
         raise ValueError(f"Invalid mode: {mode}. Must be 'demux' or 'genotype'")
 
     # Normalize counts
     enrichment_df = normalize_counts(
         counts_pivot,
-        timepoints_df,
         entity_columns,
         reference_entity=kwargs.get('reference_entity', '')
     )
 
+    # Check if there are any entities to analyze
+    if len(enrichment_df) == 0:
+        print(f"[WARNING] enrichment.py: No entities remain after filtering (no entities with counts > 0 at first timepoint). Cannot calculate enrichment scores.\n")
+        # Return empty dataframe with expected columns
+        expected_cols = list(enrichment_df.columns) + ['enrichment_score', 'standard_error']
+        empty_df = pd.DataFrame(columns=expected_cols)
+        if output_csv:
+            empty_df.to_csv(output_csv, index=False)
+        return empty_df
+
     # Calculate enrichment scores via weighted linear regression
-    tp_vals = [int(x) for x in timepoints]
-    x_normalized = [float(x)/float(max(tp_vals)) for x in tp_vals]
-    enrichment_df = regression_parallelize(kwargs.get('n_threads', 1), enrichment_df, x_normalized, timepoints, weighted=True)
+    # timepoints are already floats from column names
+    tp_vals = [float(tp) for tp in timepoints]
+    x_normalized = [x / max(tp_vals) for x in tp_vals]
+    enrichment_df = regression_parallelize(kwargs.get('n_threads', 1), enrichment_df, x_normalized, tp_vals, weighted=True)
+
+    # Filter out entities with ≤1 non-zero count across timepoints or NA enrichment score
+    count_cols = [f'{tp}_count' for tp in tp_vals]
+    initial_count = len(enrichment_df)
+
+    # Count non-zero values across timepoint count columns for each row
+    non_zero_counts = (enrichment_df[count_cols] > 0).sum(axis=1)
+
+    enrichment_df = enrichment_df[
+        (non_zero_counts > 1) &
+        (enrichment_df['enrichment_score'].notna())
+    ]
+
+    filtered_count = initial_count - len(enrichment_df)
+    if filtered_count > 0:
+        print(f"[NOTICE] enrichment.py: Filtered out {filtered_count} entities with ≤1 non-zero count across timepoints or NA enrichment score.\n", file=sys.stderr)
 
     # Remove reference columns (used for calculation but not needed in output)
-    ref_cols = [f"{tp}_reference" for tp in timepoints]
+    ref_cols = [f"{tp}_reference" for tp in tp_vals]
     enrichment_df = enrichment_df.drop(columns=ref_cols)
 
     # Round very small values to zero (avoid floating point precision errors like 7e-16)
