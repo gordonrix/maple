@@ -35,9 +35,9 @@ def targets_input(wildcards):
             out.append(f'plots/nanoplot/{tag}_fastq_NanoStats.txt')
             out.append(f'plots/nanoplot/{tag}_alignment_NanoStats.txt')
 
-        #TODO: fix this
-        # if config['do_enrichment_analysis'].get(tag, False): # currently broken
-        #     out.append(f'plots/{tag}_enrichment-scores.html')            
+        # Enrichment outputs are now requested based on timepoint samples (see below)      
+
+        #TODO: fix this      
         # out.append(f'plots/{tag}_pipeline-throughput.html')  # needs to be fixed to prevent use of temporary files that are computationally costly to recover
 
         if config['do_demux'][tag] and config['plot_demux']:
@@ -64,6 +64,32 @@ def targets_input(wildcards):
 
     if config.get('timepointsInfo', {}):
         out.append('plots/.all_timepoints.done')
+
+        # Request enrichment score outputs if enrichment is enabled
+        if config.get('do_enrichment', False):
+            enrichment_type = config.get('enrichment_type', 'genotype')
+            timepoint_samples = list(config['timepointsInfo'].keys())
+
+            # Request individual replicate scores for all samples
+            out.extend(expand('enrichment/{sample}_{mode}-enrichment-scores.csv',
+                             sample=timepoint_samples,
+                             mode=enrichment_type))
+
+            # Request mean scores for all groups (including single-replicate groups)
+            # For single-replicate groups, the "mean" is just that replicate's scores
+            groups = list(set([
+                config['timepointsInfo'][sample]['group']
+                for sample in timepoint_samples
+            ]))
+
+            out.extend(expand('enrichment/{group}_{mode}-enrichment-scores-mean.csv',
+                             group=groups,
+                             mode=enrichment_type))
+
+            # Request dimension-reduced enrichment files for dashboard
+            out.extend(expand('mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions-{mode}-enrichment-mean.csv',
+                             group=groups,
+                             mode=enrichment_type))
 
     if config.get('genotypes2D_plot_all', False):
         out.append('plots/.all_genotypes_2D.done')

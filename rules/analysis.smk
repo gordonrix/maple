@@ -10,7 +10,7 @@
 # imports
 import os, sys, glob
 import pandas as pd
-from utils.common import sort_barcodes, dashboard_input
+from utils.common import sort_barcodes, dashboard_input, process_timepoints_csv
 
 def get_dashboard_datasets_df():
     """Generate the dashboard datasets dataframe based on config"""
@@ -18,14 +18,24 @@ def get_dashboard_datasets_df():
 
     # If timepoints exist, only add timepoints
     if 'timepointsInfo' in config:
-        for timepoint_name in config['timepointsInfo']:
-            # Use enrichment mean files if do_enrichment is enabled
-            if config.get('do_enrichment', False):
-                genotypes_csv = f'mutation_data/timepoints/{timepoint_name}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment.csv'
-            else:
-                genotypes_csv = f'mutation_data/timepoints/{timepoint_name}_merged-timepoint_genotypes-reduced-dimensions.csv'
+        # Group samples by their 'group' field to create one dashboard entry per group
+        seen_groups = set()
+        for sample_label, sample_info in config['timepointsInfo'].items():
+            group = sample_info['group']
 
-            reference_csv = config['timepointsInfo'][timepoint_name].get('reference_csv', '')
+            # Skip if we've already added this group
+            if group in seen_groups:
+                continue
+            seen_groups.add(group)
+
+            # Determine which file to use based on enrichment setting
+            if config.get('do_enrichment', False):
+                enrichment_mode = config.get('enrichment_type', 'genotype')
+                genotypes_csv = f'mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions-{enrichment_mode}-enrichment-mean.csv'
+            else:
+                genotypes_csv = f'mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions.csv'
+
+            reference_csv = sample_info.get('reference_csv', '')
             exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
 
             rows.append({
@@ -206,24 +216,7 @@ rule plot_demux:
     script:
         'utils/plot_demux.py'
 
-# Calculate demux enrichment scores for a timepoint sample (may include -rep1, -rep2, etc.)
-# Demux enrichment uses barcode counts from demux-stats.csv
-rule timepoint_demux_enrichment_scores:
-    input:
-        CSV = 'demux-stats.csv',
-        timepoints = lambda wildcards: config['timepoints']
-    output:
-        scores = 'enrichment/timepoints/{timepoint_sample, [^\/]*}_demux-enrichment-scores.csv'
-    params:
-        mode = 'demux',
-        timepoint_sample = lambda wildcards: wildcards.timepoint_sample,
-        screen_failures = lambda wildcards: config.get('demux_screen_failures', False),
-        reference_entity = lambda wildcards: config.get('enrichment_reference_bc', '')
-    threads: max(workflow.cores-1,1)
-    script:
-        'utils/enrichment.py'
-
-def genotype_enrichment_genotype_files(wildcards):
+def genotype_enrichment_input(wildcards):
     """
     Get genotype file inputs for genotype enrichment calculation.
     Finds all tag/barcode combinations used in this timepoint sample's series.
@@ -241,23 +234,85 @@ def genotype_enrichment_genotype_files(wildcards):
 
     return genotype_files
 
-# Calculate genotype enrichment scores for a timepoint sample (may include -rep1, -rep2, etc.)
-# Genotype enrichment uses mutation data from genotype CSV files
-rule timepoint_genotype_enrichment_scores:
+# Prepare processed timepoints CSV for demux enrichment
+# Adds -rep suffixes to duplicate sample names, keeps tag_barcodeGroup identifiers
+rule prepare_timepoints_demux_csv:
+    input:
+        timepoints = lambda wildcards: config['timepoints']
+    output:
+        processed = 'enrichment/.timepoints_demux.csv'
+    run:
+        # Process timepoints CSV to add group/replicate columns and -rep suffixes
+        processed_df = process_timepoints_csv(input.timepoints)
+
+        # Save processed file
+        processed_df.to_csv(output.processed, index=False)
+
+# Prepare processed timepoints CSV for genotype enrichment
+# Adds -rep suffixes and replaces tag_barcodeGroup with genotype file paths
+rule prepare_timepoints_genotype_csv:
     input:
         timepoints = lambda wildcards: config['timepoints'],
-        genotypes = genotype_enrichment_genotype_files  # Track genotype file dependencies
+        genotypes = lambda wildcards: [
+            f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes.csv'
+            for sample in config.get('timepointsInfo', {}).keys()
+            for (tag, barcode) in config['timepointsInfo'][sample].get('tag_barcode_tp', {}).keys()
+        ] if 'timepointsInfo' in config else []
     output:
-        scores = 'enrichment/timepoints/{timepoint_sample, [^\/]*}_genotype-enrichment-scores.csv'
-    params:
-        mode = 'genotype',
-        timepoint_sample = lambda wildcards: wildcards.timepoint_sample,
-        reference_entity = lambda wildcards: config.get('enrichment_reference_bc', '')
-    threads: max(workflow.cores-1,1)
-    script:
-        'utils/enrichment.py'
+        processed = 'enrichment/.timepoints_genotype.csv'
+    run:
+        # Process timepoints CSV to add group/replicate columns and -rep suffixes
+        processed_df = process_timepoints_csv(input.timepoints)
 
-def enrichment_scores_input(wildcards):
+        # Replace tag_barcodeGroup identifiers with genotype file paths
+        # Iterate through timepoint columns (skip group, replicate, sample_label)
+        for col in processed_df.columns[3:]:  # Timepoint columns start at index 3
+            processed_df[col] = processed_df[col].apply(
+                lambda x: f'mutation_data/{x.split("_")[0]}/{x.split("_")[1]}/{x}_genotypes.csv'
+                if pd.notna(x) and isinstance(x, str) and '_' in x else x
+            )
+
+        # Save processed file
+        processed_df.to_csv(output.processed, index=False)
+
+if config.get('enrichment_type') == 'demux':
+
+    # Calculate demux enrichment scores for a timepoint sample
+    # Demux enrichment uses barcode counts from demux-stats.csv
+    rule demux_enrichment:
+        input:
+            CSV = 'demux-stats.csv',
+            timepoints = 'enrichment/.timepoints_demux.csv'
+        output:
+            scores = 'enrichment/{timepoint_sample, [^\/]*}_demux-enrichment-scores.csv'
+        params:
+            mode = 'demux',
+            timepoint_sample = lambda wildcards: wildcards.timepoint_sample,
+            screen_failures = lambda wildcards: config.get('demux_screen_failures', False),
+            reference_entity = lambda wildcards: config.get('enrichment_reference', '')
+        threads: max(workflow.cores-1,1)
+        script:
+            'utils/enrichment.py'
+
+elif config.get('enrichment_type') == 'genotype':
+
+    # Calculate genotype enrichment scores for a timepoint sample
+    # Genotype enrichment uses mutation data from genotype CSV files
+    rule genotype_enrichment:
+        input:
+            timepoints = 'enrichment/.timepoints_genotype.csv',
+            genotypes = genotype_enrichment_input  # Track genotype file dependencies
+        output:
+            scores = 'enrichment/{timepoint_sample, [^\/]*}_genotype-enrichment-scores.csv'
+        params:
+            mode = 'genotype',
+            timepoint_sample = lambda wildcards: wildcards.timepoint_sample,
+            reference_entity = lambda wildcards: config.get('enrichment_reference', '')
+        threads: max(workflow.cores-1,1)
+        script:
+            'utils/enrichment.py'
+
+def enrichment_mean_input(wildcards):
     """
     Determine input enrichment scores files based on output mean file path.
 
@@ -269,8 +324,8 @@ def enrichment_scores_input(wildcards):
     """
     mode = 'demux' if 'demux-enrichment' in wildcards.enrichment_path else 'genotype'
 
-    # Extract base name from path (e.g., "timepoints/TrpB-IE5_demux-enrichment-scores-mean" -> "TrpB-IE5")
-    timepoint_base = wildcards.enrichment_path.split(f'_{mode}-enrichment')[0].replace('timepoints/', '')
+    # Extract base name from path (e.g., "TrpB-IE5_demux-enrichment-scores-mean" -> "TrpB-IE5")
+    timepoint_base = wildcards.enrichment_path.split(f'_{mode}-enrichment')[0]
 
     # Find all timepoint samples that match this base name (with or without -rep suffix)
     matching_samples = []
@@ -285,14 +340,14 @@ def enrichment_scores_input(wildcards):
                         f"Expected to find '{timepoint_base}' or '{timepoint_base}-rep1', etc.")
 
     # Return list of score files for all matching samples
-    return [f'enrichment/timepoints/{sample}_{mode}-enrichment-scores.csv' for sample in matching_samples]
+    return [f'enrichment/{sample}_{mode}-enrichment-scores.csv' for sample in matching_samples]
 
 # Unified rule for filtering enrichment scores and computing means across replicates
 # Input: One or more replicate enrichment score files (e.g., TrpB-IE5-rep1_*-scores.csv, TrpB-IE5-rep2_*-scores.csv)
 # Output: Single mean file aggregating replicates (e.g., TrpB-IE5_*-scores-mean.csv)
 rule enrichment_mean:
     input:
-        scores = enrichment_scores_input
+        scores = enrichment_mean_input
     output:
         mean = 'enrichment/{enrichment_path, .+enrichment-scores-mean}.csv'
     params:
@@ -318,7 +373,7 @@ rule enrichment_mean:
 # Plot enrichment scores
 rule plot_enrichment:
     input:
-        mean = 'enrichment/timepoints/{timepoint_sample}_{mode}-enrichment-scores-mean.csv'
+        mean = 'enrichment/{timepoint_sample}_{mode}-enrichment-scores-mean.csv'
     output:
         plot = 'plots/{timepoint_sample, [^\/]*}_{mode, (demux|genotype)}-enrichment-scores.html'
     run:
@@ -833,16 +888,16 @@ rule merge_timepoint_demux_enrichment_with_genotypes:
     input:
         # Use genotypes and seq_ids from the specific tag/barcode determined by Snakefile
         genotypes = lambda wildcards: 'mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes-reduced-dimensions.csv'.format(
-            tag=config['timepointsInfo'][wildcards.timepointsGroup]['genotypes'][0],
-            barcode=config['timepointsInfo'][wildcards.timepointsGroup]['genotypes'][1]
+            tag=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][0],
+            barcode=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][1]
         ),
         seq_ids = lambda wildcards: 'mutation_data/{tag}/{barcode}/{tag}_{barcode}_seq-IDs.csv'.format(
-            tag=config['timepointsInfo'][wildcards.timepointsGroup]['genotypes'][0],
-            barcode=config['timepointsInfo'][wildcards.timepointsGroup]['genotypes'][1]
+            tag=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][0],
+            barcode=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][1]
         ),
-        enrichment = 'enrichment/timepoints/{timepointsGroup}_demux-enrichment-scores-mean.csv'
+        enrichment = 'enrichment/{timepointsGroup}_demux-enrichment-scores-mean.csv'
     output:
-        genotypes_enrichment = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-demux-enrichment.csv'
+        genotypes_enrichment = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-demux-enrichment-mean.csv'
     params:
         filter_missing_replicates = lambda wildcards: config.get('enrichment_missing_replicates_filter', True)
     script:
@@ -850,11 +905,11 @@ rule merge_timepoint_demux_enrichment_with_genotypes:
 
 rule reduce_genotype_enrichment_dimensions:
     input:
-        genotypes = 'enrichment/timepoints/{timepointsGroup}_genotype-enrichment-scores-mean.csv'
+        genotypes = 'enrichment/{timepointsGroup}_genotype-enrichment-scores-mean.csv'
     output:
-        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment.csv'
+        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment-mean.csv'
     params:
-        ref_csv = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup].get('reference_csv', '')
+        ref_csv = lambda wildcards: config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {})).get('reference_csv', '')
     run:
         import pandas as pd
         from utils.SequenceAnalyzer import SequenceAnalyzer
