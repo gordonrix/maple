@@ -998,3 +998,73 @@ def load_references_from_csv(ref_csv_path, tag='N/A', use_longest_orf_default=Fa
         notices.append(f"[NOTICE] ref_seq_coding provided without ref_seq_NT for tag `{tag}`, references {ref_set}. Using ref_seq_coding for both NT and AA analysis.")
 
     return references_dict, errors, has_NT_analysis, has_AA_analysis, notices
+
+
+def process_timepoints_csv(csv_path):
+    """
+    Process timepoints CSV file to add group and replicate columns.
+
+    For duplicate sample names, adds -rep1, -rep2, etc. suffix to sample_label,
+    and creates group and replicate columns.
+
+    Args:
+        csv_path (str): Path to raw timepoints CSV file with first column as sample names
+
+    Returns:
+        pd.DataFrame: Processed DataFrame with columns:
+            - group: original sample name (without -rep suffix)
+            - replicate: replicate number (1, 2, 3, etc.)
+            - sample_label: sample name with -rep suffix if duplicates exist
+            - [timepoint columns]: original timepoint columns
+    """
+    # Read the CSV file
+    df = pd.read_csv(csv_path)
+
+    # Get the sample column name
+    sample_col_name = df.columns[0]
+
+    # Get unique sample names
+    unique_samples = df[sample_col_name].unique()
+
+    # Check if there are duplicates
+    has_duplicates = len(unique_samples) != len(df)
+
+    # Create new columns
+    groups = []
+    replicates = []
+    new_sample_labels = []
+
+    for sample_group in unique_samples:
+        # Get all rows with this sample name
+        mask = df[sample_col_name] == sample_group
+        n_replicates = mask.sum()
+
+        replicate_idx = 0
+        for idx in df[mask].index:
+            replicate_idx += 1
+
+            # Add group (original sample name)
+            groups.append(sample_group)
+
+            # Add replicate number
+            replicates.append(replicate_idx)
+
+            # Add sample_label with -rep suffix if there are duplicates
+            if has_duplicates and n_replicates > 1:
+                new_sample_labels.append(f"{sample_group}-rep{replicate_idx}")
+            else:
+                new_sample_labels.append(sample_group)
+
+    # Create result DataFrame with new column order
+    result_df = pd.DataFrame({
+        'group': groups,
+        'replicate': replicates,
+        'sample_label': new_sample_labels
+    })
+
+    # Add the timepoint columns (all columns except the first one from original df)
+    timepoint_cols = df.columns[1:]
+    for col in timepoint_cols:
+        result_df[col] = df[col].values
+
+    return result_df

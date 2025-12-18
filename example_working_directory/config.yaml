@@ -77,16 +77,20 @@ export_SVG: False
 plot_demux: True
 plot_mutation-distribution: True
 plot_mutations-aggregated: True
-plot_hamming-distance-distribution: True
-plot_mutation-distribution-violin: True
+plot_hamming-distance-distribution: False
+plot_mutation-distribution-violin: False
 plot_genotypes2D: False
 
-# enrichment analysis
+# time series and enrichment analysis
+timepoints: timepoints.csv
+timepoints_units: 'generations'
+do_enrichment: True
+enrichment_type: 'genotype'
 enrichment_SE_filter: 0
 enrichment_t0_filter: 0
 enrichment_score_filter: False
 enrichment_missing_replicates_filter: True
-enrichment_reference_bc: 'all_barcodes'
+enrichment_reference: 'all'
 
 # genotypes2D plotting
 genotypes2D_plot_all: False
@@ -104,9 +108,6 @@ hamming_distance_distribution_raw: False
 # dashboard configuration
 dashboard_input: TrpB-IE5
 dashboard_port: 5007
-
-# time series analysis
-timepoints: timepoints.csv
 
 # nanoplot integration
 nanoplot: False

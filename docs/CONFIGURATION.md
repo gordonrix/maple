@@ -507,17 +507,23 @@ Parameters for enrichment score calculation and filtering.
 - **Description:** Whether to filter out barcodes without enrichment scores for all replicates
 - **Example:** `enrichment_missing_replicates_filter: False`
 
-**enrichment_reference_bc**
+**enrichment_reference**
 - **Type:** String
-- **Default:** `'all_barcodes'`
-- **Description:** Barcode to use as reference for normalization. 'all_barcodes' normalizes to all barcodes. If '' or False, a single barcode that is abundant within all samples will be chosen as the reference. If no such barcode exists, the first barcode in the list will be used as the reference
-- **Example:** `enrichment_reference_bc: 'control'`
+- **Default:** `'all'`
+- **Description:** Entity to use as reference for normalization. 'all' normalizes to all entities. If '' or False, a single entity that is abundant within all samples will be chosen as the reference. Can also specify a specific entity ID to use as reference
+- **Example:** `enrichment_reference: 'all'`
 
 **do_enrichment**
 - **Type:** Boolean
 - **Default:** `False`
-- **Description:** When True, the genotypes dashboard will use enrichment score files as input. Requires timepoint-based analysis with enrichment score calculation enabled. When False, dashboard uses base genotypes without enrichment scores
+- **Description:** Enable enrichment score calculation for timepoint samples. When True, enrichment scores are calculated based on the specified enrichment_type. Requires a timepoints CSV file
 - **Example:** `do_enrichment: True`
+
+**enrichment_type**
+- **Type:** String
+- **Default:** `'genotype'`
+- **Description:** Type of enrichment analysis to perform. Options: 'genotype' (mutation-based enrichment using genotype CSV files) or 'demux' (barcode-based enrichment using demux-stats.csv)
+- **Example:** `enrichment_type: 'genotype'`
 
 </details>
 
@@ -616,8 +622,14 @@ Parameters for time series and evolution experiments.
 **timepoints**
 - **Type:** String
 - **Default:** `timepoints.csv`
-- **Description:** CSV file providing tag and barcode combinations for experiment timepoints
+- **Description:** CSV file providing tag and barcode combinations for experiment timepoints. First column should contain sample names, subsequent columns contain timepoint values with tag_barcode identifiers
 - **Example:** `timepoints: my_timepoints.csv`
+
+**timepoints_units**
+- **Type:** String
+- **Default:** `'timepoint'`
+- **Description:** Units for timepoint measurements (e.g., 'generations', 'hours', 'days', 'passages'). Used for labeling plots and enrichment analysis outputs
+- **Example:** `timepoints_units: 'generations'`
 
 </details>
 
