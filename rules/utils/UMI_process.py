@@ -91,6 +91,7 @@ def extract_umi(aligned_ref, bam_entry, UMI_contexts):
     """
     umi_string = ''
     failure_flags = []
+    extraction_failed = False
 
     for context in UMI_contexts:
         result = find_barcode_position_in_alignment(aligned_ref, context)
@@ -98,11 +99,15 @@ def extract_umi(aligned_ref, bam_entry, UMI_contexts):
         # Check if extraction failed
         if result[0] is None:
             failure_flags.append(True)
-            return None, failure_flags
+            extraction_failed = True
+        else:
+            start_pos, end_pos = result
+            umi_string += bam_entry.query_alignment_sequence[start_pos:end_pos]
+            failure_flags.append(False)
 
-        start_pos, end_pos = result
-        umi_string += bam_entry.query_alignment_sequence[start_pos:end_pos]
-        failure_flags.append(False)
+    # Return None for UMI if any context failed, but ensure all failure flags are recorded
+    if extraction_failed:
+        return None, failure_flags
 
     return umi_string, failure_flags
 
