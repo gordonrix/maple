@@ -879,6 +879,27 @@ if 'timepoints' in config:
         if len(timepoint_cols) <= 1:
             print(f"[WARNING] Timepoints .CSV file `{CSVpath}` does not have at least two timepoints. Timepoint-based snakemake rules will fail.\n", file=sys.stderr)
         else:
+            # Validate timepoint columns if enrichment is enabled
+            if config.get('do_enrichment', False):
+                # Check if all timepoint columns are numerical
+                non_numeric_cols = []
+                numeric_cols = []
+                for col in timepoint_cols:
+                    try:
+                        float_val = float(col)
+                        numeric_cols.append(float_val)
+                    except (ValueError, TypeError):
+                        non_numeric_cols.append(col)
+
+                if non_numeric_cols:
+                    print(f"[WARNING] Enrichment analysis requires numerical timepoint column headers, but found non-numerical columns: {non_numeric_cols}. Disabling enrichment analysis.", file=sys.stderr)
+                    config['do_enrichment'] = False
+                elif numeric_cols:
+                    # Check if timepoints are in sorted order
+                    sorted_cols = sorted(numeric_cols)
+                    if numeric_cols != sorted_cols:
+                        print(f"[NOTICE] Timepoint columns are not in ascending order: {numeric_cols}. Timepoints will be analyzed in the following order: {sorted_cols}. Consider reording within the timepoint CSV for clarity\n", file=sys.stderr)
+
             # Iterate through processed timepoints DataFrame
             for idx, row in timepointsCSV.iterrows():
                 rowIndex = idx + 2  # +2 because idx starts at 0 and we want 1-indexed rows starting from data row
