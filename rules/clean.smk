@@ -17,7 +17,19 @@ from datetime import datetime
 # local rules
 localrules: sequences_clean, alignment_clean, demux_clean, mutation_data_clean, logs_clean, clean
 
-config['timestamp_dir'] = datetime.now().strftime("%Y%m%d-%H%M%S") + '-maple_outputs'
+# Generate timestamp once and persist to file to ensure all rules use the same timestamp
+# (Snakefile gets re-parsed multiple times, so datetime.now() would give different values)
+timestamp_file = 'log/.clean_timestamp'
+if not os.path.exists(timestamp_file):
+    os.makedirs('log', exist_ok=True)
+    timestamp_value = datetime.now().strftime("%Y%m%d-%H%M%S") + '-maple_outputs'
+    with open(timestamp_file, 'w') as f:
+        f.write(timestamp_value)
+else:
+    with open(timestamp_file, 'r') as f:
+        timestamp_value = f.read().strip()
+
+config['timestamp_dir'] = timestamp_value
 
 
 # clean up sequences folder: remove combined .fastq.gz files (but not basecalled batches), move UMI stats files
@@ -149,7 +161,7 @@ rule mutation_data_clean:
         touch('log/.mutation_data_clean.done')
     params:
         timestamp_dir = lambda wildcards: config['timestamp_dir'],
-        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv', 'maple']]
+        keep = [directoryORfile for directoryORfile in os.listdir('.') if directoryORfile in ['plots', 'mutSpectra', 'mutation_data', 'enrichment', 'mutation-stats.csv', 'demux-stats.csv', 'dms-view-table.csv', 'maple']]
     shell:
         """
         mkdir -p log
@@ -199,4 +211,5 @@ rule clean:
         rm {input}
         zip -r {params.timestamp_dir}.zip {params.timestamp_dir}
         rm -rf {params.timestamp_dir}
+        rm -f log/.clean_timestamp
         """
