@@ -194,6 +194,17 @@ rule merge_demux_stats:
         combined = pd.concat(dfs)
         combined.to_csv(output[0], index=False)
 
+# Proxy rule: declares demux BAM files as outputs after checkpoint completes
+# The demultiplex checkpoint creates BAM files as side effects; this rule
+# allows Snakemake to include them in the DAG
+rule demux_bam_proxy:
+    input:
+        flag = 'demux/.{tag}_demultiplex.done'
+    output:
+        bam = 'demux/{tag}_{barcodes}.bam'
+    run:
+        pass
+
 rule index_demuxed:
     input:
         'demux/{tag}_{barcodes}.bam'
@@ -221,14 +232,22 @@ def genotype_enrichment_input(wildcards):
     Get genotype file inputs for genotype enrichment calculation.
     Finds all tag/barcode combinations used in this timepoint sample's series.
     Returns list of genotype CSV paths.
+
+    This function is checkpoint-aware: it uses get_demuxed_barcodes_timepoint()
+    to wait for demultiplex checkpoints and discover which barcodes actually exist.
     """
     timepoint_sample = wildcards.timepoint_sample
     if timepoint_sample not in config['timepointsInfo']:
         return []
 
     tag_barcode_tp = config['timepointsInfo'][timepoint_sample]['tag_barcode_tp']
+
+    # Use get_demuxed_barcodes_timepoint to get only the barcodes that actually exist after demux
+    # This function waits for checkpoints and filters out any barcodes that weren't produced
+    available_tag_barcodes = get_demuxed_barcodes_timepoint(tag_barcode_tp.keys())
+
     genotype_files = []
-    for (tag, barcode) in tag_barcode_tp.keys():
+    for (tag, barcode) in available_tag_barcodes:
         genotype_file = f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes.csv'
         genotype_files.append(genotype_file)
 
@@ -905,22 +924,39 @@ rule merge_timepoint_demux_enrichment_with_genotypes:
 
 rule reduce_genotype_enrichment_dimensions:
     input:
-        genotypes = 'enrichment/{timepointsGroup}_genotype-enrichment-scores-mean.csv'
+        mean = 'enrichment/{timepointsGroup}_genotype-enrichment-scores-mean.csv',
+        # Get full scores file to extract mutation detail columns
+        scores = 'enrichment/{timepointsGroup}_genotype-enrichment-scores.csv'
     output:
         reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment-mean.csv'
     params:
         ref_csv = lambda wildcards: config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {})).get('reference_csv', '')
     run:
         import pandas as pd
+        import sys
         from utils.SequenceAnalyzer import SequenceAnalyzer
         from utils.common import load_references_from_csv
 
-        # Load genotype enrichment scores (already has all genotype info + enrichment scores)
-        genotypes_df = pd.read_csv(input.genotypes)
+        # Load enrichment mean (has mean scores but not mutation details or count)
+        mean_df = pd.read_csv(input.mean)
 
-        # Add reference_name column if not present (backward compatibility)
-        if 'reference_name' not in genotypes_df.columns:
-            genotypes_df['reference_name'] = 'N/A'
+        # Load enrichment scores file to get mutation details
+        scores_df = pd.read_csv(input.scores)
+
+        # Select mutation detail columns from scores file
+        mutation_cols = ['entity_id', 'NT_substitutions', 'NT_insertions', 'NT_deletions',
+                        'AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous']
+        # Only keep columns that exist
+        mutation_cols = [col for col in mutation_cols if col in scores_df.columns]
+
+        # Get unique mutations (remove duplicates across timepoints and replicates)
+        mutations_unique = scores_df[mutation_cols].drop_duplicates(subset=['entity_id'])
+
+        # Merge mutation details into mean dataframe
+        genotypes_df = mean_df.merge(mutations_unique, on='entity_id', how='left')
+
+        # Add count column (set to 1 for all genotypes - not used in dimension reduction)
+        genotypes_df['count'] = 1
 
         # Load references
         references_dict, errors, _, _, _ = load_references_from_csv(params.ref_csv)
