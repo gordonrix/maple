@@ -335,10 +335,13 @@ def load_demux_data(demux_stats_path, timepoints_df, screen_failures=True):
     all_demux_df = pd.read_csv(demux_stats_path, index_col=False)
 
     # Check that required columns exist
-    required_cols = ['tag', 'reference_name', 'output_file_barcodes', 'label_barcodes', 'count']
+    required_cols = ['tag', 'reference_name', 'output_file_barcodes', 'label_barcodes', 'barcodes_count']
     missing_cols = [col for col in required_cols if col not in all_demux_df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns in demux-stats.csv: {missing_cols}")
+
+    # Rename barcodes_count to count for consistency with genotype enrichment
+    all_demux_df = all_demux_df.rename(columns={'barcodes_count': 'count'})
 
     # Remove failures if requested
     if screen_failures:
@@ -731,7 +734,9 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter
         enrichment_df = enrichment_df[enrichment_df['enrichment_score'] >= score_filter]
 
     # Pivot enrichment scores to get replicates as columns and calculate mean and SD
-    mean_enrichment_df = enrichment_df.pivot(index=[sample_label, enrichment_entity],
+    index_cols = [sample_label, enrichment_entity]
+
+    mean_enrichment_df = enrichment_df.pivot(index=index_cols,
                                             columns='replicate', values='enrichment_score')
     mean_enrichment_df.columns = [f'replicate_{rep}' for rep in mean_enrichment_df.columns]
     count_col = mean_enrichment_df.count(axis=1)
@@ -744,10 +749,10 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter
     if include_mean_normalized:
         normalized_cols = [col for col in enrichment_df.columns if col.endswith('_normalized')]
         for norm_col in normalized_cols:
-            pivot_norm = enrichment_df.pivot(index=[sample_label, enrichment_entity],
+            pivot_norm = enrichment_df.pivot(index=index_cols,
                                             columns='replicate', values=norm_col)
             mean_norm = pivot_norm.mean(axis=1)
-            mean_enrichment_df = mean_enrichment_df.set_index([sample_label, enrichment_entity])
+            mean_enrichment_df = mean_enrichment_df.set_index(index_cols)
             mean_enrichment_df[f'mean_{norm_col}'] = mean_norm
             mean_enrichment_df = mean_enrichment_df.reset_index()
 
@@ -859,6 +864,7 @@ if __name__ == '__main__':
         if mode == 'demux':
             args_dict['demux_stats'] = snakemake.input.CSV
             args_dict['screen_failures'] = snakemake.params.get('screen_failures', True)
+            args_dict['timepoint_sample'] = snakemake.params.timepoint_sample
         elif mode == 'genotype':
             args_dict['timepoint_sample'] = snakemake.params.timepoint_sample
     else:
