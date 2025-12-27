@@ -85,7 +85,7 @@ plot_genotypes2D: False
 timepoints: timepoints.csv
 timepoints_units: 'generations'
 do_enrichment: True
-enrichment_type: 'genotype'
+enrichment_type: 'demux'
 enrichment_SE_filter: 0
 enrichment_t0_filter: 0
 enrichment_score_filter: False
