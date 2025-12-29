@@ -196,10 +196,10 @@ rule merge_demux_stats:
 
 # Proxy rule: declares demux BAM files as outputs after checkpoint completes
 # The demultiplex checkpoint creates BAM files as side effects; this rule
-# allows Snakemake to include them in the DAG
+# allows Snakemake to include them in the DAG, which is necessary for enrichment analysis.
 rule demux_bam_proxy:
     input:
-        flag = 'demux/.{tag}_demultiplex.done'
+        flag = ancient('demux/.{tag}_demultiplex.done') # ancient prevents premature deletion
     output:
         bam = 'demux/{tag}_{barcodes}.bam'
     run:
