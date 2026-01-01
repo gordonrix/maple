@@ -15,7 +15,7 @@ Path to CSV file defining experimental runs to be analyzed.
 
 The tags.csv file must be located within the `metadata` directory and contains columns defining each experimental run:
 - `tag`: A unique identifier for the run that will be used in all output filenames (**Note:** Tags may not contain underscores)
-- `reference`: Reference FASTA filename in the metadata directory
+- `reference_csv`: Path to a reference CSV file in the metadata directory (see Reference CSV Format below)
 - one of the following for sequence import:
     - `runname`: Directory or individual file name containing FASTQ files/sequences, must be within the config-defined `sequences_dir`
     - `bs_project_ID` and `sample_ID`: For pulling pre-demultiplexed data from Illumina's BaseSpace. Downloads the specified project ID and grabs the two paired fastq.gz files for the specified sample ID.
@@ -69,6 +69,34 @@ Directory name for metadata files, located in working directory.
 **Example:** `metadata: metadata`
 
 This directory should contain all files that define a Maple run except for the config file and sequencing data. For example, CSV files defining runs or barcode info and fasta files defining barcodes.
+
+</details>
+
+<details>
+<summary>Reference CSV Format</summary>
+
+The reference CSV file defines reference sequences for alignment and mutation analysis. Each row represents a distinct reference sequence that reads can align to.
+
+**Required columns:**
+- `ref_seq_name`: Unique identifier for this reference
+- `ref_seq_alignment`: Full sequence used for alignment, including Ns for variable regions (barcodes, UMIs)
+
+**Optional columns (for mutation analysis):**
+- `ref_seq_NT`: Nucleotide sequence range for NT mutation counting (must be a subsequence of ref_seq_alignment or its reverse complement). If not provided but `ref_seq_coding` is provided, `ref_seq_coding` will be used for NT analysis
+- `ref_seq_coding`: Coding sequence for amino acid mutation analysis (must be a subsequence of ref_seq_NT or ref_seq_alignment)
+- `use_longest_ORF`: Boolean (`TRUE`/`FALSE`). If TRUE, automatically identifies and uses the longest open reading frame for both NT and AA analysis. Overrides the global `use_longest_orf_default` setting
+- `structure_file`: Path to a PDB structure file for structure-based analysis
+
+**Example:**
+```csv
+ref_seq_name,ref_seq_alignment,ref_seq_NT,ref_seq_coding,use_longest_ORF,structure_file
+TrpB,AGGNNNN...CTGA,ATGAAA...TAA,ATGAAA...TAA,FALSE,metadata/structure.pdb
+```
+
+**Notes:**
+- Multiple references can be defined in a single CSV file, allowing reads to be analyzed against whichever reference they align best to
+- If only `ref_seq_alignment` is provided, the pipeline can still be used for demultiplexing and enrichment analysis without mutation analysis
+- Barcode and UMI contexts (if used) must appear exactly once in each reference's alignment sequence
 
 </details>
 
