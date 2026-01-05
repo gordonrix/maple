@@ -228,7 +228,7 @@ def calculate_all_statistics(input_list, do_aa_analysis=False):
 
         for barcode_group in file_dict[tag]:
             # Load all data files
-            df_dict = {dtype: pd.read_csv(file_dict[tag][barcode_group][dtype], index_col=0)
+            df_dict = {dtype: pd.read_csv(file_dict[tag][barcode_group][dtype], index_col=0, dtype={'genotype_ID': str})
                       for dtype in datatypes}
             # Remove NaN rows (wild-type positions) from mutations-aggregated files
             df_dict = {k: v.dropna(subset=['total_count']) if 'mutations-aggregated' in k else v for k, v in df_dict.items()}
