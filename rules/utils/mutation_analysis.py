@@ -728,6 +728,37 @@ def process_bam_file(bam_path, references_csv, output_files, quality_minimum,
 
         genotypes_condensed_list.append(ref_genotypes_condensed)
 
+    # Handle case where no sequences passed validation
+    if not genotypes_condensed_list:
+        total_failures = len(failures_df)
+        failure_reasons = failures_df['failure_reason'].value_counts().to_dict() if total_failures > 0 else {}
+        print(f"\n[WARNING] No sequences passed validation for mutation analysis. Input: {bam_path}", file=sys.stderr)
+        print(f"          Total failures: {total_failures}", file=sys.stderr)
+        for reason, count in failure_reasons.items():
+            print(f"          - {reason}: {count}", file=sys.stderr)
+        print(f"          Writing empty output files.\n", file=sys.stderr)
+
+        # Write empty genotypes file with headers
+        genotypes_columns_out = ['genotype_ID', 'count', 'reference_name', 'NT_substitutions', 'NT_substitutions_count',
+                                 'NT_insertions', 'NT_deletions', 'NT_insertion_length', 'NT_deletion_length']
+        if do_aa_analysis:
+            genotypes_columns_out.extend(['AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous',
+                                         'AA_substitutions_nonsynonymous_count'])
+        pd.DataFrame(columns=genotypes_columns_out).to_csv(output_files[1], index=False)
+        pd.DataFrame(columns=['seq_ID', 'reference_name', 'genotype_ID']).to_csv(output_files[2], index=False)
+        failures_df.to_csv(output_files[3], index=False)
+        nt_freq_combined.to_csv(output_files[4], index=False)
+        nt_dist_combined.to_csv(output_files[5], index=False)
+        if do_aa_analysis:
+            if aa_freq_combined is not None:
+                aa_freq_combined.to_csv(output_files[6], index=False)
+            if aa_dist_combined is not None:
+                aa_dist_combined.to_csv(output_files[7], index=False)
+        # Write empty alignments file
+        with open(output_files[0], 'w') as f:
+            f.write('')
+        return
+
     # Concatenate all reference genotypes
     genotypes_condensed = pd.concat(genotypes_condensed_list, ignore_index=True)
 
