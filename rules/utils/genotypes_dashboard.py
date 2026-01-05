@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Maple Genotypes Dashboard - 2025 Rebuild
+Maple Genotypes Dashboard
 Modern reactive architecture using Panel 1.7+ and HoloViews
 """
 
@@ -120,7 +120,7 @@ class DataManager:
         self.exclude_indels = exclude_indels
 
         # Load reference sequences from CSV
-        self.references_dict, errors, _, _ = load_references_from_csv(reference_file)
+        self.references_dict, errors, _, _, _ = load_references_from_csv(reference_file)
         if errors:
             raise ValueError(f"Error loading references: {errors}")
 
@@ -237,6 +237,14 @@ class ScatterPlotComponent(pn.viewable.Viewer):
             if len(data_manager.embedding_columns) > 1:
                 self.y_column = data_manager.embedding_columns[1]
 
+        # Set default color_by column with fallback
+        if 'NT_substitutions_count' in data_manager.numerical_columns:
+            self.color_by = 'NT_substitutions_count'
+        elif 'mean_enrichment_score' in data_manager.numerical_columns:
+            self.color_by = 'mean_enrichment_score'
+        elif data_manager.numerical_columns:
+            self.color_by = data_manager.numerical_columns[0]
+
     @param.depends('x_column', 'y_column', 'color_by', 'datashade', 'point_size', 'alpha')
     def plot(self):
         """Create the main scatter plot using hvplot - reactive method"""
@@ -293,11 +301,13 @@ class HistogramComponent(pn.viewable.Viewer):
         super().__init__(**params)
         self.data_manager = data_manager
 
-        # Set default column - prioritize AA_substitutions_nonsynonymous_count, then NT_substitutions_count
+        # Set default column - prioritize AA_substitutions_nonsynonymous_count, then NT_substitutions_count, then mean_enrichment_score
         if 'AA_substitutions_nonsynonymous_count' in data_manager.numerical_columns:
             self.hist_column = 'AA_substitutions_nonsynonymous_count'
         elif 'NT_substitutions_count' in data_manager.numerical_columns:
             self.hist_column = 'NT_substitutions_count'
+        elif 'mean_enrichment_score' in data_manager.numerical_columns:
+            self.hist_column = 'mean_enrichment_score'
         elif data_manager.numerical_columns:
             self.hist_column = data_manager.numerical_columns[0]
 
@@ -1034,7 +1044,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_genotypes(self, event):
         """Export selected genotypes to CSV"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_genotypes.csv'
+        filename = f'dashboard/{self.selection_name_text.value}-{timestamp}_genotypes.csv'
 
         # Create dashboard directory
         pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
@@ -1059,7 +1069,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_NT_fasta(self, event):
         """Export NT sequences to FASTA"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_NT-seqs.fasta'
+        filename = f'dashboard/{self.selection_name_text.value}-{timestamp}_NT-seqs.fasta'
 
         selected_idx = self.data_manager.analyzer.selected_idx
         self.data_manager.analyzer.write_fasta(filename, 'NT', idx=selected_idx)
@@ -1069,7 +1079,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_AA_fasta(self, event):
         """Export AA sequences to FASTA"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_AA-seqs.fasta'
+        filename = f'dashboard/{self.selection_name_text.value}-{timestamp}_AA-seqs.fasta'
 
         selected_idx = self.data_manager.analyzer.selected_idx
         self.data_manager.analyzer.write_fasta(filename, 'AA', idx=selected_idx)
@@ -1079,7 +1089,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_NT_consensus(self, event):
         """Export NT consensus sequence to FASTA"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = 'dashboard/dashboard-NT-consensus.fasta'
+        filename = 'dashboard/NT-consensus.fasta'
 
         selected_idx = self.data_manager.analyzer.selected_idx
         self.data_manager.analyzer.get_consensus('NT', idx=selected_idx, write_to=filename, append=True,
@@ -1089,7 +1099,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_AA_consensus(self, event):
         """Export AA consensus sequence to FASTA"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = 'dashboard/dashboard-AA-consensus.fasta'
+        filename = 'dashboard/AA-consensus.fasta'
 
         selected_idx = self.data_manager.analyzer.selected_idx
         self.data_manager.analyzer.get_consensus('AA', idx=selected_idx, write_to=filename, append=True,
@@ -1099,7 +1109,7 @@ class ControlsPanel(pn.viewable.Viewer):
     def _export_agg_muts(self, event):
         """Export aggregated mutations to CSV"""
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f'dashboard/dashboard-{self.selection_name_text.value}-{timestamp}_mutations-aggregated.csv'
+        filename = f'dashboard/{self.selection_name_text.value}-{timestamp}_mutations-aggregated.csv'
 
         # Create dashboard directory
         pathlib.Path(filename).parent.absolute().mkdir(parents=True, exist_ok=True)
@@ -2080,7 +2090,7 @@ class MapleDashboard:
 # Safe argument parsing and dashboard creation
 try:
     # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Maple Genotypes Dashboard - 2025 Rebuild')
+    parser = argparse.ArgumentParser(description='Maple Genotypes Dashboard')
     parser.add_argument('--genotypes', type=str,
                        help='Path to genotypes CSV file (single dataset mode)')
     parser.add_argument('--reference', type=str,
@@ -2096,7 +2106,7 @@ try:
 
     args, unknown = parser.parse_known_args()
 
-    print("Starting Maple Dashboard 2025...")
+    print("Starting Maple Dashboard")
 
     # Build datasets_config from either CSV or command line args
     if args.datasets:
