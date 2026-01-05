@@ -24,7 +24,7 @@ Additionally, some concepts and code are borrowed from the snakemake pipeline [N
 as a starting point for Maple
 
 Below you'll see an overview of the steps involved in the pipeline. This overview is a non-comprehensive summary. Many of these steps are optional, and which ones
-run will depend on what information is provided in the config file (see 'Usage'). This overview is based on a graph generated for the 'targets' rule, but a similar graph can be generated programmatically for any target file or rule name using the command:
+run will depend on what information is provided (see 'Usage'). This overview is based on a graph generated for the 'targets' rule, but a similar graph can be generated programmatically for any target file or rule name using the command:
 
 `snakemake --snakefile PATH/TO/Snakefile RULE_OR_FILE -n -j 1 --dag | sed -n '/^digraph/,$p' | dot -Tpdf > dag.pdf`
 

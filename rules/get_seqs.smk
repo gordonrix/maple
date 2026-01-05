@@ -42,8 +42,8 @@ def get_bs_paired_end(tag):
     """
     Retrieve paired-end fastq files from BaseSpace for a given tag.
     Assumes paired end files are located in the following directory structure after a bs project download:
-        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*R1*.fastq.gz
-        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*R2*.fastq.gz
+        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*)_R1_*.fastq.gz
+        sequences/bs{bs_project_ID}/{sample_ID}*/{tag}*_R2_*.fastq.gz
     """
     project_ID = config['runs'][tag].get('bs_project_ID', None)
     if not project_ID:
@@ -53,8 +53,8 @@ def get_bs_paired_end(tag):
     if not sample_ID:
         raise ValueError(f"[ERROR] Sample ID not provided for tag {tag}, but bs_project_ID is provided.")
     project_dir = os.path.dirname(flag)
-    fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R1*.fastq.gz"))
-    rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*R2*.fastq.gz"))
+    fwd = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*_R1_*.fastq.gz"))
+    rvs = glob.glob(os.path.join(project_dir, f"{config['runs'][tag]['sample_ID']}*", f"*_R2_*.fastq.gz"))
     if fwd and rvs:
         return fwd[0], rvs[0]
     else:
