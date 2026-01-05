@@ -331,6 +331,26 @@ elif config.get('enrichment_type') == 'genotype':
         script:
             'utils/enrichment.py'
 
+def get_samples_for_group(group):
+    """
+    Get all sample_labels that belong to a given group.
+
+    Args:
+        group (str): The group name (e.g., 'BLF1531')
+
+    Returns:
+        list: Sample labels belonging to this group (e.g., ['BLF1531-rep1', 'BLF1531-rep2'])
+              or ['BLF1531'] if no replicates
+    """
+    matching_samples = []
+    if 'timepointsInfo' in config:
+        for sample in config['timepointsInfo'].keys():
+            sample_group = config['timepointsInfo'][sample].get('group', '')
+            if sample_group == group:
+                matching_samples.append(sample)
+    return matching_samples
+
+
 def enrichment_mean_input(wildcards):
     """
     Determine input enrichment scores files based on output mean file path.
@@ -346,13 +366,8 @@ def enrichment_mean_input(wildcards):
     # Extract base name from path (e.g., "TrpB-IE5_demux-enrichment-scores-mean" -> "TrpB-IE5")
     timepoint_base = wildcards.enrichment_path.split(f'_{mode}-enrichment')[0]
 
-    # Find all timepoint samples that match this base name (with or without -rep suffix)
-    matching_samples = []
-    if 'timepointsInfo' in config:
-        for sample in config['timepointsInfo'].keys():
-            # Check if this sample matches the base (either exact match or has -rep suffix)
-            if sample == timepoint_base or sample.startswith(f'{timepoint_base}-rep'):
-                matching_samples.append(sample)
+    # Find all timepoint samples that match this group
+    matching_samples = get_samples_for_group(timepoint_base)
 
     if not matching_samples:
         raise ValueError(f"No timepoint samples found matching base name '{timepoint_base}' in timepointsInfo. "
@@ -360,6 +375,14 @@ def enrichment_mean_input(wildcards):
 
     # Return list of score files for all matching samples
     return [f'enrichment/{sample}_{mode}-enrichment-scores.csv' for sample in matching_samples]
+
+
+def genotype_enrichment_scores_input(wildcards):
+    group = wildcards.timepointsGroup
+    matching_samples = get_samples_for_group(group)
+    if not matching_samples:
+        raise ValueError(f"No timepoint samples found for group '{group}' in timepointsInfo.")
+    return [f'enrichment/{sample}_genotype-enrichment-scores.csv' for sample in matching_samples]
 
 # Unified rule for filtering enrichment scores and computing means across replicates
 # Input: One or more replicate enrichment score files (e.g., TrpB-IE5-rep1_*-scores.csv, TrpB-IE5-rep2_*-scores.csv)
@@ -901,19 +924,18 @@ rule merge_tag_genotypes:
             DFs.append(df)
         pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
 
+def get_demux_genotypes_path(wildcards, file_type):
+    """Get genotypes or seq-IDs path for demux enrichment merge. file_type: 'genotypes' or 'seq-IDs'"""
+    sample = get_samples_for_group(wildcards.timepointsGroup)[0]
+    tag, barcode = config['timepointsInfo'][sample]['genotypes']
+    return f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_{file_type}.csv'
+
 # TODO: Implement reading the 'genotypes' column from timepoints.csv in Snakefile
 # to populate config['timepointsInfo'][timepoint_sample]['genotypes'] = (tag, barcode)
 rule merge_timepoint_demux_enrichment_with_genotypes:
     input:
-        # Use genotypes and seq_ids from the specific tag/barcode determined by Snakefile
-        genotypes = lambda wildcards: 'mutation_data/{tag}/{barcode}/{tag}_{barcode}_genotypes-reduced-dimensions.csv'.format(
-            tag=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][0],
-            barcode=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][1]
-        ),
-        seq_ids = lambda wildcards: 'mutation_data/{tag}/{barcode}/{tag}_{barcode}_seq-IDs.csv'.format(
-            tag=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][0],
-            barcode=config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {}))['genotypes'][1]
-        ),
+        genotypes = lambda wildcards: get_demux_genotypes_path(wildcards, 'genotypes-reduced-dimensions'),
+        seq_ids = lambda wildcards: get_demux_genotypes_path(wildcards, 'seq-IDs'),
         enrichment = 'enrichment/{timepointsGroup}_demux-enrichment-scores-mean.csv'
     output:
         genotypes_enrichment = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-demux-enrichment-mean.csv'
@@ -925,57 +947,43 @@ rule merge_timepoint_demux_enrichment_with_genotypes:
 rule reduce_genotype_enrichment_dimensions:
     input:
         mean = 'enrichment/{timepointsGroup}_genotype-enrichment-scores-mean.csv',
-        # Get full scores file to extract mutation detail columns
-        scores = 'enrichment/{timepointsGroup}_genotype-enrichment-scores.csv'
+        scores = genotype_enrichment_scores_input
     output:
         reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment-mean.csv'
     params:
-        ref_csv = lambda wildcards: config['timepointsInfo'].get(wildcards.timepointsGroup, config['timepointsInfo'].get(f'{wildcards.timepointsGroup}-rep1', {})).get('reference_csv', '')
+        ref_csv = lambda wildcards: config['timepointsInfo'][get_samples_for_group(wildcards.timepointsGroup)[0]].get('reference_csv', '')
     run:
         import pandas as pd
         import sys
         from utils.SequenceAnalyzer import SequenceAnalyzer
         from utils.common import load_references_from_csv
 
-        # Load enrichment mean (has mean scores but not mutation details or count)
         mean_df = pd.read_csv(input.mean)
 
-        # Load enrichment scores file to get mutation details
-        scores_df = pd.read_csv(input.scores)
+        # Scores files have mutation detail columns that mean file lacks
+        all_scores = [pd.read_csv(f) for f in input.scores]
+        scores_df = pd.concat(all_scores, ignore_index=True)
 
-        # Select mutation detail columns from scores file
-        mutation_cols = ['entity_id', 'NT_substitutions', 'NT_insertions', 'NT_deletions',
+        mutation_cols = ['entity_id', 'reference_name', 'NT_substitutions', 'NT_insertions', 'NT_deletions',
                         'AA_substitutions_nonsynonymous', 'AA_substitutions_synonymous']
-        # Only keep columns that exist
         mutation_cols = [col for col in mutation_cols if col in scores_df.columns]
-
-        # Get unique mutations (remove duplicates across timepoints and replicates)
         mutations_unique = scores_df[mutation_cols].drop_duplicates(subset=['entity_id'])
 
-        # Merge mutation details into mean dataframe
         genotypes_df = mean_df.merge(mutations_unique, on='entity_id', how='left')
+        genotypes_df['count'] = 1  # Placeholder for SequenceAnalyzer
 
-        # Add count column (set to 1 for all genotypes - not used in dimension reduction)
-        genotypes_df['count'] = 1
-
-        # Load references
         references_dict, errors, _, _, _ = load_references_from_csv(params.ref_csv)
         if errors:
             for error in errors:
                 print(error, file=sys.stderr)
             raise ValueError("Failed to load references from CSV")
 
-        # Process each reference separately
         reduced_dfs = []
         for ref_name in genotypes_df['reference_name'].unique():
-            # Filter genotypes for this reference
             ref_genotypes = genotypes_df[genotypes_df['reference_name'] == ref_name]
-
-            # Get reference sequences [alignment_seq, NT_seq, coding_seq]
             ref_data = references_dict[ref_name]
             reference_sequences = [ref_data['alignment_seq'], ref_data['NT_seq'], ref_data['coding_seq']]
 
-            # Create SequenceAnalyzer with filtered genotypes
             sequences = SequenceAnalyzer(reference_sequences=reference_sequences, genotypes_df=ref_genotypes, exclude_indels=False)
             sequences.assign_dimension_reduction('NT')
             if sequences.do_AA_analysis:
@@ -983,7 +991,6 @@ rule reduce_genotype_enrichment_dimensions:
 
             reduced_dfs.append(sequences.genotypes)
 
-        # Concatenate all references
         combined = pd.concat(reduced_dfs, ignore_index=True)
         combined.to_csv(output.reduced, index=False)
 
