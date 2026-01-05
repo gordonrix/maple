@@ -686,7 +686,7 @@ def calculate_enrichment(mode='demux', output_csv='', **kwargs):
 # =============================================================================
 
 def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter=False,
-                           filtered_csv='', mean_csv='', include_mean_normalized=False):
+                           filtered_csv='', mean_csv='', include_mean_normalized=False, include_all_counts=False):
     """
     Filter enrichment scores by standard error then pivot and calculate average across replicates.
 
@@ -755,6 +755,18 @@ def enrichment_mean_filter(enrichment_df, SE_filter=0, t0_filter=0, score_filter
             mean_enrichment_df = mean_enrichment_df.set_index(index_cols)
             mean_enrichment_df[f'mean_{norm_col}'] = mean_norm
             mean_enrichment_df = mean_enrichment_df.reset_index()
+        
+    # Optionally include all count columns, named by replicate
+    if include_all_counts:
+        count_cols = [col for col in enrichment_df.columns if col.endswith('_count')]
+        for count_col in count_cols:
+            pivot_count = enrichment_df.pivot(index=index_cols,
+                                             columns='replicate', values=count_col)
+            pivot_count.columns = [f'{count_col}_replicate_{rep}' for rep in pivot_count.columns]
+            mean_enrichment_df = mean_enrichment_df.set_index(index_cols)
+            mean_enrichment_df = mean_enrichment_df.join(pivot_count)
+            mean_enrichment_df = mean_enrichment_df.reset_index()
+
 
     if filtered_csv:
         enrichment_df.to_csv(filtered_csv, index=False)
@@ -839,6 +851,7 @@ def plot_enrichment(enrichment_df, plots_out):
 
     final_layout = hv.Layout(plots.values()).cols(len(samples))
     hv.save(final_layout, plots_out, backend='bokeh')
+    return final_layout
 
 
 # =============================================================================
