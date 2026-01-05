@@ -650,7 +650,30 @@ Parameters for time series and evolution experiments.
 **timepoints**
 - **Type:** String
 - **Default:** `timepoints.csv`
-- **Description:** CSV file providing tag and barcode combinations for experiment timepoints. First column should contain sample names, subsequent columns contain timepoint values with tag_barcode identifiers
+- **Description:** CSV file providing tag and barcode combinations for experiment timepoints. This file is specified in the `timepoint` column of tags.csv and must be located in the metadata directory. The timepoints CSV links sample labels to specific demultiplexed samples across a time series, enabling enrichment calculations.
+
+**File Format:**
+- **First column header:** `sample_label` (required)
+- **Subsequent column headers:** Timepoint values (numerical, all samples must share the same timepoints)
+- **First column values:** Sample labels used in analysis outputs and plots
+- **Cell values:** `tag_barcodeGroup` identifiers in the format `tag_barcodeGroup`, where:
+  - `tag` matches a tag from tags.csv
+  - `barcodeGroup` matches a barcode_group from the partition_barcode_groups_csv
+
+**Example CSV:**
+```csv
+sample_label,0,24,48,72
+TrpB-rep1,TrpB_P0,TrpB_P1,TrpB_P2,TrpB_P3
+TrpB-rep2,TrpB_P0,TrpB_P4,TrpB_P5,TrpB_P6
+```
+
+In this example:
+- Two sample labels (biological replicates) are tracked across the same timepoints (0, 24, 48, 72 hours)
+- Both samples use tag "TrpB" with different barcode groups (P0-P6) at each timepoint
+- The first timepoint column (0) is used as the reference for enrichment calculations
+
+**Usage:** Set in tags.csv using the `timepoint` column, or globally in config.yaml. When `do_enrichment: True`, enrichment scores are calculated by comparing each timepoint to the initial timepoint (first column) for each sample label.
+
 - **Example:** `timepoints: my_timepoints.csv`
 
 **timepoints_units**

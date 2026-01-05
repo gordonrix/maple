@@ -221,6 +221,17 @@ Defines how barcode combinations are grouped for analysis:
 
 This system allows for flexible multi-barcode demultiplexing with complex experimental designs.
 
+### timepoints CSV (optional)
+
+To enable time series analysis and enrichment calculations, a timepoints CSV can be provided in the `timepoint` column of tags.csv:
+
+#### Structure
+- **First column**: Sample labels (column header: `sample_label`)
+- **Subsequent columns**: Timepoint values as headers (numerical values representing time in the units specified by `timepoints_units`)
+- **Cell values**: `tag_barcode` identifiers specifying which demultiplexed sample corresponds to each timepoint
+
+This file links sample labels to specific tag/barcode combinations across a time series, enabling enrichment score calculations that track how genotypes or barcodes change over time. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for detailed format specifications and examples.
+
 ### Reference sequence
 
 Reference sequences are defined in a CSV file (specified by `reference_csv` in tags.csv). Each row defines a reference with columns for the alignment sequence, nucleotide analysis range, and optional coding sequence for amino acid analysis. See the Reference CSV Format section in [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for full details.
