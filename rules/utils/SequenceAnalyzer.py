@@ -938,7 +938,21 @@ class SequenceAnalyzer:
 
             # Adaptive parameters based on dataset size for speed optimization
             n_samples = matrix.shape[0]
-            if n_samples < 10000:
+
+            # PaCMAP requires minimum samples for neighbor calculations
+            # With n_neighbors and FP_ratio, need at least n_neighbors * (1 + FP_ratio) + buffer samples
+            if n_samples < 10:
+                ref_name = self.genotypes['reference_name'].iloc[0] if (self.genotypes is not None and 'reference_name' in self.genotypes.columns) else 'unknown'
+                print(f"[WARNING] {NTorAA} PaCMAP skipped for reference '{ref_name}': only {n_samples} sequences (minimum 10 required). PaCMAP columns will not be added for this reference.")
+                return None
+
+            if n_samples < 50:
+                # Very small datasets: minimal neighbors
+                n_neighbors = max(2, n_samples // 5)
+                MN_ratio = 0.3
+                FP_ratio = 0.5
+                num_iters = 450
+            elif n_samples < 10000:
                 # Small datasets: use quality settings
                 n_neighbors = 10
                 MN_ratio = 0.5
@@ -998,7 +1012,8 @@ class SequenceAnalyzer:
         
         """
         reduced_DF = self.dimension_reduction(NTorAA, onehot=onehot, encoding=encoding, dimensions=dimensions)
-        self.genotypes = pd.merge(self.genotypes, reduced_DF, how='left', left_index=True, right_index=True)
+        if reduced_DF is not None:
+            self.genotypes = pd.merge(self.genotypes, reduced_DF, how='left', left_index=True, right_index=True)
 
 
 class SequenceEncoder:
