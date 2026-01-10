@@ -42,30 +42,33 @@ jobs:
     - name: Run install.sh
       shell: bash -l {0}
       run: |
-        bash install/install.sh
-
-    - name: Activate maple environment
-      shell: bash -l {0}
-      run: |
-        echo "CONDA_DEFAULT_ENV=maple" >> $GITHUB_ENV
-        echo "$(conda info --base)/envs/maple/bin" >> $GITHUB_PATH
+        # Initialize conda for bash
+        eval "$(conda shell.bash hook)"
+        # Run install script (which creates env, activates it, and installs tools)
+        source install/install.sh
 
     - name: Run example pipeline (dry-run)
       shell: bash -l {0}
       working-directory: example_working_directory
       run: |
+        eval "$(conda shell.bash hook)"
+        conda activate maple
         snakemake --snakefile ../Snakefile -j 2 targets -n -q
 
     - name: Run example pipeline (full)
       shell: bash -l {0}
       working-directory: example_working_directory
       run: |
+        eval "$(conda shell.bash hook)"
+        conda activate maple
         snakemake --snakefile ../Snakefile -j 2 targets
 
     - name: Validate outputs
       shell: bash -l {0}
       working-directory: example_working_directory
       run: |
+        eval "$(conda shell.bash hook)"
+        conda activate maple
         echo "Checking required files exist..."
         test -f mutation-stats.csv || { echo "ERROR: Missing mutation-stats.csv"; exit 1; }
         test -f demux-stats.csv || { echo "ERROR: Missing demux-stats.csv"; exit 1; }
