@@ -72,13 +72,33 @@ jobs:
         echo "Installing additional tools (minimap2, samtools, medaka, etc.)..."
         echo "CONDA_PREFIX: ${CONDA_PREFIX}"
         echo "Working directory: $(pwd)"
+        echo "Python version: $(python --version)"
+        echo "Platform: $(uname -s)-$(uname -m)"
 
-        # Run install from repo root (same as install.sh does)
-        snakemake --snakefile install/install.smk --directory "${CONDA_PREFIX}" -j 4 all || {
-          echo "Installation failed. Checking for partial outputs..."
-          ls -la "${CONDA_PREFIX}/bin/" 2>/dev/null || echo "No bin directory"
+        # Run install from repo root with detailed output
+        snakemake --snakefile install/install.smk \
+          --directory "${CONDA_PREFIX}" \
+          --printshellcmds \
+          --verbose \
+          --keep-going \
+          -j 2 \
+          all 2>&1 | tee install_log.txt || {
+          echo ""
+          echo "======================================"
+          echo "Installation failed!"
+          echo "======================================"
+          echo ""
+          echo "Checking for partial outputs in ${CONDA_PREFIX}/bin/:"
+          ls -la "${CONDA_PREFIX}/bin/" 2>/dev/null || echo "  No bin directory created"
+          echo ""
+          echo "Last 50 lines of install log:"
+          tail -50 install_log.txt
           exit 1
         }
+
+        echo ""
+        echo "Installation successful! Installed tools:"
+        ls -lh "${CONDA_PREFIX}/bin/" 2>/dev/null | grep -v "^d" | tail -20
 
     - name: Run example pipeline (dry-run)
       shell: bash -l {0}
