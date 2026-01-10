@@ -41,6 +41,14 @@ rule all:
         "bin/medaka",
         f"lib/python{PYVER}/C3POa.py"
 
+rule minimal:
+    input:
+        "bin/minimap2",
+        "bin/samtools",
+        "bin/NGmerge",
+        "bin/umicollapse.jar",
+        f"lib/python{PYVER}/C3POa.py"
+
 rule minimap2:
     output:
         bin = "bin/minimap2"
@@ -142,7 +150,7 @@ rule abPOA:
         rm -rf abPOA
         git clone --recursive https://github.com/yangao07/abPOA.git
         cd abPOA; make; ./bin/abpoa ./test_data/seq.fa > cons.fa
-        cp ./bin/abPOA ../../{output.bin}
+        cp ./bin/abpoa ../../{output.bin}
         """
 
 
@@ -263,7 +271,7 @@ rule medaka_wrapper:
         echo ">>> Removing any remaining LFS‑pointer stubs (tiny text files)"
         # LFS pointers start with "version https://git-lfs.github.com/spec/v1"
         grep -rl '^version https://git-lfs.github.com/spec/v1' medaka/data/ \
-        | xargs rm -v | sed 's/^/   rm: /'
+        | xargs rm -v | sed 's/^/   rm: /' || true
 
         echo ">>> medaka/data/ now contains only real .tar.gz blobs:"
         ls -1 medaka/data/ | sed 's/^/   /'
@@ -277,7 +285,7 @@ rule medaka_wrapper:
         # apply maple overrides
         cd ..
         rm -rf maple
-        git clone --branch development --single-branch https://github.com/gordonrix/maple.git
+        git clone --branch main --single-branch https://github.com/gordonrix/maple.git
         mv \
           maple/rules/utils/maple_smolecule.py \
           maple/rules/utils/medaka.py \
