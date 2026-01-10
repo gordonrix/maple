@@ -280,7 +280,7 @@ rule medaka_wrapper:
         rm -rf "$TMP"
 
         echo ">>> Finally, running make install (check_lfs will now pass)"
-        make install 2>&1 | sed 's/^/   make: /'
+        make install
 
         # apply maple overrides
         cd ..
