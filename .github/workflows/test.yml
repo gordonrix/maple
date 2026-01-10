@@ -39,13 +39,35 @@ jobs:
         use-mamba: true
         auto-activate-base: false
 
-    - name: Run install.sh
+    - name: Create conda environment
       shell: bash -l {0}
       run: |
-        # Initialize conda for bash
+        # Initialize conda
         eval "$(conda shell.bash hook)"
-        # Run install script (which creates env, activates it, and installs tools)
-        source install/install.sh
+
+        # Detect platform and select lock file
+        PLATFORM="$(uname -s)-$(uname -m)"
+        case "${PLATFORM}" in
+          Linux-x86_64)  LOCK_FILE="conda-linux-64.lock" ;;
+          Darwin-x86_64) LOCK_FILE="conda-osx-64.lock" ;;
+          Darwin-arm64)  LOCK_FILE="conda-osx-arm64.lock" ;;
+          *)
+            echo "Unsupported platform: ${PLATFORM}"
+            exit 1
+            ;;
+        esac
+
+        echo "Creating maple environment from ${LOCK_FILE}..."
+        mamba create -n maple --file "install/${LOCK_FILE}" -y
+
+    - name: Install additional tools
+      shell: bash -l {0}
+      run: |
+        eval "$(conda shell.bash hook)"
+        conda activate maple
+
+        echo "Installing additional tools (minimap2, samtools, medaka, etc.)..."
+        snakemake --snakefile install/install.smk --directory "${CONDA_PREFIX}" -j 4 all
 
     - name: Run example pipeline (dry-run)
       shell: bash -l {0}
@@ -72,15 +94,16 @@ jobs:
         echo "Checking required files exist..."
         test -f mutation-stats.csv || { echo "ERROR: Missing mutation-stats.csv"; exit 1; }
         test -f demux-stats.csv || { echo "ERROR: Missing demux-stats.csv"; exit 1; }
-        test -f plots/TrpB-IE5_demux.html || { echo "ERROR: Missing demux plot"; exit 1; }
+        test -f plots/TrpB_demux.html || { echo "ERROR: Missing plots/TrpB_demux.html"; exit 1; }
+        test -f plots/UMI-group-distribution.html || { echo "ERROR: Missing UMI plot"; exit 1; }
 
         echo "Checking files are non-empty..."
         [ -s mutation-stats.csv ] || { echo "ERROR: mutation-stats.csv is empty"; exit 1; }
         [ -s demux-stats.csv ] || { echo "ERROR: demux-stats.csv is empty"; exit 1; }
 
         echo "Validating HTML plot structure..."
-        grep -q "<html" plots/TrpB-IE5_demux.html || { echo "ERROR: Invalid HTML structure"; exit 1; }
-        grep -q "HoloViews" plots/TrpB-IE5_demux.html || { echo "ERROR: Missing HoloViz content"; exit 1; }
+        grep -q "<html" plots/TrpB_demux.html || { echo "ERROR: Invalid HTML structure in demux plot"; exit 1; }
+        grep -q "HoloViews" plots/TrpB_demux.html || { echo "ERROR: Missing HoloViz content in demux plot"; exit 1; }
 
         echo "Checking CSV data integrity..."
         ROWS=$(wc -l < mutation-stats.csv)
