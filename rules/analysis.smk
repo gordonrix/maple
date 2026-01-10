@@ -930,8 +930,6 @@ def get_demux_genotypes_path(wildcards, file_type):
     tag, barcode = config['timepointsInfo'][sample]['genotypes']
     return f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_{file_type}.csv'
 
-# TODO: Implement reading the 'genotypes' column from timepoints.csv in Snakefile
-# to populate config['timepointsInfo'][timepoint_sample]['genotypes'] = (tag, barcode)
 rule merge_timepoint_demux_enrichment_with_genotypes:
     input:
         genotypes = lambda wildcards: get_demux_genotypes_path(wildcards, 'genotypes-reduced-dimensions'),
