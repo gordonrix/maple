@@ -36,6 +36,21 @@ jobs:
         curl -O https://mac.r-project.org/openmp/openmp-14.0.6-darwin20-Release.tar.gz
         sudo tar fvxz openmp-14.0.6-darwin20-Release.tar.gz -C /
 
+    - name: Free up disk space (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        echo "Initial disk space:"
+        df -h
+
+        # Remove large packages to free up space
+        # See https://github.com/actions/runner-images/issues/2840
+        sudo rm -rf /usr/local/lib/android
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf /opt/ghc
+
+        echo "Disk space after cleanup:"
+        df -h
+
     - uses: conda-incubator/setup-miniconda@v3
       with:
         miniforge-version: latest
