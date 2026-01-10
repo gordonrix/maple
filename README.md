@@ -2,26 +2,13 @@
 
 ![logo](images/maple_logo.png?raw=true)
 
-Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline for analysis of
-mutation-rich next generation sequencing data from highly parallelized laboratory evolution experiments.
-It provides consensus sequence generation using both concatemer- and unique molecular identifiers (UMI)-based
-consensus, easy-to-use and versatile demultiplexing, and a suite of analyses and plotting scripts that are all
-executed automatically after the user provides some information about the data and executes a single command.
+Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline primarily built for analysis of
+mutation-rich next generation sequencing data from highly parallelized laboratory evolution and variant enrichment experiments.
+It provides consensus sequence generation using both concatemer- and unique molecular identifiers (UMI)-based consensus,
+scalable and versatile demultiplexing, and a suite of analyses and visualizations that are orchestrated to run together.
+Once setup is performed, analysis is executed all at once after a single command is issued:
 
-Analysis is primarily performed by a mix of custom python scripts and several external tools:
- - [medaka](https://github.com/nanoporetech/medaka)
- - [minimap2](https://doi.org/10.1093/bioinformatics/bty191)
- - [Samtools](http://www.htslib.org/)
- - [NGmerge](https://github.com/harvardinformatics/NGmerge)
- - [NanoPlot](https://github.com/wdecoster/NanoPlot)
- - [C3POa](https://github.com/gordonrix/C3POa) (a faster fork of [the original C3POa](https://github.com/christopher-vollmers/C3POa))
- - [PaCMAP](https://github.com/YingfanWang/PaCMAP)
- - [UMICollapse](https://github.com/Daniel-Liu-c0deb0t/UMICollapse)
-
-Built in visualizations are performed using the [HoloViz](https://holoviz.org/) ecosystem of python data visualization libraries.
-
-Additionally, some concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/), which was used
-as a starting point for Maple
+`snakemake --snakefile ../Snakefile -j 4 targets`
 
 Below you'll see an overview of the steps involved in the pipeline. This overview is a non-comprehensive summary. Many of these steps are optional, and which ones
 run will depend on what information is provided (see 'Usage'). This overview is based on a graph generated for the 'targets' rule, but a similar graph can be generated programmatically for any target file or rule name using the command:
@@ -30,7 +17,7 @@ run will depend on what information is provided (see 'Usage'). This overview is 
 
 ![An overview of the pipeline steps](images/pipeline_overview.png?raw=true)
 
-## Setup
+## Installation
 
 Maple has been tested on Linux and MacOS (Intel and Apple Silicon). Maple requires conda, which can be installed by following
 [these instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/). Miniconda or Miniforge are lighter weight and provide all that is needed by Maple.
@@ -70,9 +57,9 @@ Run `source install/install.sh --help` for additional options:
 - `-f, --force`: Remove and reinstall an existing environment
 - `-j, --jobs N`: Number of parallel jobs for tool installation (default: 4)
 
-## Usage
+## Setup
 
-Snakemake needs to know where two files are located in order to run the pipeline: the snakefile and the config file. Generally, the Snakefile tells snakemake how to construct all the necessary files generally for all Maple analyses, while the config file tells Snakemake how to retrieve inputs and name outputs for a specific Maple analysis, and is the primary means by which the user controls the analysis that is performed. If Snakemake is not told where these two files are, it assumes they are in the current working directory. Because the Snakefile remains constant across analyses, while the config file (described further below) changes, the Snakefile typically remains in the Maple directory and is specified in the command line call to Snakemake, while the config file is copied to a new working directory for each analysis and the command line call is done in that directory, allowing Snakemake to find it without adding the path to the command line call. When all inputs are properly defined and the Snakemake command is issued, analysis proceeds autonomously, outputting files to the working directory as they are generated. As an example, if a config file is set up to include a run tag named 'example', the inputs and outputs file structure might
+Snakemake needs to know where two files are located in order to run the pipeline: the snakefile and the config file. Generally, the Snakefile tells snakemake how to construct all the necessary files generally for all Maple analyses, while the config file tells Snakemake how to retrieve inputs and name outputs for a specific Maple analysis, and is the primary means by which the user controls the analysis that is performed. If Snakemake is not told where these two files are, it assumes they are in the current working directory. Because the Snakefile remains constant across analyses, while the config file (described further below) changes from run to run, the Snakefile typically remains in the Maple directory and is specified in the command line call to Snakemake, while the config file is copied to a new working directory for each analysis and the command line call is done in that directory, allowing Snakemake to find it without adding the path to the command line call. When all inputs are properly defined and the Snakemake command is issued, analysis proceeds autonomously, outputting files to the working directory as they are generated. As an example, if a config file is set up to include a run tag named 'example', the inputs and outputs file structure might
 look something like this:
 
 ```bash
@@ -262,33 +249,33 @@ Maple provides a flexible demultiplexing system that can handle complex barcode 
 
 This system supports experimental designs with multiple barcode types (e.g., forward/reverse, sample/condition) and provides comprehensive quality control and reporting.
 
-# Running the example
+## Running the example
 Included in the github repository is an example_working_directory that will allow you to test that everything was properly installed, and will serve as a
 jumping off point for future working directories. To test that everything is working, navigate to this working directory and perform a 'dry-run' (`-n`) for 
-all files that are demanded by the `targets` directive to see that snakemake knows how to perform all the required steps.
-Here we also include the `-q` or `--quiet` flag so that any warnings that might come up don't require much scrolling to get to. Finally, the `-j 4`
+all files that are demanded by the `targets` directive to see that snakemake knows how to perform all the required steps. Finally, the `-j 4`
 flag is used to designate that 4 threads can be used. When more threads are provided, most steps of the pipeline will run faster, so increase this number
-as appropriate:
+as appropriate. (Note that it was previously recommended to include the `-q` flag to reduce the amount of text that would be output, but recent versions of snakemake have prevented
+effective use of `-n` and `-q` together):
 
-    snakemake --snakefile ../Snakefile -j 4 targets -n -q
+`snakemake --snakefile ../Snakefile -j 4 targets -n`
 
 This should produce some gold text that shows all the different jobs that will be run. Running the same command without the extra flags will run all the rules:
 
-    snakemake --snakefile ../Snakefile -j 4 targets
+`snakemake --snakefile ../Snakefile -j 4 targets`
 
 If this worked, you will see a stream of green text describing the steps that are being performed, followed by the text
     maple completed successfully
 
 You can then explore the analysis files that have been created, and/or apply this same process to your own data.
 
-# Running maple on your data
+## Running maple on your data
 
 Following installation and running the example, the steps required for basic usage of the pipeline are as follows:
 1. Create a directory for the dataset(s) that you wish to analyze by creating a new working directory with the name of your choice (preferably related to
 a specific experiment) and copy the 'metadata' directory and 'config.yaml' file from the example_working_directory to this new directory.
 2. Modify `config.yaml` as needed. Most global settings can be kept as default, but pay attention to the RCA and UMI settings if you require consensus sequence generation.
 3. Modify `metadata/tags.csv` to define your experimental runs. Each row specifies a tag (dataset identifier), reference file, sequence location, and optional parameters like barcode files or timepoints.
-4. Modify the reference sequence and barcode .fasta files (located in the 'metadata' directory) as appropriate. Use the exampleReferences.fasta file
+4. Modify the reference sequence and barcode .fasta files (located in the 'metadata' directory) as appropriate. Use the exampleReferences.csv file
 for assistance with determining the appropriate reference sequences.
 5. Activate the maple conda environment that you created during installation if it's not already active, and run snakemake by requesting a specific file,
 and designating a number of threads, which allows for parallelization of jobs. Take care to run the pipeline only when in the working
@@ -301,14 +288,14 @@ Here I will ask maple to produce the mutation stats summary file for the TrpB ta
     snakemake --snakefile PATH/TO/maple/Snakefile -j 4 TrpB_mutation-stats.csv
     ```
 
-Use of the '-n' flag is strongly recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
+Use of the `-n` flag is strongly recommended prior to running the full pipeline. This causes snakemake to do a 'dry-run' in which jobs are planned out, but
 not executed. Because many checks are performed to identify any potential problems in how things were set up (_e.g._ checking that reference files
-exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The '-q' flag can also be used to silence a lot of superfluous information, allowing for more important warnings to be easily read. However, note that a bug in recent versions of Snakemake makes the combination of `-n -q` much less useful than it used to be.
+exist), this will better guarantee that the entire pipeline will run to completion prior to starting it. The `-q` flag can also be used to silence a lot of superfluous information, allowing for more important warnings to be easily read. However, note that a bug in recent versions of Snakemake makes the combination of `-n -q` much less useful than it used to be.
 
 In place of a specific file name, 'targets' can be used to invoke a rule that automatically carries out most of the analysis that maple can do
 for each of the designated tags, as was done above:
 
-    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 targets
+`snakemake --snakefile PATH/TO/maple/Snakefile -j 4 targets`
 
 Likewise, if you'd like to restart your analysis without cluttering your working directory with additional tags, or if you just want to package up the key analysis files
 for transfer or storage, the 'clean' rule can be called. This will move or copy all the small files generated during analyses to a timestamped directory
@@ -316,28 +303,68 @@ and removes large files such as alignment files, without modifying large importa
 produce files in the 'sequences' directory need to be rerun, such as UMI rules or paired end merging, the outputs of those rules must be manually deleted or renamed
 to enable rule re-run.
 
-    snakemake --snakefile PATH/TO/maple/Snakefile -j 4 clean
+`snakemake --snakefile PATH/TO/maple/Snakefile -j 4 clean`
 
 
-# Running the dashboard
+## Running the dashboard
 
 ![A screenshot of the maple dashboard](images/dashboard_screenshot.png?raw=true)
 
-Maple provides an interactive dashboard to enable exploration of very large sequence datasets using a GUI.
-This is accomplished using [HoloViz](https://holoviz.org/) visualization libraries, in particular [Panel](https://panel.holoviz.org/).
-Unlike with other plots generated by maple, in which all the data necessary for visualization is contained within an .html file that
-can be opened and viewed on a browser, the dashboard is responsive to user interaction with a wide range of widgets to control the
-data and aesthetic properties of the plots. This requires an active python process that continuously monitors these widgets and recomputes
-the visualizations when relevant widgets are changed.
+Maple provides an interactive dashboard for exploring large sequence datasets through a responsive GUI built with [HoloViz](https://holoviz.org/) libraries, particularly [Panel](https://panel.holoviz.org/). Unlike static HTML plots, the dashboard provides real-time interactivity with widgets that control data filtering, visualization properties, and analysis parameters. The dashboard runs as an active Python process that responds to user interactions.
 
-The primary point of control for the dashboard is the points plot, which uses the output of the [PaCMAP](https://github.com/YingfanWang/PaCMAP)
-dimensionality reduction algorithm to separate/cluster sequences according to differences/similarities in the mutations they contain. User-selected
-points (representing sequences) in this plot will be reflected in other plots, allowing for analysis of specific sequences in isolation.
+### Dashboard Features
 
-The data input for the dashboard is a `genotypes-reduced-dimensions.csv` file. The specific file chosen will depend on the `dashboard_input`
-parameter in the config file, such that if `dashboard_input == file-prefix` then `file-prefix_genotypes-reduced-dimensions.csv` will be used
-as the input. A good starting point is to just use a run tag, which will show all sequences for that tag and allows for coloring by barcode group.
-Once the `dashboard_input` parameter is properly set, the dashboard script can be run using the command:
+- **Interactive sequence clustering**: PaCMAP dimensionality reduction visualizes sequence relationships based on mutation patterns
+- **Multi-dataset support**: Compare multiple experiments or timepoint groups simultaneously
+- **Integrated structure viewer**: 3D protein structure visualization with mutation frequency coloring (when structure files are provided)
+- **Selection-based analysis**: Select sequences in the points plot to analyze specific subsets across all visualizations
+- **Data export**: Export plots as SVG, sequences as FASTA, and filtered datasets as CSV
 
-    snakemake --snakefile PATH/TO/maple/Snakefile -j 1 run_dashboard
+### Configuration
 
+The dashboard is controlled by parameters in `config.yaml`:
+
+- **`dashboard_input`**: Specifies which dataset(s) to display. This can be:
+  - A timepoint group name (e.g., `TrpB-IE5`) - will automatically include all timepoints in that group
+  - A tag name to view all sequences from a single experimental run
+  - When timepoints are defined, the dashboard uses merged timepoint data with enrichment scores if `do_enrichment: True`
+
+- **`dashboard_port`**: Port number for the dashboard server (default: 3365). Change this if running multiple dashboards or if the default port is in use.
+
+### Running the Dashboard
+
+1. Ensure mutation analysis and dimension reduction have completed for your dataset(s)
+2. Set `dashboard_input` in `config.yaml` to your desired timepoint group or tag name
+3. Run the dashboard with:
+
+    `snakemake --snakefile PATH/TO/maple/Snakefile -j 1 run_dashboard`
+
+4. The dashboard will automatically open in your default web browser at `http://localhost:[port]`
+5. To stop the dashboard, press `Ctrl+C` in the terminal
+
+### Multi-Dataset Mode
+
+When timepoints are configured, the dashboard automatically operates in multi-dataset mode, allowing you to:
+- Compare multiple timepoint groups in a single session
+- Switch between datasets using the dataset selector widget
+- Visualize enrichment scores when enrichment analysis is enabled
+
+The dashboard automatically detects which datasets to include based on your timepoints configuration and creates a `.dashboard_datasets.csv` file in the metadata folder that defines the genotypes files, reference sequences, and settings for each dataset.
+
+
+## Acknowledgements
+
+Maple depends upon several external tools:
+ - [medaka](https://github.com/nanoporetech/medaka)
+ - [minimap2](https://doi.org/10.1093/bioinformatics/bty191)
+ - [Samtools](http://www.htslib.org/)
+ - [NGmerge](https://github.com/harvardinformatics/NGmerge)
+ - [NanoPlot](https://github.com/wdecoster/NanoPlot)
+ - [C3POa](https://github.com/gordonrix/C3POa) (a faster fork of [the original C3POa](https://github.com/christopher-vollmers/C3POa))
+ - [PaCMAP](https://github.com/YingfanWang/PaCMAP)
+ - [UMICollapse](https://github.com/Daniel-Liu-c0deb0t/UMICollapse)
+
+Built in visualizations are performed using the [HoloViz](https://holoviz.org/) ecosystem of python data visualization libraries.
+
+Additionally, some concepts and code are borrowed from the snakemake pipeline [Nanopype](https://nanopype.readthedocs.io/en/latest/), which was used
+as a starting point for Maple
