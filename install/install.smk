@@ -232,13 +232,9 @@ rule umicollapse:
 rule medaka_wrapper:
     output:
         wrapper="bin/medaka"
-    log: "logs/medaka_wrapper.log"
     threads: config['threads_build']
     shell:
         """
-        mkdir -p logs    # make sure the logs/ dir exists
-        exec > {log} 2>&1
-
         echo ">>> Working dir: $(pwd)"
         mkdir -p src && cd src
 
