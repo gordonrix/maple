@@ -1,6 +1,0 @@
->alignment      # This sequence is what will be used for alignment, and should include all positions that inform analysis, including demultiplexing. Positions that are known to be variable, such as barcodes or UMIs, should be assigned 'N'
-ATCGCTAGCNNNNNNgcatctagcctagATGGCTCAGCTAGACTCATAGcgcgatcgNNNNagagcgcacttagcNNNNNNAAAGCTCAG
->nucleotide     # This sequence will be used for nucleotide-level mutation analysis, and should be a subsequence of >alignment or its reverse complement. In this toy example, the promoter is included to identify any promoter mutations, but positions included in the PCR primers are excluded as they do not provide meaningful information about the original sequences. This sequence and the following sequence may be omitted if mutation analysis is not desired.
-agcctagATGGCTCAGCTAGACTCATAG
->protein        # This sequence is used for amino acid -level mutation analysis, and should be a subsequence of >nucleotide, but may be omitted if AA-level analysis is not needed
-ATGGCTCAGCTAGACTCATAG
