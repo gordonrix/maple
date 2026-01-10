@@ -193,7 +193,7 @@ if ! conda activate "${_MAPLE_ENV_NAME}"; then
 fi
 
 echo "Installing additional tools (minimap2, samtools, medaka, etc.)..."
-if ! snakemake --snakefile "${_MAPLE_SCRIPT_DIR}/../rules/install.smk" --directory "${_MAPLE_ENV_PATH}" -j "${_MAPLE_JOBS}" all; then
+if ! snakemake --snakefile "${_MAPLE_SCRIPT_DIR}/../install/install.smk" --directory "${_MAPLE_ENV_PATH}" -j "${_MAPLE_JOBS}" all; then
     echo "Error: Failed to install additional tools"
     unset _MAPLE_SCRIPT_DIR _MAPLE_DEFAULT_ENV_NAME _MAPLE_ENV_NAME _MAPLE_USE_UNPINNED _MAPLE_FORCE _MAPLE_JOBS _MAPLE_CONDA_BASE _MAPLE_ENV_PATH _MAPLE_MAMBA_BOOTSTRAP _MAPLE_CONDA_CMD _MAPLE_PLATFORM _MAPLE_LOCK
     return 1 2>/dev/null || exit 1

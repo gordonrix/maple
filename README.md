@@ -19,7 +19,7 @@ run will depend on what information is provided (see 'Usage'). This overview is 
 
 ## Installation
 
-Maple has been tested on Linux and MacOS (Intel and Apple Silicon). Maple requires conda, which can be installed by following
+Maple has been tested on MacOS ARM and is currently being tested on MacOS Intel and Linux, but that should be completed shortly. Maple requires conda, which can be installed by following
 [these instructions](https://docs.conda.io/projects/conda/en/latest/user-guide/install/). Miniconda or Miniforge are lighter weight and provide all that is needed by Maple.
 
 Additionally, the following software packages are required as system-wide installations:

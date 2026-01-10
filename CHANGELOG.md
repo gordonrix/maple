@@ -1,3 +1,64 @@
+## v1.0.0
+# Major
+   - **Multi-reference support**: Support for analyzing multiple reference sequences simultaneously
+      - Multi-reference demultiplexing, consensus generation, and mutation analysis
+      - Reference-specific visualization with stacked bar charts and gridded distribution plots
+      - CSV-based reference configuration system
+   - **Enhanced enrichment pipeline**: Major improvements to enrichment analysis
+      - Genotype enrichment analysis with filtering and validation
+      - Multi-reference enrichment support
+      - Full integration with dashboard for interactive exploration
+      - Improved checkpoint handling and dimension reduction
+   - **Dashboard overhaul**: Complete rebuild with more robust Panel reactive architecture
+      - Multi-dataset support for comparing multiple experiments
+      - PDB/CIF structure viewer integration with py3Dmol
+      - Improved performance and user experience
+      - Enhanced mutation visualization and filtering
+   - **UMI workflow refactor**: Consensus pipeline modernized to use BAM format
+      - New UMI_process.py for efficient multi-reference consensus generation
+      - Improved memory usage and processing speed
+      - Better handling of demuxed BAM files
+   - **Streamlined installation**: New install folder with lock files for reproducible environments
+   - **Configuration improvements**: Enhanced validation and better organization
+      - Timepoint column validation for enrichment analysis
+      - Improved CSV format validation with backwards compatibility
+      - Better config file management (config_final.yaml)
+   - **Modularized custom scripts**: The following scripts have been reworked to enable standalone use:
+      - mutation_analysis.py
+      - mutation_statistics.py
+      - demux.py
+      - enrichment.py
+      - UMI_process.py
+      - UMI_groups_log.py
+      - generate_barcode_ref.py
+      - plot_demux.py
+      - plot_distribution.py
+      - structure_heatmap.py
+
+# Minor
+   - Memory optimization: SequenceAnalyzer no longer stores full one-hot encoding on initialization
+   - Performance improvements:
+      - RCA consensus now uses an optimized fork of C3POa.py
+      - UMI consensus avoids aligning twice
+      - Optimized non-exact barcode matching performance
+      - Better handling of large datasets in dashboard
+   - Better error handling:
+      - Empty output handling for mutation analysis
+      - Fix for DtypeWarning in pandas CSV reads
+      - Improved validation throughout pipeline
+   - Documentation improvements:
+      - Enhanced timepoints CSV documentation
+      - Updated configuration documentation
+      - Better example metadata and working directory
+   - Barcode generation and validation:
+      - Validation for generated barcode consistency across tags
+      - Improved barcode tracking system
+   - Utility improvements:
+      - New compile_original_reads utility
+      - Enhanced enrichment utility functions
+      - Removed deprecated utility scripts
+   - Various bugfixes
+
 ## v0.11.0
 # Major
    - Support for MacOS (ARM)
