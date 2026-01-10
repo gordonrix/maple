@@ -24,7 +24,10 @@ jobs:
       if: runner.os == 'Linux'
       run: |
         sudo apt-get update
-        sudo apt-get install -y git gcc g++ wget rsync binutils autoconf make cmake git-lfs
+        sudo apt-get install -y \
+          git gcc g++ wget rsync binutils autoconf make cmake git-lfs \
+          zlib1g-dev libbz2-dev liblzma-dev libcurl4-openssl-dev \
+          libssl-dev libncurses5-dev default-jre
 
     - name: Install system dependencies (macOS)
       if: runner.os == 'macOS'
