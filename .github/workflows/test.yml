@@ -1,0 +1,107 @@
+name: Test Maple Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11']
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        lfs: true
+
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git gcc g++ wget rsync binutils autoconf make cmake git-lfs
+
+    - name: Install system dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install git gcc wget rsync autoconf make cmake git-lfs
+        curl -O https://mac.r-project.org/openmp/openmp-14.0.6-darwin20-Release.tar.gz
+        sudo tar fvxz openmp-14.0.6-darwin20-Release.tar.gz -C /
+
+    - uses: conda-incubator/setup-miniconda@v3
+      with:
+        miniforge-version: latest
+        use-mamba: true
+        auto-activate-base: false
+
+    - name: Run install.sh
+      shell: bash -l {0}
+      run: |
+        bash install/install.sh
+
+    - name: Activate maple environment
+      shell: bash -l {0}
+      run: |
+        echo "CONDA_DEFAULT_ENV=maple" >> $GITHUB_ENV
+        echo "$(conda info --base)/envs/maple/bin" >> $GITHUB_PATH
+
+    - name: Run example pipeline (dry-run)
+      shell: bash -l {0}
+      working-directory: example_working_directory
+      run: |
+        snakemake --snakefile ../Snakefile -j 2 targets -n -q
+
+    - name: Run example pipeline (full)
+      shell: bash -l {0}
+      working-directory: example_working_directory
+      run: |
+        snakemake --snakefile ../Snakefile -j 2 targets
+
+    - name: Validate outputs
+      shell: bash -l {0}
+      working-directory: example_working_directory
+      run: |
+        echo "Checking required files exist..."
+        test -f mutation-stats.csv || { echo "ERROR: Missing mutation-stats.csv"; exit 1; }
+        test -f demux-stats.csv || { echo "ERROR: Missing demux-stats.csv"; exit 1; }
+        test -f plots/TrpB-IE5_demux.html || { echo "ERROR: Missing demux plot"; exit 1; }
+
+        echo "Checking files are non-empty..."
+        [ -s mutation-stats.csv ] || { echo "ERROR: mutation-stats.csv is empty"; exit 1; }
+        [ -s demux-stats.csv ] || { echo "ERROR: demux-stats.csv is empty"; exit 1; }
+
+        echo "Validating HTML plot structure..."
+        grep -q "<html" plots/TrpB-IE5_demux.html || { echo "ERROR: Invalid HTML structure"; exit 1; }
+        grep -q "HoloViews" plots/TrpB-IE5_demux.html || { echo "ERROR: Missing HoloViz content"; exit 1; }
+
+        echo "Checking CSV data integrity..."
+        ROWS=$(wc -l < mutation-stats.csv)
+        [ "$ROWS" -gt 1 ] || { echo "ERROR: mutation-stats.csv has no data rows"; exit 1; }
+
+        head -1 mutation-stats.csv | grep -q "tag" || { echo "ERROR: Missing expected columns in mutation-stats.csv"; exit 1; }
+        head -1 demux-stats.csv | grep -q "tag" || { echo "ERROR: Missing expected columns in demux-stats.csv"; exit 1; }
+
+        echo "All validation checks passed!"
+
+    - name: Upload pipeline outputs
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pipeline-outputs-${{ matrix.os }}
+        path: |
+          example_working_directory/plots/*.html
+          example_working_directory/mutation-stats.csv
+          example_working_directory/demux-stats.csv
+        retention-days: 7
+
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: logs-${{ matrix.os }}
+        path: example_working_directory/log/
