@@ -1,8 +1,11 @@
 name: maple
 channels:
-  - conda-forge
+  - conda
   - bioconda
-  - defaults
+  - conda-forge
+  - anaconda
+  - pyviz
+  - bokeh
 dependencies:
   - snakemake
   - python=3.11
