@@ -1,7 +1,8 @@
-# Maple: Mutation Analysis for Parallel Laboratory Evolution
-
-![logo](images/maple_logo.png?raw=true)
+![Label](https://img.shields.io/badge/Label-F01428?style=for-the-badge&logo=aircanada&logoColor=black)
 [![Tests](https://github.com/gordonrix/maple/actions/workflows/test.yml/badge.svg)](https://github.com/gordonrix/maple/actions/workflows/test.yml)
+
+# Maple: Mutation Analysis for Parallel Laboratory Evolution
+![logo](images/maple_logo.png?raw=true)
 
 Maple is a [snakemake](https://snakemake.readthedocs.io/en/stable/index.html) pipeline primarily built for analysis of
 mutation-rich next generation sequencing data from highly parallelized laboratory evolution and variant enrichment experiments.
