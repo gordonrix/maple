@@ -315,9 +315,8 @@ Maple provides an interactive dashboard for exploring large sequence datasets th
 ### Dashboard Features
 
 - **Interactive sequence clustering**: PaCMAP dimensionality reduction visualizes sequence relationships based on mutation patterns
-- **Multi-dataset support**: Compare multiple experiments or timepoint groups simultaneously
-- **Integrated structure viewer**: 3D protein structure visualization with mutation frequency coloring (when structure files are provided)
 - **Selection-based analysis**: Select sequences in the points plot to analyze specific subsets across all visualizations
+- **Integrated structure viewer**: 3D protein structure visualization with mutation frequency coloring (when structure files are provided)
 - **Data export**: Export plots as SVG, sequences as FASTA, and filtered datasets as CSV
 
 ### Configuration
@@ -345,7 +344,7 @@ The dashboard is controlled by parameters in `config.yaml`:
 ### Multi-Dataset Mode
 
 When timepoints are configured, the dashboard automatically operates in multi-dataset mode, allowing you to:
-- Compare multiple timepoint groups in a single session
+- View multiple sample groups in a single session
 - Switch between datasets using the dataset selector widget
 - Visualize enrichment scores when enrichment analysis is enabled
 
