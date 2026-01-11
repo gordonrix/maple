@@ -142,7 +142,7 @@ rule NGmerge:
 
 rule abPOA:
     output:
-        bin = "bin/abPOA"
+        bin = "bin/abpoa"
     threads: config['threads_build']
     shell:
         """
@@ -166,7 +166,7 @@ rule abPOA:
 
 rule C3POa:
     input:
-        "bin/abPOA"
+        "bin/abpoa"
     output:
         C3POa = f"lib/python{PYVER}/C3POa.py",
         conk  = f"lib/python{PYVER}/site-packages/conk/conk{EXT_SUFFIX}"
