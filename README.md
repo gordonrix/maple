@@ -1,4 +1,3 @@
-![Label](https://img.shields.io/badge/Label-F01428?style=for-the-badge&logo=aircanada&logoColor=black)
 [![Tests](https://github.com/gordonrix/maple/actions/workflows/test.yml/badge.svg)](https://github.com/gordonrix/maple/actions/workflows/test.yml)
 
 # Maple: Mutation Analysis for Parallel Laboratory Evolution
