@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, macos-13]
         python-version: ['3.11']
 
     steps:
@@ -32,7 +32,11 @@ jobs:
     - name: Install system dependencies (macOS)
       if: runner.os == 'macOS'
       run: |
-        brew install git gcc wget rsync autoconf make cmake git-lfs
+        # Only install packages not already present to avoid warnings
+        for pkg in git gcc wget rsync autoconf make cmake git-lfs; do
+          brew list --formula | grep -q "^${pkg}$" || brew install "$pkg"
+        done
+        # OpenMP for compilation
         curl -O https://mac.r-project.org/openmp/openmp-14.0.6-darwin20-Release.tar.gz
         sudo tar fvxz openmp-14.0.6-darwin20-Release.tar.gz -C /
 

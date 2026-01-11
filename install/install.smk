@@ -41,14 +41,6 @@ rule all:
         "bin/medaka",
         f"lib/python{PYVER}/C3POa.py"
 
-rule minimal:
-    input:
-        "bin/minimap2",
-        "bin/samtools",
-        "bin/NGmerge",
-        "bin/umicollapse.jar",
-        f"lib/python{PYVER}/C3POa.py"
-
 rule minimap2:
     output:
         bin = "bin/minimap2"
