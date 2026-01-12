@@ -1007,7 +1007,7 @@ rule reduce_genotype_enrichment_dimensions:
         mean = 'enrichment/{timepointsGroup}_genotype-enrichment-scores-mean.csv',
         scores = genotype_enrichment_scores_input
     output:
-        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-genotype-enrichment-mean.csv'
+        reduced = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-group_genotypes-reduced-dimensions-genotype-enrichment-mean.csv'
     params:
         ref_csv = lambda wildcards: config['timepointsInfo'][get_samples_for_group(wildcards.timepointsGroup)[0]].get('reference_csv', '')
     run:
