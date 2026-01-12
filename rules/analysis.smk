@@ -12,37 +12,46 @@ import os, sys, glob
 import pandas as pd
 from utils.common import sort_barcodes, dashboard_input, process_timepoints_csv
 
+# Prefer timepoint-specific rule over generic rule for timepoint files
+ruleorder: reduce_timepoint_genotypes_dimensions > reduce_genotypes_dimensions
+
 def get_dashboard_datasets_df():
     """Generate the dashboard datasets dataframe based on config"""
     rows = []
 
     # If timepoints exist, only add timepoints
     if 'timepointsInfo' in config:
-        # Group samples by their 'group' field to create one dashboard entry per group
-        seen_groups = set()
-        for sample_label, sample_info in config['timepointsInfo'].items():
-            group = sample_info['group']
+        if config.get('do_enrichment', False):
+            # With enrichment: one entry per group (aggregated across replicates)
+            seen_groups = set()
+            for sample_label, sample_info in config['timepointsInfo'].items():
+                group = sample_info['group']
+                if group in seen_groups:
+                    continue
+                seen_groups.add(group)
 
-            # Skip if we've already added this group
-            if group in seen_groups:
-                continue
-            seen_groups.add(group)
-
-            # Determine which file to use based on enrichment setting
-            if config.get('do_enrichment', False):
                 enrichment_mode = config.get('enrichment_type', 'genotype')
-                genotypes_csv = f'mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions-{enrichment_mode}-enrichment-mean.csv'
-            else:
-                genotypes_csv = f'mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions.csv'
+                genotypes_csv = f'mutation_data/timepoints/{group}_merged-group_genotypes-reduced-dimensions-{enrichment_mode}-enrichment-mean.csv'
+                reference_csv = sample_info.get('reference_csv', '')
+                exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
 
-            reference_csv = sample_info.get('reference_csv', '')
-            exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
+                rows.append({
+                    'genotypes_csv': genotypes_csv,
+                    'reference_csv': reference_csv,
+                    'exclude_indels': exclude_indels
+                })
+        else:
+            # Without enrichment: one entry per sample
+            for sample_label, sample_info in config['timepointsInfo'].items():
+                genotypes_csv = f'mutation_data/timepoints/{sample_label}_merged-timepoint_genotypes-reduced-dimensions.csv'
+                reference_csv = sample_info.get('reference_csv', '')
+                exclude_indels = str(not config.get('analyze_seqs_with_indels', True))
 
-            rows.append({
-                'genotypes_csv': genotypes_csv,
-                'reference_csv': reference_csv,
-                'exclude_indels': exclude_indels
-            })
+                rows.append({
+                    'genotypes_csv': genotypes_csv,
+                    'reference_csv': reference_csv,
+                    'exclude_indels': exclude_indels
+                })
     # Otherwise add individual tags
     else:
         for tag in config['runs']:
@@ -647,22 +656,22 @@ rule plot_mutations_aggregated_tag:
     script:
         'utils/plot_mutations_frequencies.py'
 
-rule plot_mutations_aggregated_timepointGroup:
+rule plot_mutations_aggregated_timepointSample:
     input:
         genotypes = lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-mutations-aggregated.csv',
-                                                    tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )],
+                                                    tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].keys() )],
                                                     NTorAA = wildcards.NTorAA ),
         mut_stats = 'mutation-stats.csv'
     output:
-        all_muts = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated.html',
-        most_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-common.html',
-        least_frequent = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-rare.html'
+        all_muts = 'plots/timepoints/{timepointsSample, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated.html',
+        most_frequent = 'plots/timepoints/{timepointsSample, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-common.html',
+        least_frequent = 'plots/timepoints/{timepointsSample, [^\/_]*}_{NTorAA, [^\/_-]*}-mutations-aggregated-rare.html'
     params:
         mutations_frequencies_raw = lambda wildcards: config.get('mutations_frequencies_raw', False),
         number_of_positions = lambda wildcards: config.get('mutations_frequencies_number_of_positions', 20),
         heatmap = lambda wildcards: config.get('mutations_frequencies_heatmap', False),
-        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
-        title = lambda wildcards: wildcards.timepointsGroup,
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsSample,
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         colormap = lambda wildcards: config.get('colormap', 'kbc_r'),
         split_by_reference = lambda wildcards: config.get('mutations_aggregated_split_by_reference', 10)
@@ -791,18 +800,18 @@ rule plot_distribution_tag:
     script:
         'utils/plot_distribution.py'
 
-rule plot_distribution_timepointGroup:
+rule plot_distribution_timepointSample:
     input:
         lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_{NTorAA}-{distType}-distribution.csv',
-                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )],
+                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].keys() )],
                                 NTorAA = wildcards.NTorAA,
                                 distType = wildcards.distType)
     output:
-        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_{NTorAA, [^\/_-]*}-{distType, [^\/_]*}-distribution.html'
+        plot = 'plots/timepoints/{timepointsSample, [^\/_]*}_{NTorAA, [^\/_-]*}-{distType, [^\/_]*}-distribution.html'
     params:
-        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
-        title = lambda wildcards: wildcards.timepointsGroup,
-        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsSample,
+        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsSample]['units'],
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
@@ -813,16 +822,16 @@ rule plot_distribution_timepointGroup:
     script:
         'utils/plot_distribution.py'
 
-rule plot_genotypes_distribution_timepointGroup:
+rule plot_genotypes_distribution_timepointSample:
     input:
         lambda wildcards: expand('mutation_data/{tag_bc_tag_bc}_genotypes-distribution.csv',
-                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )])
+                                tag_bc_tag_bc = [f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].keys() )])
     output:
-        plot = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes-distribution.html'
+        plot = 'plots/timepoints/{timepointsSample, [^\/_]*}_genotypes-distribution.html'
     params:
-        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].values()),
-        title = lambda wildcards: wildcards.timepointsGroup,
-        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        labels = lambda wildcards: list(config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].values()),
+        title = lambda wildcards: wildcards.timepointsSample,
+        legend_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsSample]['units'],
         background = lambda wildcards: config.get('background', False),
         raw = lambda wildcards: config.get('hamming_distance_distribution_raw', False),
         export_SVG = lambda wildcards: config.get('export_SVG', False),
@@ -847,14 +856,14 @@ rule plot_violin_distribution_tag:
     script:
         'utils/plot_mutation_violin_distribution.py'
 
-rule plot_violin_distribution_timepoint:
+rule plot_violin_distribution_timepointSample:
     input:
-        'mutation_data/timepoints/{timepointsGroup}_merged-timepoint_genotypes.csv'
+        'mutation_data/timepoints/{timepointsSample}_merged-timepoint_genotypes.csv'
     output:
-        'plots/timepoints/{timepointsGroup, [^\/_]*}_mutation-distribution-violin.html'
+        'plots/timepoints/{timepointsSample, [^\/_]*}_mutation-distribution-violin.html'
     params:
         group_col = 'timepoint',
-        x_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['units'],
+        x_label = lambda wildcards: config['timepointsInfo'][wildcards.timepointsSample]['units'],
         export_SVG = lambda wildcards: config.get('export_SVG', False),
         cmap = lambda wildcards: config.get('colormap', 'kbc_r'),
         background = False
@@ -863,11 +872,59 @@ rule plot_violin_distribution_timepoint:
 
 rule reduce_genotypes_dimensions:
     input:
-        genotypes = '{dir}/{tag}{barcodes}_genotypes.csv'
+        genotypes = '{dir}/{tag}_{barcodes}_genotypes.csv'
     output:
-        reduced = '{dir}/{tag, [^\/_]*}{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
+        reduced = '{dir}/{tag, [^\/_]*}_{barcodes, [^\/]*}_genotypes-reduced-dimensions.csv'
     params:
-        ref_csv = lambda wildcards: config['runs'][wildcards.tag].get('reference_csv', '') if wildcards.tag in config['runs'] else config['timepointsInfo'][wildcards.tag].get('reference_csv', '')
+        ref_csv = lambda wildcards: config['runs'][wildcards.tag].get('reference_csv', '')
+    run:
+        import pandas as pd
+        from utils.SequenceAnalyzer import SequenceAnalyzer
+        from utils.common import load_references_from_csv
+
+        # Load genotypes
+        genotypes_df = pd.read_csv(input.genotypes)
+
+        # Add reference_name column if not present (backward compatibility)
+        if 'reference_name' not in genotypes_df.columns:
+            genotypes_df['reference_name'] = 'N/A'
+
+        # Load references
+        references_dict, errors, _, _, _ = load_references_from_csv(params.ref_csv)
+        if errors:
+            for error in errors:
+                print(error, file=sys.stderr)
+            raise ValueError("Failed to load references from CSV")
+
+        # Process each reference separately
+        reduced_dfs = []
+        for ref_name in genotypes_df['reference_name'].unique():
+            # Filter genotypes for this reference
+            ref_genotypes = genotypes_df[genotypes_df['reference_name'] == ref_name]
+
+            # Get reference sequences [alignment_seq, NT_seq, coding_seq]
+            ref_data = references_dict[ref_name]
+            reference_sequences = [ref_data['alignment_seq'], ref_data['NT_seq'], ref_data['coding_seq']]
+
+            # Create SequenceAnalyzer with filtered genotypes
+            sequences = SequenceAnalyzer(reference_sequences=reference_sequences, genotypes_df=ref_genotypes, exclude_indels=False)
+            sequences.assign_dimension_reduction('NT')
+            if sequences.do_AA_analysis:
+                sequences.assign_dimension_reduction('AA')
+
+            reduced_dfs.append(sequences.genotypes)
+
+        # Concatenate all references
+        combined = pd.concat(reduced_dfs, ignore_index=True)
+        combined.to_csv(output.reduced, index=False)
+
+rule reduce_timepoint_genotypes_dimensions:
+    input:
+        genotypes = 'mutation_data/timepoints/{timepointsSample}_merged-timepoint_genotypes.csv'
+    output:
+        reduced = 'mutation_data/timepoints/{timepointsSample, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions.csv'
+    params:
+        ref_csv = lambda wildcards: config['timepointsInfo'][wildcards.timepointsSample].get('reference_csv', '')
     run:
         import pandas as pd
         from utils.SequenceAnalyzer import SequenceAnalyzer
@@ -924,21 +981,24 @@ rule merge_tag_genotypes:
             DFs.append(df)
         pd.concat(DFs).to_csv(output.mergedGenotypes, index=False)
 
-def get_demux_genotypes_path(wildcards, file_type):
-    """Get genotypes or seq-IDs path for demux enrichment merge. file_type: 'genotypes' or 'seq-IDs'"""
+def get_demux_seq_ids_path(wildcards):
+    """Get seq-IDs path for demux enrichment merge - uses first sample's first barcode."""
     sample = get_samples_for_group(wildcards.timepointsGroup)[0]
-    tag, barcode = config['timepointsInfo'][sample]['genotypes']
-    return f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_{file_type}.csv'
+    tag_barcode_tp = config['timepointsInfo'][sample]['tag_barcode_tp']
+    tag, barcode = list(tag_barcode_tp.keys())[0]
+    return f'mutation_data/{tag}/{barcode}/{tag}_{barcode}_seq-IDs.csv'
 
 rule merge_timepoint_demux_enrichment_with_genotypes:
     input:
-        genotypes = lambda wildcards: get_demux_genotypes_path(wildcards, 'genotypes-reduced-dimensions'),
-        seq_ids = lambda wildcards: get_demux_genotypes_path(wildcards, 'seq-IDs'),
+        sample_genotypes = lambda wildcards: [f'mutation_data/timepoints/{s}_merged-timepoint_genotypes-reduced-dimensions.csv'
+                                               for s in get_samples_for_group(wildcards.timepointsGroup)],
+        seq_ids = get_demux_seq_ids_path,
         enrichment = 'enrichment/{timepointsGroup}_demux-enrichment-scores-mean.csv'
     output:
-        genotypes_enrichment = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes-reduced-dimensions-demux-enrichment-mean.csv'
+        genotypes_enrichment = 'mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-group_genotypes-reduced-dimensions-demux-enrichment-mean.csv'
     params:
-        filter_missing_replicates = lambda wildcards: config.get('enrichment_missing_replicates_filter', True)
+        filter_missing_replicates = lambda wildcards: config.get('enrichment_missing_replicates_filter', True),
+        dedupe_columns = ['genotype_ID', 'reference_name']
     script:
         'utils/merge_enrichment.py'
 
@@ -1030,11 +1090,11 @@ rule plot_genotypes2D_bcGroup:
 
 rule merge_timepoint_genotypes:
     input:
-        genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp'].keys() )]),
+        genotypeCSVs = lambda wildcards: expand('mutation_data/{tag_barcodes}_genotypes.csv', tag_barcodes=[f'{tag}/{barcodes}/{tag}_{barcodes}' for tag,barcodes in get_demuxed_barcodes_timepoint( config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp'].keys() )]),
     output:
-        mergedGenotypes = temp('mutation_data/timepoints/{timepointsGroup, [^\/_]*}_merged-timepoint_genotypes.csv')
+        mergedGenotypes = temp('mutation_data/timepoints/{timepointsSample, [^\/_]*}_merged-timepoint_genotypes.csv')
     params:
-        tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsGroup]['tag_barcode_tp']
+        tpInfo = lambda wildcards: config['timepointsInfo'][wildcards.timepointsSample]['tag_barcode_tp']
     run:
         import pandas as pd
         timepoints = list(params.tpInfo.values())   # timepoint values are an amount of some unit of time like X generations
@@ -1046,19 +1106,19 @@ rule merge_timepoint_genotypes:
                 DFs.append(df)
             out_df = pd.concat(DFs)
         else:
-            raise InputException('No genotypes found for timepoints group: ' + wildcards.timepointsGroup)
+            raise InputException('No genotypes found for timepoints sample: ' + wildcards.timepointsSample)
         out_df = out_df[['timepoint'] + [c for c in out_df.columns if c != 'timepoint']]
         out_df.to_csv(output.mergedGenotypes, index=False)
 
-rule plot_genotypes2D_timepoints:
+rule plot_genotypes2D_timepointSample:
     input:
-        genotypesReduced = 'mutation_data/timepoints/{timepointsGroup}_merged-timepoint_genotypes-reduced-dimensions.csv'
+        genotypesReduced = 'mutation_data/timepoints/{timepointsSample}_merged-timepoint_genotypes-reduced-dimensions.csv'
     output:
-        genotypes2Dscatter = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2D.html',
-        genotypes2Dhexbins = 'plots/timepoints/{timepointsGroup, [^\/_]*}_genotypes2Dhexbins.html'
+        genotypes2Dscatter = 'plots/timepoints/{timepointsSample, [^\/_]*}_genotypes2D.html',
+        genotypes2Dhexbins = 'plots/timepoints/{timepointsSample, [^\/_]*}_genotypes2Dhexbins.html'
     params:
         downsample = lambda wildcards: config.get('genotypes2D_plot_downsample', False),
-        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.timepointsGroup]['tag'] ] else False,
+        plot_AA = lambda wildcards: config.get('genotypes2D_plot_AA', False) if config['do_AA_mutation_analysis'][ config['timepointsInfo'][wildcards.timepointsSample]['tag'] ] else False,
         size_column = lambda wildcards: config.get('genotypes2D_plot_point_size_col', 'count'),
         size_range = lambda wildcards: config.get('genotypes2D_plot_point_size_range', '10, 30'),
         color_column = lambda wildcards: config.get('genotypes2D_plot_point_color_col', 'timepoint'),
@@ -1116,6 +1176,11 @@ rule run_dashboard_single_input:
 rule create_dashboard_datasets_csv:
     output:
         csv = f"{config.get('metadata_folder', 'metadata')}/.dashboard_datasets.csv"
+    params:
+        do_enrichment = config.get('do_enrichment', False),
+        enrichment_type = config.get('enrichment_type', 'genotype'),
+        timepointsInfo = config.get('timepointsInfo', {}),
+        analyze_seqs_with_indels = config.get('analyze_seqs_with_indels', True)
     run:
         import os
         df = get_dashboard_datasets_df()

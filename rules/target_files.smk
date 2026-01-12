@@ -85,11 +85,10 @@ def targets_input(wildcards):
                              group=groups,
                              mode=enrichment_type))
 
-            # Request dimension-reduced enrichment files for dashboard (genotype mode only)
-            if enrichment_type == 'genotype':
-                out.extend(expand('mutation_data/timepoints/{group}_merged-timepoint_genotypes-reduced-dimensions-{mode}-enrichment-mean.csv',
-                                 group=groups,
-                                 mode=enrichment_type))
+            # Request dimension-reduced enrichment files for dashboard
+            out.extend(expand('mutation_data/timepoints/{group}_merged-group_genotypes-reduced-dimensions-{mode}-enrichment-mean.csv',
+                             group=groups,
+                             mode=enrichment_type))
 
     if config.get('genotypes2D_plot_all', False):
         out.append('plots/.all_genotypes_2D.done')
