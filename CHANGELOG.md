@@ -1,3 +1,10 @@
+## v1.0.1
+# Minor
+   - Fixed genotype enrichment pipeline
+   - Fixed demux enrichment merging with genotypes
+   - Added GitHub Actions CI workflow for Linux and macOS testing
+   - Documentation updates
+
 ## v1.0.0
 # Major
    - **Multi-reference support**: Support for analyzing multiple reference sequences simultaneously
