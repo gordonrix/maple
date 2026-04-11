@@ -30,6 +30,8 @@ Additionally, the following software packages are required as system-wide instal
 
 These are likely already present in most production environments.
 
+> **macOS warning:** Do not add Homebrew `binutils` to your `PATH`. Its GNU `ar`/`ranlib` will break HTSlib builds with Apple's linker.
+
 For MacOS users, OpenMP must be installed. As per instructions from [here](https://mac.r-project.org/openmp/), OpenMP can be installed
 into the proper `usr/local/lib` and `usr/local/include` locations by typing this into terminal:
 
